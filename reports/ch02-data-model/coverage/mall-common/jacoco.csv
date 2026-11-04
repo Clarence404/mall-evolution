@@ -1,0 +1,6 @@
+GROUP,PACKAGE,CLASS,INSTRUCTION_MISSED,INSTRUCTION_COVERED,BRANCH_MISSED,BRANCH_COVERED,LINE_MISSED,LINE_COVERED,COMPLEXITY_MISSED,COMPLEXITY_COVERED,METHOD_MISSED,METHOD_COVERED
+mall-common,com.qingyou.common.error,BizException,18,0,0,0,7,0,3,0,3,0
+mall-common,com.qingyou.common.error,CommonErrorCode,47,0,0,0,11,0,5,0,5,0
+mall-common,com.qingyou.common.id,Ids,3,9,0,0,1,3,1,2,1,2
+mall-common,com.qingyou.common.id,SnowflakeIdGenerator,27,97,5,9,7,20,5,7,1,4
+mall-common,com.qingyou.common.id,IdConfig,0,24,1,3,0,6,1,3,0,2

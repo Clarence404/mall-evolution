@@ -1,0 +1,16 @@
+GROUP,PACKAGE,CLASS,INSTRUCTION_MISSED,INSTRUCTION_COVERED,BRANCH_MISSED,BRANCH_COVERED,LINE_MISSED,LINE_COVERED,COMPLEXITY_MISSED,COMPLEXITY_COVERED,METHOD_MISSED,METHOD_COVERED
+mall-order,com.qingyou.order.config,OrderModuleConfig,13,0,0,0,3,0,3,0,3,0
+mall-order,com.qingyou.order.api,OrderSummaryDTO,15,0,0,0,1,0,1,0,1,0
+mall-order,com.qingyou.order.domain,OrderStatusTypeHandler,45,0,6,0,9,0,8,0,5,0
+mall-order,com.qingyou.order.domain,OrderMapper,0,9,0,0,0,2,0,1,0,1
+mall-order,com.qingyou.order.domain,OrderItem,0,3,0,0,0,1,0,1,0,1
+mall-order,com.qingyou.order.domain,Order,4,160,2,4,0,36,2,5,0,4
+mall-order,com.qingyou.order.domain,OrderStatus,9,107,0,4,1,22,2,8,2,6
+mall-order,com.qingyou.order.place,OrderLine,0,9,0,0,0,1,0,1,0,1
+mall-order,com.qingyou.order.place,AddressForm,0,12,0,0,0,1,0,1,0,1
+mall-order,com.qingyou.order.place,PlaceOrderService,0,33,0,2,0,7,0,2,0,1
+mall-order,com.qingyou.order.place,PricedItem,0,29,0,0,0,2,0,2,0,2
+mall-order,com.qingyou.order.place,PlaceOrderRequest,0,12,0,0,0,1,0,1,0,1
+mall-order,com.qingyou.order.place,PlaceOrderResult,0,21,0,0,0,3,0,3,0,3
+mall-order,com.qingyou.order.place,PlaceOrderTxService,0,41,0,2,0,10,0,3,0,2
+mall-order,com.qingyou.order.place,PricingService,82,0,4,0,13,0,5,0,3,0
