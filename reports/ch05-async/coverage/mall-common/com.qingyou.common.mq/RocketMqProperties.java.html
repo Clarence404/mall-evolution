@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>RocketMqProperties.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">mall-common</a> &gt; <a href="index.source.html" class="el_package">com.qingyou.common.mq</a> &gt; <span class="el_source">RocketMqProperties.java</span></div><h1>RocketMqProperties.java</h1><pre class="source lang-java linenums">package com.qingyou.common.mq;
+
+import java.time.Duration;
+import org.springframework.boot.context.properties.ConfigurationProperties;
+
+/**
+ * RocketMQ 5 接入点与凭据：从环境变量读取（阶段二 EnvironmentFile，阶段三起 Kubernetes Secret），不进仓库。
+ *
+ * @param enabled 关掉后不创建 Producer 与消费者，业务事务里照常写 t_outbox，恢复后由中继补发
+ * @param requestTimeout 同步发送等 Broker 确认的上限，默认 1 秒：Broker 故障时中继线程最多卡这么久，宁可快速失败走退避重试
+ */
+@ConfigurationProperties(prefix = &quot;qingyou.rocketmq&quot;)
+public record RocketMqProperties(
+        boolean enabled, String endpoints, String accessKey, String secretKey, Duration requestTimeout) {
+
+<span class="nc" id="L16">    public RocketMqProperties {</span>
+<span class="nc bnc" id="L17" title="All 2 branches missed.">        if (requestTimeout == null) {</span>
+<span class="nc" id="L18">            requestTimeout = Duration.ofSeconds(1);</span>
+        }
+<span class="nc" id="L20">    }</span>
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.13.202504020838</span></div></body></html>

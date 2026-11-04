@@ -1,0 +1,66 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../../jacoco-resources/report.gif" type="image/gif"/><title>PlaceOrderTxService.java</title><link rel="stylesheet" href="../../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../../index.html" class="el_report">mall-app</a> &gt; <a href="../index.html" class="el_bundle">mall-order</a> &gt; <a href="index.source.html" class="el_package">com.qingyou.order.place</a> &gt; <span class="el_source">PlaceOrderTxService.java</span></div><h1>PlaceOrderTxService.java</h1><pre class="source lang-java linenums">package com.qingyou.order.place;
+
+import com.qingyou.common.error.BizException;
+import com.qingyou.inventory.api.InventoryApi;
+import com.qingyou.inventory.api.InventoryErrorCode;
+import com.qingyou.order.cancel.OrderTimeoutMessage;
+import com.qingyou.order.domain.Order;
+import com.qingyou.order.domain.OrderItemMapper;
+import com.qingyou.order.domain.OrderMapper;
+import com.qingyou.order.outbox.OutboxWriter;
+import java.time.Duration;
+import java.util.Comparator;
+import java.util.List;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+
+/**
+ * 下单事务：扣库存 + 写订单 + 写明细 + 写超时关单的定时消息（t_outbox）。事务方法放在单独的 Bean 里，由 {@link PlaceOrderService} 调用。
+ *
+ * &lt;p&gt;不在事务内部 catch 唯一键冲突：撞唯一键时库存已经扣了，必须让异常抛出、整体回滚。
+ */
+@Service
+public class PlaceOrderTxService {
+
+    private final InventoryApi inventoryApi;
+    private final OrderMapper orderMapper;
+    private final OrderItemMapper orderItemMapper;
+    private final OutboxWriter outboxWriter;
+    private final Duration payTimeout;
+
+    public PlaceOrderTxService(
+            InventoryApi inventoryApi,
+            OrderMapper orderMapper,
+            OrderItemMapper orderItemMapper,
+            OutboxWriter outboxWriter,
+<span class="fc" id="L37">            @Value(&quot;${qingyou.order.pay-timeout:15m}&quot;) Duration payTimeout) {</span>
+<span class="fc" id="L38">        this.inventoryApi = inventoryApi;</span>
+<span class="fc" id="L39">        this.orderMapper = orderMapper;</span>
+<span class="fc" id="L40">        this.orderItemMapper = orderItemMapper;</span>
+<span class="fc" id="L41">        this.outboxWriter = outboxWriter;</span>
+<span class="fc" id="L42">        this.payTimeout = payTimeout;</span>
+<span class="fc" id="L43">    }</span>
+
+    @Transactional(rollbackFor = Exception.class)
+    public Order create(long userId, String bizNo, PlaceOrderRequest req, List&lt;PricedItem&gt; items) {
+<span class="fc" id="L47">        items.stream()</span>
+<span class="fc" id="L48">                .sorted(Comparator.comparing(PricedItem::skuId)) // 按 sku_id 升序扣减，避免死锁</span>
+<span class="fc" id="L49">                .forEach(i -&gt; {</span>
+<span class="fc bfc" id="L50" title="All 2 branches covered.">                    if (!inventoryApi.deduct(i.skuId(), i.quantity())) {</span>
+<span class="fc" id="L51">                        throw new BizException(InventoryErrorCode.STOCK_INSUFFICIENT);</span>
+                    }
+<span class="fc" id="L53">                });</span>
+<span class="fc" id="L54">        Order order = Order.create(userId, bizNo, req, items); // 生成雪花 ID 与订单号，状态 10</span>
+<span class="fc" id="L55">        orderMapper.insert(order); // 撞 uk_user_biz 抛 DuplicateKeyException</span>
+<span class="fc" id="L56">        orderItemMapper.batchInsert(order.items());</span>
+        // 超时关单：15 分钟后投递的定时消息，与订单同一事务写入
+<span class="fc" id="L58">        outboxWriter.append(</span>
+                &quot;order-timeout&quot;,
+<span class="fc" id="L60">                order.getOrderNo(),</span>
+<span class="fc" id="L61">                new OrderTimeoutMessage(order.getOrderNo()),</span>
+<span class="fc" id="L62">                order.getCreatedAt().plus(payTimeout));</span>
+<span class="fc" id="L63">        return order;</span>
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.13.202504020838</span></div></body></html>

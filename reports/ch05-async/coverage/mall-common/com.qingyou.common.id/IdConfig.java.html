@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>IdConfig.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">mall-common</a> &gt; <a href="index.source.html" class="el_package">com.qingyou.common.id</a> &gt; <span class="el_source">IdConfig.java</span></div><h1>IdConfig.java</h1><pre class="source lang-java linenums">package com.qingyou.common.id;
+
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+
+@Configuration(proxyBeanMethods = false)
+<span class="fc" id="L8">public class IdConfig {</span>
+
+    /**
+     * 机器号没有默认值：两台机器都落到同一个默认值时，同一毫秒内会生成相同的 ID，主键冲突要到上线后才暴露。
+     * 生产由环境变量 WORKER_ID 注入，本地与测试 profile 在各自的配置文件里显式写；没配就启动失败。
+     */
+    @Bean
+    IdGenerator idGenerator(@Value(&quot;${qingyou.id.worker-id:}&quot;) String workerId) {
+<span class="pc bpc" id="L16" title="1 of 4 branches missed.">        if (workerId == null || workerId.isBlank()) {</span>
+<span class="fc" id="L17">            throw new IllegalStateException(&quot;未配置雪花 ID 机器号 qingyou.id.worker-id（生产用环境变量 WORKER_ID 注入，每台机器不同）&quot;);</span>
+        }
+<span class="fc" id="L19">        SnowflakeIdGenerator generator = new SnowflakeIdGenerator(Long.parseLong(workerId.trim()));</span>
+<span class="fc" id="L20">        Ids.use(generator);</span>
+<span class="fc" id="L21">        return generator;</span>
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.13.202504020838</span></div></body></html>
