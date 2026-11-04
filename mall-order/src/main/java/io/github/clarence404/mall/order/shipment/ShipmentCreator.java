@@ -1,7 +1,7 @@
 package io.github.clarence404.mall.order.shipment;
 
 import io.github.clarence404.mall.common.mq.ConsumeRecordMapper;
-import io.github.clarence404.mall.order.api.OrderPaidEvent;
+import io.github.clarence404.mall.order.paid.OrderPaidEvent;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;

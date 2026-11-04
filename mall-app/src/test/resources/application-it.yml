@@ -2,6 +2,15 @@
 spring:
   flyway:
     locations: classpath:db/migration,classpath:db/seed
+  cloud:                  # 测试不连 Nacos
+    nacos:
+      discovery:
+        enabled: false
+      config:
+        enabled: false
+    service-registry:
+      auto-registration:
+        enabled: false
 mall:
   id:
     worker-id: 9

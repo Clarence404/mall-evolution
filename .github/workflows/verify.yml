@@ -50,3 +50,16 @@ jobs:
           publish_branch: gh-pages
           publish_dir: pages-root
           keep_files: true
+  # Kubernetes 清单：kubeconform 按 API 版本的 JSON Schema 校验 deploy/k8s（CRD 用社区 schema 目录，没有的跳过）
+  k8s-manifests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: kubeconform
+        run: |
+          docker run --rm -v "$PWD":/w ghcr.io/yannh/kubeconform:v0.6.7 \
+            -strict -summary -ignore-missing-schemas \
+            -ignore-filename-pattern 'kustomization\.yaml' \
+            -schema-location default \
+            -schema-location 'https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json' \
+            /w/deploy/k8s

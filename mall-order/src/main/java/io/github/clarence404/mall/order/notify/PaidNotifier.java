@@ -1,7 +1,7 @@
 package io.github.clarence404.mall.order.notify;
 
 import io.github.clarence404.mall.common.mq.ConsumeRecordMapper;
-import io.github.clarence404.mall.order.api.OrderPaidEvent;
+import io.github.clarence404.mall.order.paid.OrderPaidEvent;
 import io.github.clarence404.mall.user.api.UserApi;
 import java.time.Duration;
 import java.time.LocalDateTime;

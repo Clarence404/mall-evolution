@@ -1,14 +1,18 @@
 package io.github.clarence404.mall;
 
+import io.github.clarence404.mall.inventory.api.InventoryApi;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
 import org.springframework.scheduling.annotation.EnableScheduling;
+import org.springframework.web.service.registry.ImportHttpServices;
 
 /**
- * 唯一的启动类，放在最顶层包，组件扫描覆盖所有模块。
+ * 启动类放在最顶层包，组件扫描覆盖订单、商品、用户模块。阶段三起库存与支付拆成独立服务：
+ * 按服务名注册 HTTP 接口客户端组，组名就是 Nacos 里的服务名，LoadBalancer 自动接入。
  */
 @SpringBootApplication
 @EnableScheduling
+@ImportHttpServices(group = "inventory-service", types = InventoryApi.class)
 public class MallApplication {
 
     public static void main(String[] args) {

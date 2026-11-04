@@ -97,8 +97,7 @@ class PlaceOrderApiTests extends IntegrationTestBase {
     }
 
     @Test
-    void cancelPendingOrderRestoresStock() {
-        Integer before = jdbc.queryForObject("SELECT stock FROM t_inventory WHERE sku_id = 20001", Integer.class);
+    void cancelPendingOrderRestoresStockRemotely() {
         String orderNo = createOrder(10001L);
 
         client.post()
@@ -111,8 +110,9 @@ class PlaceOrderApiTests extends IntegrationTestBase {
                 .jsonPath("$.status")
                 .isEqualTo("CANCELLED");
 
-        Integer after = jdbc.queryForObject("SELECT stock FROM t_inventory WHERE sku_id = 20001", Integer.class);
-        org.assertj.core.api.Assertions.assertThat(after).isEqualTo(before);
+        org.mockito.Mockito.verify(inventoryApi)
+                .restore(new io.github.clarence404.mall.inventory.api.RestoreStockRequest(
+                        orderNo, java.util.List.of(new io.github.clarence404.mall.inventory.api.StockLine(20001L, 2))));
     }
 
     private String createOrder(long userId) {

@@ -27,7 +27,11 @@
         </dependency>
         <dependency>
             <groupId>io.github.clarence404.mall</groupId>
-            <artifactId>mall-inventory</artifactId>
+            <artifactId>mall-inventory-api</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>io.github.clarence404.mall</groupId>
+            <artifactId>mall-order-api</artifactId>
         </dependency>
         <dependency>
             <groupId>org.mybatis.spring.boot</groupId>

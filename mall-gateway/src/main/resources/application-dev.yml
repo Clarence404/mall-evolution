@@ -1,0 +1,12 @@
+spring:
+  config:
+    import:
+      - optional:nacos:mall-gateway.yaml
+
+server:
+  port: 9000
+
+mall:
+  security:
+    jwt:
+      secret: dev-only-jwt-secret-change-me-0123456789   # 本地开发占位，非真实密钥

@@ -1,0 +1,14 @@
+spring:
+  cloud:
+    nacos:
+      discovery:
+        enabled: false
+      config:
+        enabled: false
+    service-registry:
+      auto-registration:
+        enabled: false
+mall:
+  security:
+    jwt:
+      secret: test-only-jwt-secret-0123456789abcdef

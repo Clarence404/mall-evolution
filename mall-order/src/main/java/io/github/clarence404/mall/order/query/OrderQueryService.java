@@ -3,32 +3,22 @@ package io.github.clarence404.mall.order.query;
 import io.github.clarence404.mall.common.error.BizException;
 import io.github.clarence404.mall.common.web.CursorResult;
 import io.github.clarence404.mall.order.api.OrderErrorCode;
-import io.github.clarence404.mall.order.api.OrderQueryApi;
-import io.github.clarence404.mall.order.api.OrderSummaryDTO;
 import io.github.clarence404.mall.order.domain.Order;
 import io.github.clarence404.mall.order.domain.OrderItemMapper;
 import io.github.clarence404.mall.order.domain.OrderMapper;
 import io.github.clarence404.mall.order.domain.OrderStatus;
 import java.util.List;
-import java.util.Optional;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
 @Service
 @RequiredArgsConstructor
-public class OrderQueryService implements OrderQueryApi {
+public class OrderQueryService {
 
     static final int MAX_PAGE_SIZE = 50;
 
     private final OrderMapper orderMapper;
     private final OrderItemMapper orderItemMapper;
-
-    @Override
-    public Optional<OrderSummaryDTO> findByOrderNo(String orderNo) {
-        return Optional.ofNullable(orderMapper.selectByOrderNo(orderNo))
-                .map(o -> new OrderSummaryDTO(
-                        o.getOrderNo(), o.getUserId(), o.getStatus().getCode(), o.getPayAmount()));
-    }
 
     /** 只看自己的订单：查到别人的订单和查不到一样返回 404，不让人借 403/404 的差别探测订单号。 */
     public Order getOwn(long userId, String orderNo) {

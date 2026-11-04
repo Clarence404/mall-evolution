@@ -25,6 +25,8 @@
         <mybatis-spring-boot.version>4.0.1</mybatis-spring-boot.version>
         <springdoc.version>3.0.3</springdoc.version>
         <rocketmq-client.version>5.2.2</rocketmq-client.version>
+        <spring-cloud.version>2025.1.4</spring-cloud.version>
+        <spring-cloud-alibaba.version>2025.1.0.0</spring-cloud-alibaba.version>
         <swagger-annotations.version>2.2.47</swagger-annotations.version> <!-- 与 springdoc 3.0.3 对齐 -->
         <archunit.version>1.5.1</archunit.version>
         <spotless.version>3.11.0</spotless.version>
@@ -37,15 +39,34 @@
 
     <modules>
         <module>mall-common</module>
+        <module>mall-inventory-api</module>
+        <module>mall-order-api</module>
         <module>mall-user</module>
         <module>mall-product</module>
-        <module>mall-inventory</module>
         <module>mall-order</module>
         <module>mall-app</module>
+        <module>inventory-service</module>
+        <module>payment-service</module>
+        <module>mall-gateway</module>
     </modules>
 
     <dependencyManagement>
         <dependencies>
+            <!-- 阶段三：Spring Cloud 2025.1 与 Spring Cloud Alibaba 各有自己的 BOM，按官方版本对表导入 -->
+            <dependency>
+                <groupId>org.springframework.cloud</groupId>
+                <artifactId>spring-cloud-dependencies</artifactId>
+                <version>${spring-cloud.version}</version>
+                <type>pom</type>
+                <scope>import</scope>
+            </dependency>
+            <dependency>
+                <groupId>com.alibaba.cloud</groupId>
+                <artifactId>spring-cloud-alibaba-dependencies</artifactId>
+                <version>${spring-cloud-alibaba.version}</version>
+                <type>pom</type>
+                <scope>import</scope>
+            </dependency>
             <dependency>
                 <groupId>io.github.clarence404.mall</groupId>
                 <artifactId>mall-common</artifactId>
@@ -63,7 +84,12 @@
             </dependency>
             <dependency>
                 <groupId>io.github.clarence404.mall</groupId>
-                <artifactId>mall-inventory</artifactId>
+                <artifactId>mall-inventory-api</artifactId>
+                <version>${revision}</version>
+            </dependency>
+            <dependency>
+                <groupId>io.github.clarence404.mall</groupId>
+                <artifactId>mall-order-api</artifactId>
                 <version>${revision}</version>
             </dependency>
             <dependency>

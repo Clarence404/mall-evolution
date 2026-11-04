@@ -34,6 +34,16 @@
             <groupId>org.apache.rocketmq</groupId>
             <artifactId>rocketmq-client-java</artifactId>
         </dependency>
+        <!-- 雪花机器号租约（阶段三起，Kubernetes 里 Pod 向 Redis 租机器号） -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-data-redis</artifactId>
+        </dependency>
+        <!-- ServiceRegistry：停机时主动从注册中心注销 -->
+        <dependency>
+            <groupId>org.springframework.cloud</groupId>
+            <artifactId>spring-cloud-commons</artifactId>
+        </dependency>
         <dependency>
             <groupId>io.swagger.core.v3</groupId>
             <artifactId>swagger-annotations-jakarta</artifactId>

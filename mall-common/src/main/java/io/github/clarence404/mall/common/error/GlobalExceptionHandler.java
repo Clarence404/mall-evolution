@@ -1,5 +1,6 @@
 package io.github.clarence404.mall.common.error;
 
+import io.github.clarence404.mall.common.remote.RemoteBizException;
 import java.net.URI;
 import java.util.List;
 import java.util.Map;
@@ -37,6 +38,23 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
         }
         log.warn("业务异常，code={}, message={}", ec.code(), ex.getMessage());
         return problem(ec, ex.getMessage());
+    }
+
+    /** 下游返回的业务错误：4xx 按 code 原样透传（如 STOCK_INSUFFICIENT），5xx 统一转成 SYSTEM_ERROR。 */
+    @ExceptionHandler(RemoteBizException.class)
+    public ProblemDetail handleRemote(RemoteBizException ex) {
+        ProblemDetail remote = ex.getProblem();
+        if (ex.getStatus().is5xxServerError() || remote == null || ex.code() == null) {
+            log.error("下游服务调用失败，status={}", ex.getStatus(), ex);
+            return problem(CommonErrorCode.SYSTEM_ERROR, CommonErrorCode.SYSTEM_ERROR.title());
+        }
+        log.warn("下游业务异常，code={}, detail={}", ex.code(), remote.getDetail());
+        ProblemDetail pd = ProblemDetail.forStatusAndDetail(ex.getStatus(), remote.getDetail());
+        pd.setType(remote.getType());
+        pd.setTitle(remote.getTitle());
+        pd.setProperty("code", ex.code());
+        pd.setProperty("traceId", currentTraceId());
+        return pd;
     }
 
     @ExceptionHandler(Exception.class)

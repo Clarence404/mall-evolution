@@ -1,0 +1,47 @@
+# mall-app 迁入集群后的清单：迁移期它仍跑在云主机上（systemd），与集群内服务都注册到 Nacos，互相按服务名调用；
+# 新服务稳定一个月后再应用这份清单。
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mall-app
+  namespace: mall
+spec:
+  replicas: 4
+  strategy:
+    rollingUpdate: {maxSurge: 1, maxUnavailable: 0}
+  selector:
+    matchLabels: {app: mall-app}
+  template:
+    metadata:
+      labels: {app: mall-app}
+    spec:
+      terminationGracePeriodSeconds: 60
+      containers:
+        - name: app
+          image: mall/mall-app:2.0.0
+          ports: [{containerPort: 8080}]
+          envFrom: [{secretRef: {name: mall-app-secret}}]
+          resources:
+            requests: {cpu: "2", memory: 8Gi}
+            limits: {memory: 8Gi}
+          startupProbe:
+            httpGet: {path: /actuator/health/liveness, port: 8080}
+            periodSeconds: 5
+            failureThreshold: 24
+          livenessProbe:
+            httpGet: {path: /actuator/health/liveness, port: 8080}
+          readinessProbe:
+            httpGet: {path: /actuator/health/readiness, port: 8080}
+          lifecycle:
+            preStop:
+              exec:
+                command: ["sh", "-c", "curl -s -X POST localhost:8080/internal/offline; sleep 15"]
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: mall-app
+  namespace: mall
+spec:
+  selector: {app: mall-app}
+  ports: [{port: 80, targetPort: 8080}]

@@ -11,49 +11,20 @@
     }
   ],
   "paths": {
-    "/api/payments": {
-      "post": {
+    "/api/admin/products/{skuId}": {
+      "put": {
         "tags": [
-          "payment-controller"
+          "product-admin-controller"
         ],
-        "operationId": "createPayment",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/CreatePaymentRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "201": {
-            "description": "Created",
-            "content": {
-              "*/*": {
-                "schema": {
-                  "$ref": "#/components/schemas/PaymentView"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/payments/notify/{channel}": {
-      "post": {
-        "tags": [
-          "payment-controller"
-        ],
-        "operationId": "mockChannelNotify",
+        "operationId": "adminUpdateProduct",
         "parameters": [
           {
-            "name": "channel",
+            "name": "skuId",
             "in": "path",
             "required": true,
             "schema": {
-              "type": "string"
+              "type": "integer",
+              "format": "int64"
             }
           }
         ],
@@ -61,7 +32,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/ChannelNotify"
+                "$ref": "#/components/schemas/UpdateProductRequest"
               }
             }
           },
@@ -69,14 +40,7 @@
         },
         "responses": {
           "200": {
-            "description": "OK",
-            "content": {
-              "*/*": {
-                "schema": {
-                  "type": "string"
-                }
-              }
-            }
+            "description": "OK"
           }
         }
       }
@@ -300,6 +264,30 @@
         }
       }
     },
+    "/api/admin/products/{skuId}/cache-evict": {
+      "post": {
+        "tags": [
+          "product-admin-controller"
+        ],
+        "operationId": "adminEvictProductCache",
+        "parameters": [
+          {
+            "name": "skuId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
     "/api/orders/{orderNo}/address": {
       "patch": {
         "tags": [
@@ -340,6 +328,38 @@
         }
       }
     },
+    "/api/products/{skuId}": {
+      "get": {
+        "tags": [
+          "product-detail-controller"
+        ],
+        "operationId": "getProductDetail",
+        "parameters": [
+          {
+            "name": "skuId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64",
+              "exclusiveMinimum": 0
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProductDetailPage"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/orders/{orderNo}": {
       "get": {
         "tags": [
@@ -373,61 +393,25 @@
   },
   "components": {
     "schemas": {
-      "CreatePaymentRequest": {
+      "UpdateProductRequest": {
         "type": "object",
         "properties": {
-          "orderNo": {
+          "name": {
             "type": "string",
-            "minLength": 1
-          }
-        },
-        "required": [
-          "orderNo"
-        ]
-      },
-      "PaymentView": {
-        "type": "object",
-        "properties": {
-          "paymentNo": {
-            "type": "string"
+            "maxLength": 128,
+            "minLength": 0
           },
-          "orderNo": {
-            "type": "string"
+          "price": {
+            "type": "number",
+            "minimum": 0.01
           },
-          "amount": {
-            "type": "string"
-          },
-          "channel": {
-            "type": "string"
+          "status": {
+            "type": "integer",
+            "format": "int32",
+            "maximum": 1,
+            "minimum": 0
           }
         }
-      },
-      "ChannelNotify": {
-        "type": "object",
-        "properties": {
-          "paymentNo": {
-            "type": "string",
-            "minLength": 1
-          },
-          "channelTradeNo": {
-            "type": "string",
-            "minLength": 1
-          },
-          "amount": {
-            "type": "string",
-            "minLength": 1
-          },
-          "sign": {
-            "type": "string",
-            "minLength": 1
-          }
-        },
-        "required": [
-          "amount",
-          "channelTradeNo",
-          "paymentNo",
-          "sign"
-        ]
       },
       "AddressForm": {
         "type": "object",
@@ -649,6 +633,37 @@
           "password",
           "phone"
         ]
+      },
+      "ProductDetailPage": {
+        "type": "object",
+        "properties": {
+          "product": {
+            "$ref": "#/components/schemas/ProductDetailView"
+          },
+          "inStock": {
+            "type": "boolean"
+          }
+        }
+      },
+      "ProductDetailView": {
+        "type": "object",
+        "properties": {
+          "skuId": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "image": {
+            "type": "string"
+          },
+          "price": {
+            "type": "string"
+          },
+          "onShelf": {
+            "type": "boolean"
+          }
+        }
       },
       "CursorResultOrderListItemView": {
         "type": "object",

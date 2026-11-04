@@ -16,6 +16,7 @@ services:
       - "3306:3306"
     volumes:
       - mysql-data:/var/lib/mysql
+      - ./deploy/mysql/init:/docker-entrypoint-initdb.d:ro   # 阶段三：建 mall_inventory、mall_payment
     healthcheck:
       test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-umall", "-pmall_dev"]
       interval: 5s
@@ -65,6 +66,21 @@ services:
     volumes:
       - ./deploy/rocketmq/init-topics.sh:/home/rocketmq/init-topics.sh:ro
     restart: "no"
+
+  # 阶段三：注册与配置中心（单机模式，本地关闭鉴权；下面的 token 只是本地占位值）
+  nacos:
+    image: nacos/nacos-server:v3.1.1
+    container_name: mall-nacos
+    environment:
+      MODE: standalone
+      NACOS_AUTH_ENABLE: "false"
+      NACOS_AUTH_TOKEN: bWFsbC1sb2NhbC1kZXYtb25seS1uYWNvcy10b2tlbi0wMTIzNDU2Nzg5
+      NACOS_AUTH_IDENTITY_KEY: mall-local
+      NACOS_AUTH_IDENTITY_VALUE: mall-local
+    ports:
+      - "8848:8848"
+      - "9848:9848"
+      - "18080:8080"     # 3.x 控制台端口，避免和 mall-app 的 8080 冲突
 
 volumes:
   mysql-data:

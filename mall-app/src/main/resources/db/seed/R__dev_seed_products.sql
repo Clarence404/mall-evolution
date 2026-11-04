@@ -1,4 +1,4 @@
--- 仅本地开发（dev profile）加载的演示数据：商品与库存
+-- 仅本地开发（dev profile）加载的演示数据：商品
 INSERT INTO t_product (id, name, image, price, status) VALUES
     (20001, '青柚 · 红心柚 2 只装', 'https://img.mall.example/20001.jpg', 39.90, 1),
     (20002, '青柚 · 有机菠菜 500g', 'https://img.mall.example/20002.jpg', 12.80, 1),
@@ -6,5 +6,4 @@ INSERT INTO t_product (id, name, image, price, status) VALUES
     (20004, '青柚 · 已下架演示商品', '', 9.90, 0)
 ON DUPLICATE KEY UPDATE name = VALUES(name), price = VALUES(price), status = VALUES(status);
 
-INSERT INTO t_inventory (sku_id, stock) VALUES (20001, 1000), (20002, 1000), (20003, 1000), (20004, 0)
-ON DUPLICATE KEY UPDATE stock = stock;
+-- 阶段三起库存在 inventory-service 的 mall_inventory 库，演示库存见那边的 seed

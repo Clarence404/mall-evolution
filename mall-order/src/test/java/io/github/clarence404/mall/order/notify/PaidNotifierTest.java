@@ -9,7 +9,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import io.github.clarence404.mall.common.mq.ConsumeRecordMapper;
-import io.github.clarence404.mall.order.api.OrderPaidEvent;
+import io.github.clarence404.mall.order.paid.OrderPaidEvent;
 import io.github.clarence404.mall.user.api.UserApi;
 import io.github.clarence404.mall.user.api.UserDTO;
 import java.math.BigDecimal;

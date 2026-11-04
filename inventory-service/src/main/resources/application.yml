@@ -1,0 +1,51 @@
+# 每个服务的 application.yml 只留连接信息，业务配置放 Nacos；密钥由 Kubernetes Secret 注入环境变量
+spring:
+  application:
+    name: inventory-service                      # 即注册中心里的服务名
+  profiles:
+    default: dev
+  datasource:
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    hikari:
+      maximum-pool-size: 30
+  cloud:
+    nacos:
+      server-addr: ${NACOS_ADDR:localhost:8848}
+      username: ${NACOS_USERNAME:}
+      password: ${NACOS_PASSWORD:}
+      discovery:
+        namespace: ${NACOS_NAMESPACE:}
+      config:
+        namespace: ${NACOS_NAMESPACE:}
+        file-extension: yaml
+
+mybatis:
+  configuration:
+    map-underscore-to-camel-case: true
+    default-statement-timeout: 5
+
+server:
+  port: 8080
+  shutdown: graceful
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics
+  endpoint:
+    health:
+      probes:
+        enabled: true
+
+mall:
+  id:
+    worker-id: ${WORKER_ID:}   # 雪花 ID 机器号：Kubernetes 里不配，由 Pod 启动时向 Redis 租（WorkerIdLease）；配了就用配置的
+  security:
+    jwt:
+      secret: ${JWT_SECRET}
+  rocketmq:
+    enabled: false
+    endpoints: ${ROCKETMQ_ENDPOINTS:localhost:8081}
+    access-key: ${ROCKETMQ_ACCESS_KEY:}
+    secret-key: ${ROCKETMQ_SECRET_KEY:}

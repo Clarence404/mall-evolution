@@ -10,7 +10,7 @@ import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 
 import io.github.clarence404.mall.common.mq.ConsumeRecordMapper;
-import io.github.clarence404.mall.order.api.OrderPaidEvent;
+import io.github.clarence404.mall.order.paid.OrderPaidEvent;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import org.junit.jupiter.api.Test;

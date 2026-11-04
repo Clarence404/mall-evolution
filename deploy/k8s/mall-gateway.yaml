@@ -1,0 +1,64 @@
+# 入口：Ingress → mall-gateway（Service）→ 按 Nacos 里的实例路由到 mall-app / payment-service
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mall-gateway
+  namespace: mall
+spec:
+  replicas: 2
+  strategy:
+    rollingUpdate: {maxSurge: 1, maxUnavailable: 0}
+  selector:
+    matchLabels: {app: mall-gateway}
+  template:
+    metadata:
+      labels: {app: mall-gateway}
+    spec:
+      terminationGracePeriodSeconds: 30
+      containers:
+        - name: app
+          image: mall/mall-gateway:1.0.0
+          ports: [{containerPort: 8080}]
+          envFrom: [{secretRef: {name: mall-gateway-secret}}]
+          resources:
+            requests: {cpu: "1", memory: 1Gi}
+            limits: {memory: 1Gi}
+          startupProbe:
+            httpGet: {path: /actuator/health/liveness, port: 8080}
+            periodSeconds: 5
+            failureThreshold: 24
+          livenessProbe:
+            httpGet: {path: /actuator/health/liveness, port: 8080}
+          readinessProbe:
+            httpGet: {path: /actuator/health/readiness, port: 8080}
+          lifecycle:
+            preStop:
+              exec:
+                command: ["sh", "-c", "sleep 10"]   # 网关前面是 Service + Ingress，摘除 Endpoint 后再停
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: mall-gateway
+  namespace: mall
+spec:
+  selector: {app: mall-gateway}
+  ports: [{port: 80, targetPort: 8080}]
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: mall-api
+  namespace: mall
+spec:
+  ingressClassName: nginx
+  rules:
+    - host: api.mall.example
+      http:
+        paths:
+          - path: /api
+            pathType: Prefix
+            backend:
+              service:
+                name: mall-gateway
+                port: {number: 80}

@@ -1,0 +1,52 @@
+# 入口网关：只路由 /api/**；/internal/** 只在集群内可达，网关不路由它
+spring:
+  application:
+    name: mall-gateway
+  profiles:
+    default: dev
+  cloud:
+    nacos:
+      server-addr: ${NACOS_ADDR:localhost:8848}
+      username: ${NACOS_USERNAME:}
+      password: ${NACOS_PASSWORD:}
+      discovery:
+        namespace: ${NACOS_NAMESPACE:}
+      config:
+        namespace: ${NACOS_NAMESPACE:}
+        file-extension: yaml
+    gateway:
+      server:
+        webflux:
+          routes:
+            - id: payment
+              uri: lb://payment-service
+              predicates:
+                - Path=/api/payments/**          # 含渠道回调，回调路径免 JWT、改验渠道签名
+            - id: mall-app
+              uri: lb://mall-app
+              order: 100                         # 兜底路由放最后
+              predicates:
+                - Path=/api/**
+          httpclient:
+            connect-timeout: 1000
+            response-timeout: 5s
+
+server:
+  port: 8080
+  shutdown: graceful
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics
+  endpoint:
+    health:
+      probes:
+        enabled: true
+
+mall:
+  security:
+    jwt:
+      secret: ${JWT_SECRET}
+      issuer: mall-evolution

@@ -6,6 +6,10 @@ spring:
     password: ${DB_PASSWORD}
     hikari:
       maximum-pool-size: 30
+  config:
+    import:
+      - optional:nacos:mall-common.yaml?group=COMMON_GROUP   # 各服务公共配置
+      - nacos:mall-app.yaml                                  # 本服务配置，缺了启动失败
   data:
     redis:                      # 一主一从 + 3 个 Sentinel，Lettuce 向 Sentinel 询问当前主节点，切换后自动重连
       sentinel:

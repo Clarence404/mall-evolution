@@ -16,6 +16,21 @@ spring:
       lettuce:
         pool:
           max-active: 32
+  cloud:
+    nacos:
+      server-addr: ${NACOS_ADDR:localhost:8848}
+      username: ${NACOS_USERNAME:}
+      password: ${NACOS_PASSWORD:}
+      discovery:
+        namespace: ${NACOS_NAMESPACE:}
+      config:
+        namespace: ${NACOS_NAMESPACE:}
+        file-extension: yaml
+  http:
+    serviceclient:
+      inventory-service:
+        connect-timeout: 200ms
+        read-timeout: 800ms          # 扣减 P99 约 30ms，留足余量但不能拖住下单线程
   mvc:
     apiversion:                 # 版本从请求头 API-Version 读，不带请求头按 1.0 处理
       default: 1.0
@@ -42,6 +57,7 @@ management:
         enabled: true
 
 springdoc:
+  paths-to-exclude: /internal/**    # 集群内接口不进对外文档
   api-docs:
     path: /v3/api-docs
   swagger-ui:
@@ -49,7 +65,7 @@ springdoc:
 
 mall:
   id:
-    worker-id: ${WORKER_ID:}   # 雪花 ID 机器号：两台生产机分别是 1 和 2；不给默认值，没配就启动失败
+    worker-id: ${WORKER_ID:}   # 雪花 ID 机器号：云主机上由 WORKER_ID 给（1 和 2）；迁入 Kubernetes 后不配，向 Redis 租
   security:
     jwt:
       secret: ${JWT_SECRET}

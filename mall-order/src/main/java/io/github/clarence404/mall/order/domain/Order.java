@@ -35,10 +35,10 @@ public class Order {
 
     private List<OrderItem> items = new ArrayList<>();
 
-    /** 生成雪花 ID 与订单号，状态 10；阶段一订单号就是雪花 ID 的十进制字符串。 */
-    public static Order create(long userId, String bizNo, PlaceOrderRequest req, List<PricedItem> items) {
-        long id = Ids.next();
-        return create(id, String.valueOf(id), userId, bizNo, req, items);
+    /** 阶段三：订单号由 OrderNoGenerator 先生成（嵌入用户 ID 低位），主键仍是雪花 ID。 */
+    public static Order create(
+            long userId, String orderNo, String bizNo, PlaceOrderRequest req, List<PricedItem> items) {
+        return create(Ids.next(), orderNo, userId, bizNo, req, items);
     }
 
     static Order create(

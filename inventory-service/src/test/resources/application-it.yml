@@ -1,0 +1,22 @@
+# 测试：不连 Nacos、不连 Broker
+spring:
+  cloud:
+    nacos:
+      discovery:
+        enabled: false
+      config:
+        enabled: false
+    service-registry:
+      auto-registration:
+        enabled: false
+mall:
+  id:
+    worker-id: 9
+  security:
+    jwt:
+      secret: test-only-jwt-secret-0123456789abcdef
+  pay:
+    mock:
+      secret: test-only-mock-pay-secret
+  rocketmq:
+    enabled: false

@@ -1,0 +1,45 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: payment-service
+  namespace: mall
+spec:
+  replicas: 2
+  strategy:
+    rollingUpdate: {maxSurge: 1, maxUnavailable: 0}
+  selector:
+    matchLabels: {app: payment-service}
+  template:
+    metadata:
+      labels: {app: payment-service}
+    spec:
+      terminationGracePeriodSeconds: 60
+      containers:
+        - name: app
+          image: mall/payment-service:1.0.0
+          ports: [{containerPort: 8080}]
+          envFrom: [{secretRef: {name: payment-service-secret}}]   # 渠道商户密钥只在这个 Secret 里，其他服务看不到
+          resources:
+            requests: {cpu: "1", memory: 2Gi}
+            limits: {memory: 2Gi}
+          startupProbe:
+            httpGet: {path: /actuator/health/liveness, port: 8080}
+            periodSeconds: 5
+            failureThreshold: 24
+          livenessProbe:
+            httpGet: {path: /actuator/health/liveness, port: 8080}
+          readinessProbe:
+            httpGet: {path: /actuator/health/readiness, port: 8080}
+          lifecycle:
+            preStop:
+              exec:
+                command: ["sh", "-c", "curl -s -X POST localhost:8080/internal/offline; sleep 15"]
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: payment-service
+  namespace: mall
+spec:
+  selector: {app: payment-service}
+  ports: [{port: 80, targetPort: 8080}]

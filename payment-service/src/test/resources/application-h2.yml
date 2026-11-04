@@ -1,0 +1,7 @@
+# 不需要 Docker：H2 的 MySQL 兼容模式，Flyway 照常建表
+spring:
+  datasource:
+    url: jdbc:h2:mem:svc;MODE=MySQL;DB_CLOSE_DELAY=-1
+    driver-class-name: org.h2.Driver
+    username: sa
+    password: ""

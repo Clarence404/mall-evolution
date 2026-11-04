@@ -1,0 +1,9 @@
+# kubectl apply -k deploy/k8s（secrets.example.yaml 只是模板，不在这里引用）
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - namespace.yaml
+  - inventory-service.yaml
+  - payment-service.yaml
+  - mall-gateway.yaml
+  # mall-app.yaml 暂不纳入：迁移期 mall-app 仍跑在云主机上（systemd），新服务稳定一个月后再加到这里

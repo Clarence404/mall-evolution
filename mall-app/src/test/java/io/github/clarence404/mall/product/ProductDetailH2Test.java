@@ -9,7 +9,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.test.web.servlet.MockMvc;
 
-/** 没有 Redis 时商品详情降级为直接回源：接口照常可用（匿名可访问）。 */
+/** 没有 Redis 时商品详情降级为直接回源，库存展示降级为直接查库存服务：接口照常可用（匿名可访问）。 */
 class ProductDetailH2Test extends H2TestBase {
 
     @Autowired
@@ -17,6 +17,9 @@ class ProductDetailH2Test extends H2TestBase {
 
     @Test
     void detailFallsBackToDbWhenRedisIsDown() throws Exception {
+        // 阶段三起库存展示来自库存服务（这里是替身）
+        org.mockito.Mockito.when(inventoryApi.listStocks(java.util.List.of(20001L)))
+                .thenReturn(java.util.List.of(new io.github.clarence404.mall.inventory.api.StockView(20001L, 1000)));
         mvc.perform(get("/api/products/20001"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.product.skuId").value("20001"))

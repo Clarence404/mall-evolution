@@ -2,10 +2,10 @@ package io.github.clarence404.mall.order.mq;
 
 import io.github.clarence404.mall.common.json.Json;
 import io.github.clarence404.mall.common.mq.ConsumerFactory;
-import io.github.clarence404.mall.order.api.OrderPaidEvent;
 import io.github.clarence404.mall.order.cancel.OrderCloseService;
 import io.github.clarence404.mall.order.cancel.OrderTimeoutMessage;
 import io.github.clarence404.mall.order.notify.PaidNotifier;
+import io.github.clarence404.mall.order.paid.OrderPaidEvent;
 import io.github.clarence404.mall.order.shipment.ShipmentCreator;
 import java.util.function.Consumer;
 import lombok.extern.slf4j.Slf4j;
