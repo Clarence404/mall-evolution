@@ -1,0 +1,83 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>Order.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">mall-order</a> &gt; <a href="index.source.html" class="el_package">com.qingyou.order.domain</a> &gt; <span class="el_source">Order.java</span></div><h1>Order.java</h1><pre class="source lang-java linenums">package com.qingyou.order.domain;
+
+import com.qingyou.common.id.Ids;
+import com.qingyou.order.place.PlaceOrderRequest;
+import com.qingyou.order.place.PricedItem;
+import java.math.BigDecimal;
+import java.math.RoundingMode;
+import java.time.LocalDateTime;
+import java.util.ArrayList;
+import java.util.List;
+import lombok.Getter;
+import lombok.Setter;
+
+@Getter
+@Setter
+<span class="fc" id="L16">public class Order {</span>
+
+    private long id;
+    private String orderNo;
+    private long userId;
+    private String bizNo;
+    private OrderStatus status;
+    private BigDecimal totalAmount;
+    private BigDecimal freightAmount;
+    private BigDecimal discountAmount;
+    private BigDecimal payAmount;
+    private String receiverName;
+    private String receiverPhone;
+    private String receiverAddr;
+    private String remark;
+    private LocalDateTime paidAt;
+    private int version;
+    private LocalDateTime createdAt;
+    private LocalDateTime updatedAt;
+
+<span class="fc" id="L36">    private List&lt;OrderItem&gt; items = new ArrayList&lt;&gt;();</span>
+
+    /** 阶段三：订单号由 OrderNoGenerator 先生成（嵌入用户 ID 低位），主键仍是雪花 ID。 */
+    public static Order create(
+            long userId, String orderNo, String bizNo, PlaceOrderRequest req, List&lt;PricedItem&gt; items) {
+<span class="fc" id="L41">        return create(Ids.next(), orderNo, userId, bizNo, req, items);</span>
+    }
+
+    static Order create(
+            long id, String orderNo, long userId, String bizNo, PlaceOrderRequest req, List&lt;PricedItem&gt; items) {
+<span class="fc" id="L46">        Order order = new Order();</span>
+<span class="fc" id="L47">        order.id = id;</span>
+<span class="fc" id="L48">        order.orderNo = orderNo;</span>
+<span class="fc" id="L49">        order.userId = userId;</span>
+<span class="fc" id="L50">        order.bizNo = bizNo;</span>
+<span class="fc" id="L51">        order.status = OrderStatus.PENDING_PAYMENT;</span>
+<span class="fc" id="L52">        order.createdAt = LocalDateTime.now();</span>
+<span class="fc" id="L53">        BigDecimal total = BigDecimal.ZERO;</span>
+<span class="fc bfc" id="L54" title="All 2 branches covered.">        for (PricedItem pi : items) {</span>
+<span class="fc" id="L55">            OrderItem item = new OrderItem();</span>
+<span class="fc" id="L56">            item.setId(Ids.next());</span>
+<span class="fc" id="L57">            item.setOrderId(id);</span>
+<span class="fc" id="L58">            item.setSkuId(pi.skuId());</span>
+<span class="fc" id="L59">            item.setProductName(pi.productName());</span>
+<span class="pc bpc" id="L60" title="1 of 2 branches missed.">            item.setProductImage(pi.productImage() == null ? &quot;&quot; : pi.productImage());</span>
+<span class="fc" id="L61">            item.setUnitPrice(pi.unitPrice());</span>
+<span class="fc" id="L62">            item.setQuantity(pi.quantity());</span>
+<span class="fc" id="L63">            item.setItemAmount(pi.itemAmount());</span>
+<span class="fc" id="L64">            item.setCreatedAt(order.createdAt);</span>
+<span class="fc" id="L65">            order.items.add(item);</span>
+<span class="fc" id="L66">            total = total.add(pi.itemAmount());</span>
+<span class="fc" id="L67">        }</span>
+<span class="fc" id="L68">        order.totalAmount = total.setScale(2, RoundingMode.HALF_UP);</span>
+<span class="fc" id="L69">        order.freightAmount = BigDecimal.ZERO.setScale(2, RoundingMode.HALF_UP);</span>
+<span class="fc" id="L70">        order.discountAmount = BigDecimal.ZERO.setScale(2, RoundingMode.HALF_UP);</span>
+<span class="fc" id="L71">        order.payAmount = order.totalAmount.add(order.freightAmount).subtract(order.discountAmount);</span>
+<span class="fc" id="L72">        order.receiverName = req.address().receiver();</span>
+<span class="fc" id="L73">        order.receiverPhone = req.address().phone();</span>
+<span class="fc" id="L74">        order.receiverAddr = req.address().detail();</span>
+<span class="pc bpc" id="L75" title="1 of 2 branches missed.">        order.remark = req.remark() == null ? &quot;&quot; : req.remark();</span>
+<span class="fc" id="L76">        return order;</span>
+    }
+
+    public List&lt;OrderItem&gt; items() {
+<span class="fc" id="L80">        return items;</span>
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.13.202504020838</span></div></body></html>

@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>Json.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">mall-common</a> &gt; <a href="index.source.html" class="el_package">com.qingyou.common.json</a> &gt; <span class="el_source">Json.java</span></div><h1>Json.java</h1><pre class="source lang-java linenums">package com.qingyou.common.json;
+
+import java.nio.ByteBuffer;
+import java.nio.charset.StandardCharsets;
+import tools.jackson.databind.DeserializationFeature;
+import tools.jackson.databind.json.JsonMapper;
+
+/** 消息体与 t_outbox.payload 的 JSON 编解码。Jackson 3 的异常都是非受检的。 */
+public final class Json {
+
+<span class="fc" id="L11">    private static final JsonMapper MAPPER = JsonMapper.builder()</span>
+<span class="fc" id="L12">            .disable(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES) // 生产者加字段不影响老消费者</span>
+<span class="fc" id="L13">            .build();</span>
+
+    private Json() {}
+
+    public static String write(Object value) {
+<span class="fc" id="L18">        return MAPPER.writeValueAsString(value);</span>
+    }
+
+    public static &lt;T&gt; T read(String json, Class&lt;T&gt; type) {
+<span class="nc" id="L22">        return MAPPER.readValue(json, type);</span>
+    }
+
+    /** RocketMQ 5 客户端的 {@code MessageView.getBody()} 返回只读的 ByteBuffer。 */
+    public static &lt;T&gt; T read(ByteBuffer body, Class&lt;T&gt; type) {
+<span class="nc" id="L27">        ByteBuffer copy = body.duplicate();</span>
+<span class="nc" id="L28">        byte[] bytes = new byte[copy.remaining()];</span>
+<span class="nc" id="L29">        copy.get(bytes);</span>
+<span class="nc" id="L30">        return MAPPER.readValue(new String(bytes, StandardCharsets.UTF_8), type);</span>
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.13.202504020838</span></div></body></html>

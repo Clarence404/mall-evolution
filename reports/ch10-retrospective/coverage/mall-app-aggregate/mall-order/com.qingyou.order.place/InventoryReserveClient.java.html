@@ -1,0 +1,56 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../../jacoco-resources/report.gif" type="image/gif"/><title>InventoryReserveClient.java</title><link rel="stylesheet" href="../../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../../index.html" class="el_report">mall-app</a> &gt; <a href="../index.html" class="el_bundle">mall-order</a> &gt; <a href="index.source.html" class="el_package">com.qingyou.order.place</a> &gt; <span class="el_source">InventoryReserveClient.java</span></div><h1>InventoryReserveClient.java</h1><pre class="source lang-java linenums">package com.qingyou.order.place;
+
+import com.qingyou.inventory.api.InventoryApi;
+import com.qingyou.inventory.api.ReleaseStockRequest;
+import com.qingyou.inventory.api.ReserveResult;
+import com.qingyou.inventory.api.ReserveStockRequest;
+import org.springframework.cloud.client.circuitbreaker.CircuitBreaker;
+import org.springframework.cloud.client.circuitbreaker.CircuitBreakerFactory;
+import org.springframework.stereotype.Component;
+
+/**
+ * 对 InventoryApi 的一层包装：reserve / release 经过 inventory-reserve 熔断器与信号量舱壁，异常原样抛出。
+ *
+ * &lt;p&gt;熔断打开抛 CallNotPermittedException，舱壁满抛 BulkheadFullException——都表示请求根本没发出去。
+ */
+@Component
+public class InventoryReserveClient {
+
+    private final InventoryApi inventoryApi;
+    private final CircuitBreaker circuitBreaker;
+
+<span class="fc" id="L22">    public InventoryReserveClient(InventoryApi inventoryApi, CircuitBreakerFactory&lt;?, ?&gt; circuitBreakerFactory) {</span>
+<span class="fc" id="L23">        this.inventoryApi = inventoryApi;</span>
+<span class="fc" id="L24">        this.circuitBreaker = circuitBreakerFactory.create(&quot;inventory-reserve&quot;);</span>
+<span class="fc" id="L25">    }</span>
+
+    public ReserveResult reserve(ReserveStockRequest req) {
+<span class="fc" id="L28">        return circuitBreaker.run(() -&gt; inventoryApi.reserve(req), InventoryReserveClient::rethrow);</span>
+    }
+
+    public void release(ReleaseStockRequest req) {
+<span class="fc" id="L32">        circuitBreaker.run(</span>
+                () -&gt; {
+<span class="fc" id="L34">                    inventoryApi.release(req);</span>
+<span class="fc" id="L35">                    return null;</span>
+                },
+                InventoryReserveClient::rethrow);
+<span class="fc" id="L38">    }</span>
+
+    /** Spring Cloud CircuitBreaker 没有 fallback 时会包一层 NoFallbackAvailableException，这里原样抛出原始异常。 */
+    private static &lt;T&gt; T rethrow(Throwable t) {
+<span class="pc bpc" id="L42" title="2 of 4 branches missed.">        while ((t instanceof java.util.concurrent.ExecutionException</span>
+                        || t instanceof java.util.concurrent.CompletionException)
+<span class="nc bnc" id="L44" title="All 2 branches missed.">                &amp;&amp; t.getCause() != null) {</span>
+<span class="nc" id="L45">            t = t.getCause(); // 防御：若误配成线程池舱壁，异常会被包一层</span>
+        }
+<span class="pc bpc" id="L47" title="1 of 2 branches missed.">        if (t instanceof RuntimeException re) {</span>
+<span class="fc" id="L48">            throw re;</span>
+        }
+<span class="nc bnc" id="L50" title="All 2 branches missed.">        if (t instanceof Error e) {</span>
+<span class="nc" id="L51">            throw e;</span>
+        }
+<span class="nc" id="L53">        throw new IllegalStateException(t);</span>
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.13.202504020838</span></div></body></html>

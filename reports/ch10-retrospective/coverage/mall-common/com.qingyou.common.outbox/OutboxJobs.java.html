@@ -1,0 +1,63 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>OutboxJobs.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">mall-common</a> &gt; <a href="index.source.html" class="el_package">com.qingyou.common.outbox</a> &gt; <span class="el_source">OutboxJobs.java</span></div><h1>OutboxJobs.java</h1><pre class="source lang-java linenums">package com.qingyou.common.outbox;
+
+import io.micrometer.core.instrument.Gauge;
+import io.micrometer.core.instrument.MeterRegistry;
+import java.time.Duration;
+import java.time.LocalDateTime;
+import java.util.concurrent.atomic.AtomicLong;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.scheduling.annotation.Scheduled;
+import org.springframework.stereotype.Component;
+
+/**
+ * 本地消息表的两个周期任务与监控：
+ *
+ * &lt;ul&gt;
+ *   &lt;li&gt;{@code outbox.pending.age}：最老一条待发送记录等了多久，超过 1 分钟告警，涨说明中继或 Broker 出了问题
+ *   &lt;li&gt;{@code outbox.failed.count}：失败记录数，大于 0 告警
+ *   &lt;li&gt;已发送的记录保留 7 天，每天凌晨分批删除
+ * &lt;/ul&gt;
+ */
+<span class="nc" id="L21">@Slf4j</span>
+@Component
+class OutboxJobs {
+
+    private final OutboxMapper outboxMapper;
+<span class="nc" id="L26">    private final AtomicLong pendingAgeSeconds = new AtomicLong();</span>
+<span class="nc" id="L27">    private final AtomicLong failedCount = new AtomicLong();</span>
+
+<span class="nc" id="L29">    OutboxJobs(OutboxMapper outboxMapper, MeterRegistry registry) {</span>
+<span class="nc" id="L30">        this.outboxMapper = outboxMapper;</span>
+<span class="nc" id="L31">        Gauge.builder(&quot;outbox.pending.age&quot;, pendingAgeSeconds, AtomicLong::get)</span>
+<span class="nc" id="L32">                .baseUnit(&quot;seconds&quot;)</span>
+<span class="nc" id="L33">                .description(&quot;t_outbox 最老一条待发送记录的等待时长&quot;)</span>
+<span class="nc" id="L34">                .register(registry);</span>
+<span class="nc" id="L35">        Gauge.builder(&quot;outbox.failed.count&quot;, failedCount, AtomicLong::get)</span>
+<span class="nc" id="L36">                .description(&quot;t_outbox 失败记录数&quot;)</span>
+<span class="nc" id="L37">                .register(registry);</span>
+<span class="nc" id="L38">    }</span>
+
+    @Scheduled(fixedDelayString = &quot;${qingyou.outbox.metrics-interval:15s}&quot;)
+    void refreshMetrics() {
+<span class="nc" id="L42">        LocalDateTime oldest = outboxMapper.selectOldestPendingCreatedAt();</span>
+<span class="nc" id="L43">        pendingAgeSeconds.set(</span>
+<span class="nc bnc" id="L44" title="All 2 branches missed.">                oldest == null</span>
+<span class="nc" id="L45">                        ? 0</span>
+<span class="nc" id="L46">                        : Math.max(</span>
+<span class="nc" id="L47">                                0, Duration.between(oldest, LocalDateTime.now()).toSeconds()));</span>
+<span class="nc" id="L48">        failedCount.set(outboxMapper.countFailed());</span>
+<span class="nc" id="L49">    }</span>
+
+    @Scheduled(cron = &quot;${qingyou.outbox.cleanup-cron:0 0 3 * * *}&quot;)
+    void cleanupSent() {
+<span class="nc" id="L53">        LocalDateTime before = LocalDateTime.now().minusDays(7);</span>
+<span class="nc" id="L54">        int total = 0;</span>
+        int deleted;
+        do {
+<span class="nc" id="L57">            deleted = outboxMapper.deleteSentBefore(before, 1000);</span>
+<span class="nc" id="L58">            total += deleted;</span>
+<span class="nc bnc" id="L59" title="All 2 branches missed.">        } while (deleted == 1000);</span>
+<span class="nc" id="L60">        log.info(&quot;清理 7 天前已发送的 outbox 记录 {} 条&quot;, total);</span>
+<span class="nc" id="L61">    }</span>
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.13.202504020838</span></div></body></html>
