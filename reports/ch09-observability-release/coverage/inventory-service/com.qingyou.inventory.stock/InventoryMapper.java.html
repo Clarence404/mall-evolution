@@ -1,0 +1,65 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>InventoryMapper.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">inventory-service</a> &gt; <a href="index.source.html" class="el_package">com.qingyou.inventory.stock</a> &gt; <span class="el_source">InventoryMapper.java</span></div><h1>InventoryMapper.java</h1><pre class="source lang-java linenums">package com.qingyou.inventory.stock;
+
+import com.qingyou.inventory.api.StockView;
+import java.util.List;
+import org.apache.ibatis.annotations.Mapper;
+import org.apache.ibatis.annotations.Param;
+import org.apache.ibatis.annotations.Select;
+import org.apache.ibatis.annotations.Update;
+
+/**
+ * stock 仍是可售数量：预占时 stock -n, reserved +n；确认时 reserved -n；释放时 stock +n, reserved -n。商品页展示 stock。
+ */
+@Mapper
+public interface InventoryMapper {
+
+    /** stock &gt;= n 条件更新，影响 0 行表示库存不足。 */
+    @Update(&quot;&quot;&quot;
+            UPDATE t_inventory SET stock = stock - #{quantity}, reserved = reserved + #{quantity}
+            WHERE sku_id = #{skuId} AND stock &gt;= #{quantity}
+            &quot;&quot;&quot;)
+    int reserve(@Param(&quot;skuId&quot;) long skuId, @Param(&quot;quantity&quot;) int quantity);
+
+    @Update(&quot;&quot;&quot;
+            UPDATE t_inventory SET stock = stock + #{quantity}, reserved = reserved - #{quantity}
+            WHERE sku_id = #{skuId}
+            &quot;&quot;&quot;)
+    int unreserve(@Param(&quot;skuId&quot;) long skuId, @Param(&quot;quantity&quot;) int quantity);
+
+    @Update(&quot;UPDATE t_inventory SET reserved = reserved - #{quantity} WHERE sku_id = #{skuId}&quot;)
+    int confirm(@Param(&quot;skuId&quot;) long skuId, @Param(&quot;quantity&quot;) int quantity);
+
+    @Select(&quot;SELECT stock FROM t_inventory WHERE sku_id = #{skuId}&quot;)
+    Integer selectStock(@Param(&quot;skuId&quot;) long skuId);
+
+    /** 0 表示不分桶。 */
+    @Select(&quot;SELECT bucket_count FROM t_inventory WHERE sku_id = #{skuId}&quot;)
+    Integer selectBucketCount(@Param(&quot;skuId&quot;) long skuId);
+
+    @Select(&quot;SELECT stock, bucket_count FROM t_inventory WHERE sku_id = #{skuId} FOR UPDATE&quot;)
+    StockRow selectForUpdate(@Param(&quot;skuId&quot;) long skuId);
+
+    /** 拆桶：库存全部搬进桶里。 */
+    @Update(&quot;UPDATE t_inventory SET stock = 0, bucket_count = #{bucketCount} WHERE sku_id = #{skuId}&quot;)
+    int markBucketed(@Param(&quot;skuId&quot;) long skuId, @Param(&quot;bucketCount&quot;) int bucketCount);
+
+    /** 合并：各桶余量并回。 */
+    @Update(&quot;UPDATE t_inventory SET stock = stock + #{remaining}, bucket_count = 0 WHERE sku_id = #{skuId}&quot;)
+    int unmarkBucketed(@Param(&quot;skuId&quot;) long skuId, @Param(&quot;remaining&quot;) int remaining);
+
+<span class="fc" id="L50">    record StockRow(int stock, int bucketCount) {}</span>
+
+    /** 分桶 SKU 的展示库存是各桶 stock 之和。 */
+    @Select(&quot;&quot;&quot;
+            &lt;script&gt;
+            SELECT i.sku_id AS sku_id,
+                   CASE WHEN i.bucket_count &amp;gt; 0
+                        THEN (SELECT COALESCE(SUM(b.stock), 0) FROM t_inventory_bucket b WHERE b.sku_id = i.sku_id)
+                        ELSE i.stock END AS stock
+            FROM t_inventory i
+            WHERE i.sku_id IN &lt;foreach collection=&quot;skuIds&quot; item=&quot;id&quot; open=&quot;(&quot; separator=&quot;,&quot; close=&quot;)&quot;&gt;#{id}&lt;/foreach&gt;
+            &lt;/script&gt;
+            &quot;&quot;&quot;)
+    List&lt;StockView&gt; selectStocks(@Param(&quot;skuIds&quot;) List&lt;Long&gt; skuIds);
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.13.202504020838</span></div></body></html>

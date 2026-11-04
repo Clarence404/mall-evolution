@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>RateLimitConfig.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">mall-gateway</a> &gt; <a href="index.source.html" class="el_package">com.qingyou.gateway</a> &gt; <span class="el_source">RateLimitConfig.java</span></div><h1>RateLimitConfig.java</h1><pre class="source lang-java linenums">package com.qingyou.gateway;
+
+import static org.springframework.cloud.gateway.support.ServerWebExchangeUtils.GATEWAY_ROUTE_ATTR;
+
+import org.springframework.cloud.gateway.filter.ratelimit.KeyResolver;
+import org.springframework.cloud.gateway.route.Route;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+
+/**
+ * 网关按「用户 + 接口」限流。RedisRateLimiter 的 Redis key 只由 KeyResolver 的结果决定，所以要把路由 ID 拼进去，
+ * 否则同一用户在所有路由上共用一个桶。未登录请求取不到 principal，按默认的 deny-empty-key 直接拒绝。
+ *
+ * &lt;p&gt;Redis 故障时 RedisRateLimiter 默认放行，这是有意的选择：限流挂了不能让下单跟着挂。
+ */
+@Configuration(proxyBeanMethods = false)
+<span class="fc" id="L17">class RateLimitConfig {</span>
+
+    @Bean
+    KeyResolver userRouteKeyResolver() {
+<span class="fc" id="L21">        return exchange -&gt; exchange.getPrincipal() // 网关已校验 JWT，principal 名即用户 ID</span>
+<span class="fc" id="L22">                .map(p -&gt; p.getName() + &quot;:&quot;</span>
+<span class="fc" id="L23">                        + exchange.&lt;Route&gt;getAttribute(GATEWAY_ROUTE_ATTR).getId());</span>
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.13.202504020838</span></div></body></html>

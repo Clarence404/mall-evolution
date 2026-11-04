@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>OfflineController.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">mall-common</a> &gt; <a href="index.source.html" class="el_package">com.qingyou.common.lifecycle</a> &gt; <span class="el_source">OfflineController.java</span></div><h1>OfflineController.java</h1><pre class="source lang-java linenums">package com.qingyou.common.lifecycle;
+
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.cloud.client.serviceregistry.Registration;
+import org.springframework.cloud.client.serviceregistry.ServiceRegistry;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RestController;
+
+/**
+ * 停机第一步：Kubernetes 的 preStop 调用它，先从 Nacos 注销，再 sleep 等调用方的实例缓存刷新。
+ *
+ * &lt;p&gt;服务间调用走的是 Nacos 里的 Pod IP，不经过 Kubernetes Service，readiness 失败挡不住这部分流量，必须主动注销。
+ * 只在集群内可达（/internal/**，网关不路由）。
+ */
+<span class="nc" id="L17">@Slf4j</span>
+@RestController
+public class OfflineController {
+
+    private final ObjectProvider&lt;ServiceRegistry&lt;Registration&gt;&gt; serviceRegistry;
+    private final ObjectProvider&lt;Registration&gt; registration;
+
+    public OfflineController(
+<span class="nc" id="L25">            ObjectProvider&lt;ServiceRegistry&lt;Registration&gt;&gt; serviceRegistry, ObjectProvider&lt;Registration&gt; registration) {</span>
+<span class="nc" id="L26">        this.serviceRegistry = serviceRegistry;</span>
+<span class="nc" id="L27">        this.registration = registration;</span>
+<span class="nc" id="L28">    }</span>
+
+    @PostMapping(&quot;/internal/offline&quot;)
+    public ResponseEntity&lt;Void&gt; offline() {
+<span class="nc" id="L32">        ServiceRegistry&lt;Registration&gt; registry = serviceRegistry.getIfAvailable();</span>
+<span class="nc" id="L33">        Registration self = registration.getIfAvailable();</span>
+<span class="nc bnc" id="L34" title="All 4 branches missed.">        if (registry != null &amp;&amp; self != null) {</span>
+<span class="nc" id="L35">            registry.deregister(self);</span>
+<span class="nc" id="L36">            log.info(&quot;已从注册中心注销 {}:{}&quot;, self.getHost(), self.getPort());</span>
+        }
+<span class="nc" id="L38">        return ResponseEntity.noContent().build();</span>
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.13.202504020838</span></div></body></html>

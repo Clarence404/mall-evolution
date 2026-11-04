@@ -1,0 +1,53 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>GatewaySecurityConfig.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">mall-gateway</a> &gt; <a href="index.source.html" class="el_package">com.qingyou.gateway</a> &gt; <span class="el_source">GatewaySecurityConfig.java</span></div><h1>GatewaySecurityConfig.java</h1><pre class="source lang-java linenums">package com.qingyou.gateway;
+
+import java.nio.charset.StandardCharsets;
+import javax.crypto.spec.SecretKeySpec;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+import org.springframework.http.HttpMethod;
+import org.springframework.security.config.annotation.web.reactive.EnableWebFluxSecurity;
+import org.springframework.security.config.web.server.ServerHttpSecurity;
+import org.springframework.security.oauth2.core.DelegatingOAuth2TokenValidator;
+import org.springframework.security.oauth2.jose.jws.MacAlgorithm;
+import org.springframework.security.oauth2.jwt.JwtValidators;
+import org.springframework.security.oauth2.jwt.NimbusReactiveJwtDecoder;
+import org.springframework.security.oauth2.jwt.ReactiveJwtDecoder;
+import org.springframework.security.web.server.SecurityWebFilterChain;
+
+/**
+ * 网关作为资源服务器统一校验 JWT；下游服务仍用同一把密钥再校验一次，不只凭请求头里的用户 ID 放行。
+ */
+@Configuration(proxyBeanMethods = false)
+@EnableWebFluxSecurity
+<span class="fc" id="L23">class GatewaySecurityConfig {</span>
+
+    @Bean
+    SecurityWebFilterChain gatewaySecurity(ServerHttpSecurity http, ReactiveJwtDecoder jwtDecoder) {
+<span class="fc" id="L27">        return http.csrf(ServerHttpSecurity.CsrfSpec::disable)</span>
+<span class="fc" id="L28">                .authorizeExchange(a -&gt; a.pathMatchers(</span>
+                                &quot;/api/auth/**&quot;, &quot;/api/payments/notify/**&quot;, &quot;/actuator/health/**&quot;, &quot;/actuator/info&quot;)
+<span class="fc" id="L30">                        .permitAll()</span>
+<span class="fc" id="L31">                        .pathMatchers(HttpMethod.GET, &quot;/api/products/**&quot;)</span>
+<span class="fc" id="L32">                        .permitAll()</span>
+<span class="fc" id="L33">                        .pathMatchers(&quot;/internal/**&quot;)</span>
+<span class="fc" id="L34">                        .denyAll() // 双保险：网关本来就不路由 /internal/**</span>
+<span class="fc" id="L35">                        .anyExchange()</span>
+<span class="fc" id="L36">                        .authenticated())</span>
+<span class="fc" id="L37">                .oauth2ResourceServer(o -&gt; o.jwt(j -&gt; j.jwtDecoder(jwtDecoder)))</span>
+<span class="fc" id="L38">                .build();</span>
+    }
+
+    @Bean
+    ReactiveJwtDecoder jwtDecoder(
+            @Value(&quot;${qingyou.security.jwt.secret}&quot;) String secret,
+            @Value(&quot;${qingyou.security.jwt.issuer}&quot;) String issuer) {
+<span class="fc" id="L45">        NimbusReactiveJwtDecoder decoder = NimbusReactiveJwtDecoder.withSecretKey(</span>
+<span class="fc" id="L46">                        new SecretKeySpec(secret.getBytes(StandardCharsets.UTF_8), &quot;HmacSHA256&quot;))</span>
+<span class="fc" id="L47">                .macAlgorithm(MacAlgorithm.HS256)</span>
+<span class="fc" id="L48">                .build();</span>
+<span class="fc" id="L49">        decoder.setJwtValidator(new DelegatingOAuth2TokenValidator&lt;&gt;(JwtValidators.createDefaultWithIssuer(issuer)));</span>
+<span class="fc" id="L50">        return decoder;</span>
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.13.202504020838</span></div></body></html>
