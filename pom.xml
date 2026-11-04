@@ -24,6 +24,7 @@
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <mybatis-spring-boot.version>4.0.1</mybatis-spring-boot.version>
         <springdoc.version>3.0.3</springdoc.version>
+        <rocketmq-client.version>5.2.2</rocketmq-client.version>
         <swagger-annotations.version>2.2.47</swagger-annotations.version> <!-- 与 springdoc 3.0.3 对齐 -->
         <archunit.version>1.5.1</archunit.version>
         <spotless.version>3.11.0</spotless.version>
@@ -74,6 +75,11 @@
                 <groupId>org.mybatis.spring.boot</groupId>
                 <artifactId>mybatis-spring-boot-starter</artifactId>
                 <version>${mybatis-spring-boot.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.apache.rocketmq</groupId>
+                <artifactId>rocketmq-client-java</artifactId>
+                <version>${rocketmq-client.version}</version>
             </dependency>
             <dependency>
                 <groupId>org.springdoc</groupId>

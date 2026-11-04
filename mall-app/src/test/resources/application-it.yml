@@ -5,6 +5,8 @@ spring:
 mall:
   id:
     worker-id: 9
+  rocketmq:
+    enabled: false   # 测试不连 Broker：业务事务里照常写 t_outbox
   security:
     jwt:
       secret: test-only-jwt-secret-0123456789abcdef

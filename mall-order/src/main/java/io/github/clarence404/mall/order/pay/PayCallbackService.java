@@ -1,18 +1,17 @@
 package io.github.clarence404.mall.order.pay;
 
+import io.github.clarence404.mall.order.api.OrderPaidEvent;
 import io.github.clarence404.mall.order.domain.OrderMapper;
 import io.github.clarence404.mall.order.domain.OrderStatus;
-import io.github.clarence404.mall.order.notify.PaidNotifier;
+import io.github.clarence404.mall.order.outbox.OutboxWriter;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-import org.springframework.transaction.support.TransactionSynchronization;
-import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 /**
- * 支付成功回调：t_payment 置成功、t_order 10→20 在一个本地事务里。
+ * 支付成功回调只剩一个本地事务：t_payment 置成功、t_order 10→20、写 t_outbox（order-paid）。
  *
- * <p>阶段一：短信通知在事务提交后同步调用，第三方一慢就拖慢回调，阶段二「异步化」改为本地消息表。
+ * <p>积分、短信与推送、建发货单都由各自的消费组异步完成，下游再慢也只是自己的消费组变慢。
  */
 @Service
 @RequiredArgsConstructor
@@ -20,7 +19,7 @@ public class PayCallbackService {
 
     private final PaymentMapper paymentMapper;
     private final OrderMapper orderMapper;
-    private final PaidNotifier paidNotifier;
+    private final OutboxWriter outboxWriter;
 
     @Transactional
     public void onPaid(PayNotify n) {
@@ -31,11 +30,6 @@ public class PayCallbackService {
             paymentMapper.markRefundPending(n.paymentNo()); // 订单已超时关闭：支付单转待退款，走原路退款
             return;
         }
-        TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
-            @Override
-            public void afterCommit() { // 调用第三方不进事务，放到提交之后
-                paidNotifier.notifyPaid(n);
-            }
-        });
+        outboxWriter.append("order-paid", n.orderNo(), OrderPaidEvent.of(n), null);
     }
 }

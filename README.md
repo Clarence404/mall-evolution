@@ -9,13 +9,14 @@ Java Doc「项目演进」模块的配套代码：示例商城订单服务，从
 | 标签 | 对应文章 |
 |------|---------|
 | `stage-1-monolith` | [工程搭建](https://clarence404.github.io/java-doc/project/1_project_setup.html)、[数据建模](https://clarence404.github.io/java-doc/project/2_data_model.html)、[接口设计](https://clarence404.github.io/java-doc/project/3_api_design.html) |
+| `stage-2-cache-async` | [引入缓存](https://clarence404.github.io/java-doc/project/4_cache.html)、[异步化](https://clarence404.github.io/java-doc/project/5_async.html) |
 
 ## 本地运行
 
 需要 JDK 21、Docker（只用于起依赖和跑集成测试）。
 
 ```bash
-docker compose up -d mysql          # MySQL 8.4，占位密码 mall_dev
+docker compose up -d                # MySQL 8.4、Redis 8、RocketMQ 5（NameServer + Broker/Proxy），占位密码 mall_dev
 ./mvnw -B verify                    # 格式、Checkstyle、ArchUnit、单元测试、H2 主流程测试；有 Docker 时同时跑 Testcontainers 集成测试
 ./mvnw -B -DskipTests package
 java -jar mall-app/target/mall-app.jar   # 默认 dev profile，Flyway 建表并加载演示数据
@@ -47,15 +48,15 @@ curl -i localhost:8080/api/orders -H "Authorization: Bearer $TOKEN" \
 
 ```text
 mall-evolution/
-├── mall-common/      错误码、ProblemDetail 全局异常处理、雪花 ID、JWT 鉴权
-├── mall-user/        用户、登录与刷新令牌
-├── mall-product/     商品
+├── mall-common/      错误码、ProblemDetail 全局异常处理、雪花 ID、JWT 鉴权、RocketMQ 客户端与消费去重表
+├── mall-user/        用户、登录与刷新令牌、积分（points-consumer）
+├── mall-product/     商品、详情两级缓存（Caffeine + Redis）、库存展示
 ├── mall-inventory/   库存扣减
-├── mall-order/       下单、查询、取消与超时关单、支付单
+├── mall-order/       下单、查询、取消与超时关单、支付单、本地消息表 t_outbox 与中继、通知 / 发货单消费者
 ├── mall-app/         启动模块：配置、Flyway 迁移、ArchUnit 与集成测试
 ├── api/openapi.json  接口契约基线，CI 做兼容性 diff
 ├── config/checkstyle/
-├── deploy/           systemd 单元与逐台发布脚本
+├── deploy/           systemd 单元与逐台发布脚本、Redis 主从 + Sentinel 配置、RocketMQ 本地 Broker 与建 Topic 脚本
 └── .github/workflows/
 ```
 

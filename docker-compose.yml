@@ -34,5 +34,37 @@ services:
       timeout: 3s
       retries: 30
 
+  # RocketMQ 5：NameServer + Broker（以 Local 模式内嵌 Proxy，gRPC 端口 8081）
+  rmq-namesrv:
+    image: apache/rocketmq:5.3.4
+    container_name: mall-rmq-namesrv
+    command: sh mqnamesrv
+    ports:
+      - "9876:9876"
+  rmq-broker:
+    image: apache/rocketmq:5.3.4
+    container_name: mall-rmq-broker
+    depends_on:
+      - rmq-namesrv
+    environment:
+      NAMESRV_ADDR: rmq-namesrv:9876
+    command: sh mqbroker --enable-proxy -c /home/rocketmq/conf/broker.conf
+    volumes:
+      - ./deploy/rocketmq/broker.conf:/home/rocketmq/conf/broker.conf:ro
+    ports:
+      - "10911:10911"
+      - "8081:8081"
+  # 一次性任务：建 Topic（order-timeout 为 DELAY 类型）与消费组的重试次数
+  rmq-init:
+    image: apache/rocketmq:5.3.4
+    depends_on:
+      - rmq-broker
+    entrypoint: ["sh", "/home/rocketmq/init-topics.sh"]
+    environment:
+      NAMESRV_ADDR: rmq-namesrv:9876
+    volumes:
+      - ./deploy/rocketmq/init-topics.sh:/home/rocketmq/init-topics.sh:ro
+    restart: "no"
+
 volumes:
   mysql-data:

@@ -5,6 +5,8 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -14,11 +16,14 @@ import static org.mockito.Mockito.when;
 import io.github.clarence404.mall.common.error.BizException;
 import io.github.clarence404.mall.inventory.api.InventoryApi;
 import io.github.clarence404.mall.inventory.api.InventoryErrorCode;
+import io.github.clarence404.mall.order.cancel.OrderTimeoutMessage;
 import io.github.clarence404.mall.order.domain.Order;
 import io.github.clarence404.mall.order.domain.OrderItemMapper;
 import io.github.clarence404.mall.order.domain.OrderMapper;
 import io.github.clarence404.mall.order.domain.OrderStatus;
+import io.github.clarence404.mall.order.outbox.OutboxWriter;
 import java.math.BigDecimal;
+import java.time.Duration;
 import org.junit.jupiter.api.Test;
 import org.mockito.InOrder;
 
@@ -27,19 +32,27 @@ class PlaceOrderTxServiceTest {
     InventoryApi inventoryApi = mock(InventoryApi.class);
     OrderMapper orderMapper = mock(OrderMapper.class);
     OrderItemMapper orderItemMapper = mock(OrderItemMapper.class);
-    PlaceOrderTxService service = new PlaceOrderTxService(inventoryApi, orderMapper, orderItemMapper);
+    OutboxWriter outboxWriter = mock(OutboxWriter.class);
+    PlaceOrderTxService service =
+            new PlaceOrderTxService(inventoryApi, orderMapper, orderItemMapper, outboxWriter, Duration.ofMinutes(15));
 
     @Test
-    void deductsInSkuAscendingOrderThenWritesOrder() {
+    void deductsInSkuAscendingOrderThenWritesOrderAndTimeoutMessage() {
         when(inventoryApi.deduct(anyLong(), anyInt())).thenReturn(true);
 
         Order order = service.create(10001L, "key-0000000000001", Fixtures.request(), Fixtures.pricedItems());
 
-        InOrder inOrder = inOrder(inventoryApi, orderMapper, orderItemMapper);
+        InOrder inOrder = inOrder(inventoryApi, orderMapper, orderItemMapper, outboxWriter);
         inOrder.verify(inventoryApi).deduct(20001L, 2);
         inOrder.verify(inventoryApi).deduct(20002L, 1);
         inOrder.verify(orderMapper).insert(order);
         inOrder.verify(orderItemMapper).batchInsert(order.items());
+        inOrder.verify(outboxWriter)
+                .append(
+                        "order-timeout",
+                        order.getOrderNo(),
+                        new OrderTimeoutMessage(order.getOrderNo()),
+                        order.getCreatedAt().plusMinutes(15));
 
         assertThat(order.getStatus()).isEqualTo(OrderStatus.PENDING_PAYMENT);
         assertThat(order.getOrderNo()).isEqualTo(String.valueOf(order.getId())).hasSize(19);
@@ -60,5 +73,6 @@ class PlaceOrderTxServiceTest {
                 .extracting(e -> ((BizException) e).getErrorCode())
                 .isEqualTo(InventoryErrorCode.STOCK_INSUFFICIENT);
         verify(orderMapper, never()).insert(any());
+        verify(outboxWriter, never()).append(anyString(), anyString(), any(), eq(null));
     }
 }
