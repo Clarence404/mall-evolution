@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../../jacoco-resources/report.gif" type="image/gif"/><title>PlaceOrderService.java</title><link rel="stylesheet" href="../../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../../index.html" class="el_report">mall-app</a> &gt; <a href="../index.html" class="el_bundle">mall-order</a> &gt; <a href="index.source.html" class="el_package">com.qingyou.order.place</a> &gt; <span class="el_source">PlaceOrderService.java</span></div><h1>PlaceOrderService.java</h1><pre class="source lang-java linenums">package com.qingyou.order.place;
+
+import com.qingyou.order.domain.Order;
+import com.qingyou.order.domain.OrderMapper;
+import java.util.List;
+import lombok.RequiredArgsConstructor;
+import org.springframework.dao.DuplicateKeyException;
+import org.springframework.stereotype.Service;
+
+/**
+ * 下单应用服务：计价、幂等处理。不加 {@code @Transactional}，事务在 {@link PlaceOrderTxService}。
+ */
+@Service
+@RequiredArgsConstructor
+public class PlaceOrderService {
+
+    private final OrderMapper orderMapper;
+    private final PricingService pricingService;
+    private final PlaceOrderTxService placeOrderTxService;
+
+    public PlaceOrderResult place(long userId, String bizNo, PlaceOrderRequest req) {
+<span class="fc" id="L22">        Order existing = orderMapper.selectByUserAndBizNo(userId, bizNo);</span>
+<span class="fc bfc" id="L23" title="All 2 branches covered.">        if (existing != null) {</span>
+<span class="fc" id="L24">            return PlaceOrderResult.replayed(existing); // 重复请求，返回第一次的结果</span>
+        }
+<span class="fc" id="L26">        List&lt;PricedItem&gt; items = pricingService.price(req); // 事务外计价</span>
+        try {
+<span class="fc" id="L28">            return PlaceOrderResult.created(placeOrderTxService.create(userId, bizNo, req, items));</span>
+<span class="fc" id="L29">        } catch (DuplicateKeyException e) {</span>
+            // 并发的两个请求都通过了前面的查询，后插入的撞唯一键，事务已整体回滚，库存也已归还
+<span class="fc" id="L31">            return PlaceOrderResult.replayed(orderMapper.selectByUserAndBizNo(userId, bizNo));</span>
+        }
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.13.202504020838</span></div></body></html>
