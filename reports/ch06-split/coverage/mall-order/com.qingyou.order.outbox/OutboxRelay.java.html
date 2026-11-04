@@ -1,0 +1,140 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>OutboxRelay.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">mall-order</a> &gt; <a href="index.source.html" class="el_package">com.qingyou.order.outbox</a> &gt; <span class="el_source">OutboxRelay.java</span></div><h1>OutboxRelay.java</h1><pre class="source lang-java linenums">package com.qingyou.order.outbox;
+
+import java.nio.charset.StandardCharsets;
+import java.time.ZoneId;
+import java.util.List;
+import lombok.extern.slf4j.Slf4j;
+import org.apache.rocketmq.client.apis.ClientException;
+import org.apache.rocketmq.client.apis.ClientServiceProvider;
+import org.apache.rocketmq.client.apis.message.MessageBuilder;
+import org.apache.rocketmq.client.apis.producer.Producer;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
+import org.springframework.dao.TransientDataAccessException;
+import org.springframework.stereotype.Component;
+import org.springframework.transaction.TransactionDefinition;
+import org.springframework.transaction.support.TransactionTemplate;
+
+/**
+ * 中继投递：{@link #relayOne} 供 afterCommit 立即发送，{@link #relayBatch} 由 {@link OutboxRelayJob} 每秒调用、扫表兜底。
+ *
+ * &lt;p&gt;分三步，发送不在事务里：
+ *
+ * &lt;ol&gt;
+ *   &lt;li&gt;短事务认领：FOR UPDATE SKIP LOCKED 选出到期记录，把 next_retry_at 推后 {@value #LEASE_SECONDS} 秒作为租约，立即提交。
+ *       提交后行锁和连接都已释放，别的实例扫表时这批记录还没到期，不会重复认领。认领事务用 READ COMMITTED：
+ *       可重复读下按 idx_status_retry 扫描会加间隙锁，租约更新又要改这条索引，多个实例并发认领时会互相死锁
+ *       （集成测试里能稳定复现）；读已提交只锁命中的行。偶发的锁冲突当成「本轮没认领到」，下一轮再来
+ *   &lt;li&gt;事务外同步发送：Broker 故障时每条最多卡 requestTimeout（1 秒），卡住的只是中继线程，不占数据库连接
+ *   &lt;li&gt;单条语句回写：成功 markSent；失败 markRetry 按退避推迟，本批剩下的记录放回去等下一轮，不再逐条撞超时
+ * &lt;/ol&gt;
+ *
+ * &lt;p&gt;发送成功但 markSent 前宕机、或租约到期还没发完，记录会再发一次，由消费端幂等兜住。
+ */
+<span class="fc" id="L33">@Slf4j</span>
+@Component
+@ConditionalOnProperty(prefix = &quot;qingyou.rocketmq&quot;, name = &quot;enabled&quot;, havingValue = &quot;true&quot;)
+public class OutboxRelay {
+
+    /** 认领后的租约：一批最多 100 条，每条发送超时 1 秒，2 分钟足够发完。 */
+    static final int LEASE_SECONDS = 120;
+
+    private final OutboxMapper outboxMapper;
+    private final ClientServiceProvider provider;
+    private final Producer producer;
+    private final TransactionTemplate transactionTemplate;
+
+    public OutboxRelay(
+            OutboxMapper outboxMapper,
+            ClientServiceProvider provider,
+            Producer producer,
+<span class="fc" id="L50">            TransactionTemplate transactionTemplate) {</span>
+<span class="fc" id="L51">        this.outboxMapper = outboxMapper;</span>
+<span class="fc" id="L52">        this.provider = provider;</span>
+<span class="fc" id="L53">        this.producer = producer;</span>
+<span class="fc" id="L54">        this.transactionTemplate = readCommitted(transactionTemplate);</span>
+<span class="fc" id="L55">    }</span>
+
+    /** 认领用的短事务：读已提交、5 秒超时。没有事务管理器（单元测试的替身）时原样使用。 */
+    static TransactionTemplate readCommitted(TransactionTemplate template) {
+<span class="fc bfc" id="L59" title="All 2 branches covered.">        if (template.getTransactionManager() == null) {</span>
+<span class="fc" id="L60">            return template;</span>
+        }
+<span class="fc" id="L62">        TransactionTemplate claim = new TransactionTemplate(template.getTransactionManager());</span>
+<span class="fc" id="L63">        claim.setIsolationLevel(TransactionDefinition.ISOLATION_READ_COMMITTED);</span>
+<span class="fc" id="L64">        claim.setTimeout(5);</span>
+<span class="fc" id="L65">        return claim;</span>
+    }
+
+    public void relayOne(long id) {
+        OutboxRecord r;
+        try {
+<span class="fc" id="L71">            r = transactionTemplate.execute(status -&gt; {</span>
+<span class="fc" id="L72">                OutboxRecord pending = outboxMapper.selectPendingForUpdate(id);</span>
+<span class="pc bpc" id="L73" title="1 of 2 branches missed.">                if (pending != null) {</span>
+<span class="nc" id="L74">                    outboxMapper.lease(List.of(id), LEASE_SECONDS);</span>
+                }
+<span class="fc" id="L76">                return pending;</span>
+            });
+<span class="nc" id="L78">        } catch (TransientDataAccessException e) {</span>
+<span class="nc" id="L79">            log.debug(&quot;认领 outbox 记录时锁冲突，交给扫表兜底，id={}&quot;, id, e);</span>
+<span class="nc" id="L80">            return;</span>
+<span class="fc" id="L81">        }</span>
+<span class="pc bpc" id="L82" title="1 of 2 branches missed.">        if (r != null) {</span>
+<span class="nc" id="L83">            send(r);</span>
+        }
+<span class="fc" id="L85">    }</span>
+
+    /** 返回本轮实际发出的条数；小于 limit 说明扫完了或 Broker 出了问题。 */
+    public int relayBatch(int limit) {
+        List&lt;OutboxRecord&gt; due;
+        try {
+<span class="fc" id="L91">            due = transactionTemplate.execute(status -&gt; {</span>
+<span class="fc" id="L92">                List&lt;OutboxRecord&gt; claimed = outboxMapper.selectDueForUpdate(limit);</span>
+<span class="pc bpc" id="L93" title="1 of 2 branches missed.">                if (!claimed.isEmpty()) {</span>
+<span class="fc" id="L94">                    outboxMapper.lease(claimed.stream().map(OutboxRecord::id).toList(), LEASE_SECONDS);</span>
+                }
+<span class="fc" id="L96">                return claimed;</span>
+            });
+<span class="fc" id="L98">        } catch (TransientDataAccessException e) { // 死锁或锁等待超时：事务已回滚、租约没生效，下一轮再认领</span>
+<span class="fc" id="L99">            log.debug(&quot;认领 outbox 记录时锁冲突，本轮跳过&quot;, e);</span>
+<span class="fc" id="L100">            return 0;</span>
+<span class="fc" id="L101">        }</span>
+<span class="pc bpc" id="L102" title="1 of 2 branches missed.">        if (due == null) {</span>
+<span class="nc" id="L103">            return 0;</span>
+        }
+<span class="fc bfc" id="L105" title="All 2 branches covered.">        for (int i = 0; i &lt; due.size(); i++) {</span>
+<span class="fc bfc" id="L106" title="All 2 branches covered.">            if (!send(due.get(i))) {</span>
+<span class="fc" id="L107">                List&lt;Long&gt; rest = due.subList(i + 1, due.size()).stream()</span>
+<span class="fc" id="L108">                        .map(OutboxRecord::id)</span>
+<span class="fc" id="L109">                        .toList();</span>
+<span class="pc bpc" id="L110" title="1 of 2 branches missed.">                if (!rest.isEmpty()) {</span>
+<span class="fc" id="L111">                    outboxMapper.releaseLease(rest); // 放回去，下一轮再试</span>
+                }
+<span class="fc" id="L113">                return i;</span>
+            }
+        }
+<span class="fc" id="L116">        return due.size();</span>
+    }
+
+    /** 在事务外发送一条并回写状态；发送失败返回 false。 */
+    boolean send(OutboxRecord r) {
+<span class="fc" id="L121">        MessageBuilder b = provider.newMessageBuilder()</span>
+<span class="fc" id="L122">                .setTopic(r.topic())</span>
+<span class="fc" id="L123">                .setKeys(r.msgKey()) // 控制台按订单号查消息，消费端按它去重</span>
+<span class="fc" id="L124">                .setBody(r.payload().getBytes(StandardCharsets.UTF_8));</span>
+<span class="fc bfc" id="L125" title="All 2 branches covered.">        if (r.deliverAt() != null) { // 超时关单：交给 RocketMQ 定时消息</span>
+<span class="fc" id="L126">            b.setDeliveryTimestamp(</span>
+<span class="fc" id="L127">                    r.deliverAt().atZone(ZoneId.systemDefault()).toInstant().toEpochMilli());</span>
+        }
+        try {
+<span class="fc" id="L130">            producer.send(b.build()); // 同步发送，Broker 确认后才置 SENT</span>
+<span class="fc" id="L131">        } catch (ClientException e) {</span>
+<span class="fc" id="L132">            log.warn(&quot;消息发送失败，等待重试，topic={}, key={}&quot;, r.topic(), r.msgKey(), e);</span>
+<span class="fc" id="L133">            outboxMapper.markRetry(r.id()); // retry_count + 1，按退避推迟 next_retry_at，第 10 次失败置为失败</span>
+<span class="fc" id="L134">            return false;</span>
+<span class="fc" id="L135">        }</span>
+<span class="fc" id="L136">        outboxMapper.markSent(r.id());</span>
+<span class="fc" id="L137">        return true;</span>
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.13.202504020838</span></div></body></html>

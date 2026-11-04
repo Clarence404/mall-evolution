@@ -1,0 +1,76 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>IdConfig.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">mall-common</a> &gt; <a href="index.source.html" class="el_package">com.qingyou.common.id</a> &gt; <span class="el_source">IdConfig.java</span></div><h1>IdConfig.java</h1><pre class="source lang-java linenums">package com.qingyou.common.id;
+
+import java.net.InetAddress;
+import java.net.UnknownHostException;
+import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnExpression;
+import org.springframework.boot.convert.DurationStyle;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+import org.springframework.data.redis.core.StringRedisTemplate;
+
+@Configuration(proxyBeanMethods = false)
+<span class="fc" id="L14">public class IdConfig {</span>
+
+    /**
+     * 机器号两种来源，显式配置优先：
+     *
+     * &lt;ul&gt;
+     *   &lt;li&gt;配了 qingyou.id.worker-id：直接用（本地、测试、阶段一二的两台云主机由环境变量 WORKER_ID 给）
+     *   &lt;li&gt;没配：向 Redis 租一个（Kubernetes 起，Pod 名每次发布都变，见 {@link WorkerIdLease}）
+     * &lt;/ul&gt;
+     *
+     * 两种都没有就启动失败：机器号不能有默认值，两台机器落到同一个号时同一毫秒内会生成相同的 ID。
+     */
+    @Bean
+    IdGenerator idGenerator(@Value(&quot;${qingyou.id.worker-id:}&quot;) String workerId, ObjectProvider&lt;WorkerIdLease&gt; lease) {
+        IdGenerator generator;
+<span class="pc bpc" id="L29" title="1 of 4 branches missed.">        if (workerId != null &amp;&amp; !workerId.isBlank()) {</span>
+<span class="fc" id="L30">            generator = new SnowflakeIdGenerator(Long.parseLong(workerId.trim()));</span>
+        } else {
+<span class="fc" id="L32">            WorkerIdLease l = lease.getIfAvailable();</span>
+<span class="pc bpc" id="L33" title="1 of 2 branches missed.">            if (l == null) {</span>
+<span class="nc" id="L34">                throw new IllegalStateException(&quot;未配置雪花 ID 机器号 qingyou.id.worker-id（生产用环境变量 WORKER_ID 注入，每台机器不同）&quot;);</span>
+            }
+<span class="fc" id="L36">            generator = new LeasedIdGenerator(new SnowflakeIdGenerator(l.acquire()), l);</span>
+        }
+<span class="fc" id="L38">        Ids.use(generator);</span>
+<span class="fc" id="L39">        return generator;</span>
+    }
+
+    /** 只在没有显式机器号时创建；没有 Redis 也启动失败。 */
+    @Bean(destroyMethod = &quot;close&quot;)
+    @ConditionalOnExpression(&quot;'${qingyou.id.worker-id:}'.isBlank()&quot;)
+    WorkerIdLease workerIdLease(
+            ObjectProvider&lt;StringRedisTemplate&gt; redis,
+            @Value(&quot;${spring.application.name:application}&quot;) String service,
+            @Value(&quot;${qingyou.id.lease-ttl:30s}&quot;) String ttl,
+            @Value(&quot;${qingyou.id.lease-renew-interval:10s}&quot;) String renewInterval) {
+<span class="fc" id="L50">        StringRedisTemplate template = redis.getIfAvailable();</span>
+<span class="fc bfc" id="L51" title="All 2 branches covered.">        if (template == null) {</span>
+<span class="fc" id="L52">            throw new IllegalStateException(</span>
+                    &quot;未配置雪花 ID 机器号 qingyou.id.worker-id，也没有可用的 Redis 来租用机器号（生产用环境变量 WORKER_ID 或 Redis 租约）&quot;);
+        }
+<span class="fc" id="L55">        return new WorkerIdLease(</span>
+                template,
+                service,
+<span class="fc" id="L58">                hostname(),</span>
+<span class="fc" id="L59">                DurationStyle.detectAndParse(ttl),</span>
+<span class="fc" id="L60">                DurationStyle.detectAndParse(renewInterval));</span>
+    }
+
+    /** Kubernetes 里 HOSTNAME 就是 Pod 名。 */
+    private static String hostname() {
+<span class="fc" id="L65">        String env = System.getenv(&quot;HOSTNAME&quot;);</span>
+<span class="pc bpc" id="L66" title="3 of 4 branches missed.">        if (env != null &amp;&amp; !env.isBlank()) {</span>
+<span class="nc" id="L67">            return env;</span>
+        }
+        try {
+<span class="fc" id="L70">            return InetAddress.getLocalHost().getHostName();</span>
+<span class="nc" id="L71">        } catch (UnknownHostException e) {</span>
+<span class="nc" id="L72">            return &quot;unknown-host&quot;;</span>
+        }
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.13.202504020838</span></div></body></html>

@@ -1,0 +1,53 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../../jacoco-resources/report.gif" type="image/gif"/><title>PlaceOrderService.java</title><link rel="stylesheet" href="../../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../../index.html" class="el_report">mall-app</a> &gt; <a href="../index.html" class="el_bundle">mall-order</a> &gt; <a href="index.source.html" class="el_package">com.qingyou.order.place</a> &gt; <span class="el_source">PlaceOrderService.java</span></div><h1>PlaceOrderService.java</h1><pre class="source lang-java linenums">package com.qingyou.order.place;
+
+import com.qingyou.inventory.api.DeductStockRequest;
+import com.qingyou.inventory.api.InventoryApi;
+import com.qingyou.inventory.api.RestoreStockRequest;
+import com.qingyou.inventory.api.StockLine;
+import com.qingyou.order.domain.Order;
+import com.qingyou.order.domain.OrderMapper;
+import java.util.List;
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.dao.DuplicateKeyException;
+import org.springframework.stereotype.Service;
+
+/**
+ * 下单应用服务（拆分过渡期）：先远程扣库存，再在本地事务里写单，写单失败把库存还回去。
+ *
+ * &lt;p&gt;三个已知的洞：deduct 超时不知道扣没扣上；restore 本身可能失败；进程在两步之间崩溃。过渡期不自动重试写接口，
+ * 靠每日的库存与订单核对脚本人工处理，彻底的解法是下一篇的库存预占。
+ */
+<span class="fc" id="L21">@Slf4j</span>
+@Service
+@RequiredArgsConstructor
+public class PlaceOrderService {
+
+    private final OrderMapper orderMapper;
+    private final PricingService pricingService;
+    private final PlaceOrderTxService placeOrderTxService;
+    private final OrderNoGenerator orderNoGenerator;
+    private final InventoryApi inventoryApi;
+
+    public PlaceOrderResult place(long userId, String idemKey, PlaceOrderRequest req) {
+<span class="fc" id="L33">        Order existing = orderMapper.selectByUserAndBizNo(userId, idemKey);</span>
+<span class="fc bfc" id="L34" title="All 2 branches covered.">        if (existing != null) {</span>
+<span class="fc" id="L35">            return PlaceOrderResult.replayed(existing); // 重试请求不再远程扣库存</span>
+        }
+<span class="fc" id="L37">        List&lt;PricedItem&gt; items = pricingService.price(req); // 事务外计价</span>
+<span class="fc" id="L38">        List&lt;StockLine&gt; lines =</span>
+<span class="fc" id="L39">                items.stream().map(i -&gt; new StockLine(i.skuId(), i.quantity())).toList();</span>
+<span class="fc" id="L40">        String orderNo = orderNoGenerator.next(userId); // 嵌入用户 ID 低位</span>
+<span class="fc" id="L41">        inventoryApi.deduct(new DeductStockRequest(orderNo, lines));</span>
+        try {
+<span class="fc" id="L43">            return PlaceOrderResult.created(placeOrderTxService.create(userId, orderNo, idemKey, req, items));</span>
+<span class="fc" id="L44">        } catch (RuntimeException e) { // 写单失败（含并发撞 uk_user_biz）：把库存还回去</span>
+<span class="fc" id="L45">            inventoryApi.restore(new RestoreStockRequest(orderNo, lines));</span>
+<span class="fc bfc" id="L46" title="All 2 branches covered.">            if (e instanceof DuplicateKeyException) {</span>
+<span class="fc" id="L47">                return PlaceOrderResult.replayed(orderMapper.selectByUserAndBizNo(userId, idemKey));</span>
+            }
+<span class="fc" id="L49">            throw e;</span>
+        }
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.13.202504020838</span></div></body></html>

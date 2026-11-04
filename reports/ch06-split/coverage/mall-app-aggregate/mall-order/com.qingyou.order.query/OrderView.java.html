@@ -1,0 +1,63 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../../jacoco-resources/report.gif" type="image/gif"/><title>OrderView.java</title><link rel="stylesheet" href="../../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../../index.html" class="el_report">mall-app</a> &gt; <a href="../index.html" class="el_bundle">mall-order</a> &gt; <a href="index.source.html" class="el_package">com.qingyou.order.query</a> &gt; <span class="el_source">OrderView.java</span></div><h1>OrderView.java</h1><pre class="source lang-java linenums">package com.qingyou.order.query;
+
+import com.qingyou.order.domain.Order;
+import com.qingyou.order.domain.OrderItem;
+import java.math.BigDecimal;
+import java.math.RoundingMode;
+import java.time.LocalDateTime;
+import java.util.List;
+
+/**
+ * 订单对外视图：只有 orderNo，没有主键 id；金额与 skuId 一律按字符串输出（19 位整数超过 JS 安全整数）。
+ *
+ * &lt;p&gt;前端约定：遇到不认识的 status 显示「处理中」，不报错。
+ */
+<span class="fc" id="L15">public record OrderView(</span>
+        String orderNo,
+        String status,
+        String totalAmount,
+        String freightAmount,
+        String discountAmount,
+        String payAmount,
+        Receiver receiver,
+        String remark,
+        List&lt;Item&gt; items,
+        LocalDateTime createdAt,
+        LocalDateTime paidAt) {
+
+    public static OrderView of(Order o) {
+<span class="fc" id="L29">        return new OrderView(</span>
+<span class="fc" id="L30">                o.getOrderNo(),</span>
+<span class="fc" id="L31">                o.getStatus().name(),</span>
+<span class="fc" id="L32">                money(o.getTotalAmount()),</span>
+<span class="fc" id="L33">                money(o.getFreightAmount()),</span>
+<span class="fc" id="L34">                money(o.getDiscountAmount()),</span>
+<span class="fc" id="L35">                money(o.getPayAmount()),</span>
+<span class="fc" id="L36">                new Receiver(o.getReceiverName(), o.getReceiverPhone(), o.getReceiverAddr()),</span>
+<span class="fc" id="L37">                o.getRemark(),</span>
+<span class="fc" id="L38">                o.items().stream().map(Item::of).toList(),</span>
+<span class="fc" id="L39">                o.getCreatedAt(),</span>
+<span class="fc" id="L40">                o.getPaidAt());</span>
+    }
+
+    static String money(BigDecimal amount) {
+<span class="pc bpc" id="L44" title="1 of 2 branches missed.">        return amount == null ? null : amount.setScale(2, RoundingMode.HALF_UP).toPlainString();</span>
+    }
+
+<span class="fc" id="L47">    public record Receiver(String name, String phone, String address) {}</span>
+
+<span class="fc" id="L49">    public record Item(</span>
+            String skuId, String productName, String productImage, String unitPrice, int quantity, String itemAmount) {
+
+        static Item of(OrderItem i) {
+<span class="fc" id="L53">            return new Item(</span>
+<span class="fc" id="L54">                    String.valueOf(i.getSkuId()),</span>
+<span class="fc" id="L55">                    i.getProductName(),</span>
+<span class="fc" id="L56">                    i.getProductImage(),</span>
+<span class="fc" id="L57">                    money(i.getUnitPrice()),</span>
+<span class="fc" id="L58">                    i.getQuantity(),</span>
+<span class="fc" id="L59">                    money(i.getItemAmount()));</span>
+        }
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.13.202504020838</span></div></body></html>

@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>OutboxWriter.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">mall-order</a> &gt; <a href="index.source.html" class="el_package">com.qingyou.order.outbox</a> &gt; <span class="el_source">OutboxWriter.java</span></div><h1>OutboxWriter.java</h1><pre class="source lang-java linenums">package com.qingyou.order.outbox;
+
+import com.qingyou.common.json.Json;
+import java.time.LocalDateTime;
+import java.util.concurrent.Executor;
+import lombok.RequiredArgsConstructor;
+import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.stereotype.Component;
+import org.springframework.transaction.annotation.Propagation;
+import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
+
+/**
+ * 写本地消息表：与业务数据同一个事务写入，提交后立刻交给中继发送，不等扫表。
+ */
+@Component
+@RequiredArgsConstructor
+public class OutboxWriter {
+
+    private final OutboxMapper outboxMapper;
+
+    @Qualifier(&quot;outboxExecutor&quot;)
+    private final Executor outboxExecutor;
+
+    /** RocketMQ 未启用时没有中继（如单元与 H2 测试），记录照常写入，恢复后由扫表补发。 */
+    private final ObjectProvider&lt;OutboxRelay&gt; outboxRelay;
+
+    @Transactional(propagation = Propagation.MANDATORY) // 必须在业务事务内调用
+    public void append(String topic, String orderNo, Object payload, LocalDateTime deliverAt) {
+<span class="fc" id="L32">        OutboxRecord r = OutboxRecord.of(topic, orderNo, Json.write(payload), deliverAt);</span>
+<span class="fc" id="L33">        outboxMapper.insert(r);</span>
+<span class="fc" id="L34">        TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {</span>
+            @Override
+            public void afterCommit() { // 提交后立即发，不等扫表
+<span class="fc" id="L37">                outboxRelay.ifAvailable(relay -&gt; outboxExecutor.execute(() -&gt; relay.relayOne(r.id())));</span>
+<span class="fc" id="L38">            }</span>
+        });
+<span class="fc" id="L40">    }</span>
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.13.202504020838</span></div></body></html>

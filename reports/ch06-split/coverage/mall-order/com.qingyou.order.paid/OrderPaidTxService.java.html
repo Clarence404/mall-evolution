@@ -1,0 +1,45 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>OrderPaidTxService.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">mall-order</a> &gt; <a href="index.source.html" class="el_package">com.qingyou.order.paid</a> &gt; <span class="el_source">OrderPaidTxService.java</span></div><h1>OrderPaidTxService.java</h1><pre class="source lang-java linenums">package com.qingyou.order.paid;
+
+import com.qingyou.common.error.BizException;
+import com.qingyou.order.api.MarkPaidRequest;
+import com.qingyou.order.api.MarkPaidResult;
+import com.qingyou.order.api.OrderErrorCode;
+import com.qingyou.order.domain.Order;
+import com.qingyou.order.domain.OrderMapper;
+import com.qingyou.order.domain.OrderStatus;
+import com.qingyou.order.outbox.OutboxWriter;
+import lombok.RequiredArgsConstructor;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+
+/**
+ * 拆分过渡期：payment-service 处理渠道回调后同步调用 markPaid，本地事务里改订单状态并写 t_outbox（order-paid）。
+ *
+ * &lt;p&gt;渠道会重试回调，所以按订单号幂等：状态条件更新 10→20 只有第一次成功，之后返回 ALREADY_PAID。
+ */
+@Service
+@RequiredArgsConstructor
+public class OrderPaidTxService {
+
+    private final OrderMapper orderMapper;
+    private final OutboxWriter outboxWriter;
+
+    @Transactional(rollbackFor = Exception.class)
+    public MarkPaidResult markPaid(String orderNo, MarkPaidRequest req) {
+<span class="nc" id="L29">        Order order = orderMapper.selectByOrderNo(orderNo);</span>
+<span class="nc bnc" id="L30" title="All 2 branches missed.">        if (order == null) {</span>
+<span class="nc" id="L31">            throw new BizException(OrderErrorCode.ORDER_NOT_FOUND, &quot;订单 &quot; + orderNo + &quot; 不存在&quot;);</span>
+        }
+<span class="nc bnc" id="L33" title="All 2 branches missed.">        if (orderMapper.updateStatus(order.getId(), OrderStatus.PENDING_PAYMENT, OrderStatus.PENDING_SHIPMENT) == 1) {</span>
+<span class="nc" id="L34">            outboxWriter.append(</span>
+                    &quot;order-paid&quot;,
+                    orderNo,
+<span class="nc" id="L37">                    new OrderPaidEvent(orderNo, order.getUserId(), req.amount(), req.paidAt()),</span>
+                    null);
+<span class="nc" id="L39">            return MarkPaidResult.PAID;</span>
+        }
+<span class="nc" id="L41">        OrderStatus current = orderMapper.selectByOrderNo(orderNo).getStatus();</span>
+<span class="nc bnc" id="L42" title="All 2 branches missed.">        return current == OrderStatus.CANCELLED ? MarkPaidResult.ORDER_CANCELLED : MarkPaidResult.ALREADY_PAID;</span>
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.13.202504020838</span></div></body></html>

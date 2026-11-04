@@ -1,0 +1,49 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>InventoryService.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">inventory-service</a> &gt; <a href="index.source.html" class="el_package">com.qingyou.inventory.stock</a> &gt; <span class="el_source">InventoryService.java</span></div><h1>InventoryService.java</h1><pre class="source lang-java linenums">package com.qingyou.inventory.stock;
+
+import com.qingyou.common.error.BizException;
+import com.qingyou.inventory.api.InventoryErrorCode;
+import com.qingyou.inventory.api.StockLine;
+import com.qingyou.inventory.api.StockView;
+import java.util.Comparator;
+import java.util.List;
+import lombok.RequiredArgsConstructor;
+import org.springframework.dao.DuplicateKeyException;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+
+/** 库存服务内部实现：和阶段一同一条 stock &gt;= n 的条件更新，按 sku_id 升序避免死锁。 */
+@Service
+@RequiredArgsConstructor
+public class InventoryService {
+
+    private final InventoryMapper inventoryMapper;
+
+    public List&lt;StockView&gt; listStocks(List&lt;Long&gt; skuIds) {
+<span class="pc bpc" id="L22" title="1 of 2 branches missed.">        return skuIds.isEmpty() ? List.of() : inventoryMapper.selectStocks(skuIds);</span>
+    }
+
+    /** 任一 SKU 不够就整体回滚，返回 409 STOCK_INSUFFICIENT。 */
+    @Transactional(rollbackFor = Exception.class)
+    public void deduct(String orderNo, List&lt;StockLine&gt; lines) {
+<span class="fc" id="L28">        lines.stream().sorted(Comparator.comparing(StockLine::skuId)).forEach(l -&gt; {</span>
+<span class="fc bfc" id="L29" title="All 2 branches covered.">            if (inventoryMapper.deduct(l.skuId(), l.quantity()) == 0) {</span>
+<span class="fc" id="L30">                throw new BizException(</span>
+<span class="fc" id="L31">                        InventoryErrorCode.STOCK_INSUFFICIENT, &quot;SKU &quot; + l.skuId() + &quot; 库存不足，订单 &quot; + orderNo);</span>
+            }
+<span class="fc" id="L33">        });</span>
+<span class="fc" id="L34">    }</span>
+
+    /** 按 order_no 幂等：调用方超时重试、两台实例同时重试，库存只加一次。 */
+    @Transactional(rollbackFor = Exception.class)
+    public void restore(String orderNo, List&lt;StockLine&gt; lines) {
+        try {
+<span class="fc" id="L40">            inventoryMapper.insertRestoreLog(orderNo);</span>
+<span class="fc" id="L41">        } catch (DuplicateKeyException e) {</span>
+<span class="fc" id="L42">            return; // 已经归还过</span>
+<span class="fc" id="L43">        }</span>
+<span class="fc" id="L44">        lines.stream()</span>
+<span class="fc" id="L45">                .sorted(Comparator.comparing(StockLine::skuId))</span>
+<span class="fc" id="L46">                .forEach(l -&gt; inventoryMapper.restore(l.skuId(), l.quantity()));</span>
+<span class="fc" id="L47">    }</span>
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.13.202504020838</span></div></body></html>
