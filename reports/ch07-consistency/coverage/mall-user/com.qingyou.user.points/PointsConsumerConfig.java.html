@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>PointsConsumerConfig.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">mall-user</a> &gt; <a href="index.source.html" class="el_package">com.qingyou.user.points</a> &gt; <span class="el_source">PointsConsumerConfig.java</span></div><h1>PointsConsumerConfig.java</h1><pre class="source lang-java linenums">package com.qingyou.user.points;
+
+import com.qingyou.common.json.Json;
+import java.util.Map;
+import lombok.extern.slf4j.Slf4j;
+import org.apache.rocketmq.client.apis.ClientConfiguration;
+import org.apache.rocketmq.client.apis.ClientException;
+import org.apache.rocketmq.client.apis.ClientServiceProvider;
+import org.apache.rocketmq.client.apis.consumer.ConsumeResult;
+import org.apache.rocketmq.client.apis.consumer.FilterExpression;
+import org.apache.rocketmq.client.apis.consumer.FilterExpressionType;
+import org.apache.rocketmq.client.apis.consumer.PushConsumer;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+
+<span class="nc" id="L17">@Slf4j</span>
+@Configuration(proxyBeanMethods = false)
+@ConditionalOnProperty(prefix = &quot;qingyou.rocketmq&quot;, name = &quot;enabled&quot;, havingValue = &quot;true&quot;)
+<span class="nc" id="L20">class PointsConsumerConfig {</span>
+
+    /** 返回 SUCCESS 确认，返回 FAILURE 由 Broker 按退避重投；最大投递 16 次（约 4.7 小时），之后进死信并告警。 */
+    @Bean(destroyMethod = &quot;close&quot;)
+    PushConsumer pointsConsumer(
+            ClientServiceProvider provider, ClientConfiguration clientConfig, PointsGrantService pointsGrantService)
+            throws ClientException {
+<span class="nc" id="L27">        return provider.newPushConsumerBuilder()</span>
+<span class="nc" id="L28">                .setClientConfiguration(clientConfig)</span>
+<span class="nc" id="L29">                .setConsumerGroup(&quot;points-consumer&quot;)</span>
+<span class="nc" id="L30">                .setSubscriptionExpressions(Map.of(&quot;order-paid&quot;, new FilterExpression(&quot;*&quot;, FilterExpressionType.TAG)))</span>
+<span class="nc" id="L31">                .setMessageListener(view -&gt; {</span>
+<span class="nc" id="L32">                    OrderPaidEvent e = Json.read(view.getBody(), OrderPaidEvent.class);</span>
+                    try {
+<span class="nc" id="L34">                        pointsGrantService.grant(e);</span>
+<span class="nc" id="L35">                        return ConsumeResult.SUCCESS;</span>
+<span class="nc" id="L36">                    } catch (Exception ex) {</span>
+<span class="nc" id="L37">                        log.warn(&quot;加积分失败，orderNo={}，第 {} 次投递&quot;, e.orderNo(), view.getDeliveryAttempt(), ex);</span>
+<span class="nc" id="L38">                        return ConsumeResult.FAILURE;</span>
+                    }
+                })
+<span class="nc" id="L41">                .build();</span>
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.13.202504020838</span></div></body></html>

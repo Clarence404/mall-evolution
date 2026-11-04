@@ -1,0 +1,77 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>PlaceOrderService.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">mall-order</a> &gt; <a href="index.source.html" class="el_package">com.qingyou.order.place</a> &gt; <span class="el_source">PlaceOrderService.java</span></div><h1>PlaceOrderService.java</h1><pre class="source lang-java linenums">package com.qingyou.order.place;
+
+import com.qingyou.common.error.BizException;
+import com.qingyou.common.error.CommonErrorCode;
+import com.qingyou.common.remote.RemoteBizException;
+import com.qingyou.inventory.api.InventoryApi;
+import com.qingyou.inventory.api.ReleaseStockRequest;
+import com.qingyou.inventory.api.ReserveLine;
+import com.qingyou.inventory.api.ReserveResult;
+import com.qingyou.inventory.api.ReserveStockRequest;
+import com.qingyou.order.domain.Order;
+import com.qingyou.order.domain.OrderMapper;
+import java.util.List;
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.dao.DuplicateKeyException;
+import org.springframework.stereotype.Service;
+
+/**
+ * 下单（阶段三）：先预占库存，再在本地事务里写单；结果未知按失败处理，立即释放预占。
+ *
+ * &lt;p&gt;结果未知时不重试 reserve，先释放再由全局异常处理器返回 SYSTEM_ERROR；客户端带同一个 Idempotency-Key 重试时，
+ * 由于订单没写成功，会生成新的订单号重新预占。旧订单号的预占要么已被释放，要么被空回滚占位挡住。
+ */
+<span class="fc" id="L25">@Slf4j</span>
+@Service
+@RequiredArgsConstructor
+public class PlaceOrderService {
+
+    private final OrderMapper orderMapper;
+    private final PricingService pricingService;
+    private final PlaceOrderTxService placeOrderTxService;
+    private final OrderNoGenerator orderNoGenerator;
+    private final InventoryApi inventoryApi;
+
+    public PlaceOrderResult place(long userId, String idemKey, PlaceOrderRequest req) {
+<span class="fc" id="L37">        Order existing = orderMapper.selectByUserAndBizNo(userId, idemKey);</span>
+<span class="fc bfc" id="L38" title="All 2 branches covered.">        if (existing != null) {</span>
+<span class="fc" id="L39">            return PlaceOrderResult.replayed(existing);</span>
+        }
+<span class="fc" id="L41">        List&lt;PricedItem&gt; items = pricingService.price(req);</span>
+<span class="fc" id="L42">        String orderNo = orderNoGenerator.next(userId); // 先有订单号，作为预占的幂等键</span>
+<span class="fc" id="L43">        List&lt;ReserveLine&gt; lines = ReserveLine.of(items);</span>
+
+        ReserveResult result;
+        try {
+<span class="fc" id="L47">            result = inventoryApi.reserve(new ReserveStockRequest(orderNo, lines)); // 读超时 800ms，不重试</span>
+<span class="fc" id="L48">        } catch (RemoteBizException e) {</span>
+<span class="fc" id="L49">            throw e; // 4xx，如 STOCK_INSUFFICIENT：明确失败，什么都没扣</span>
+<span class="fc" id="L50">        } catch (RuntimeException e) { // 超时、连接失败或 5xx：结果未知，按失败处理并立即释放</span>
+<span class="fc" id="L51">            releaseQuietly(orderNo, lines);</span>
+<span class="fc" id="L52">            throw e;</span>
+<span class="fc" id="L53">        }</span>
+<span class="fc bfc" id="L54" title="All 2 branches covered.">        if (result == ReserveResult.REJECTED) { // 被空回滚占位挡住：明确没预占上，不用释放</span>
+<span class="fc" id="L55">            throw new BizException(CommonErrorCode.SYSTEM_ERROR, &quot;订单 &quot; + orderNo + &quot; 的库存预占被拒绝，请重试&quot;);</span>
+        }
+        try {
+<span class="fc" id="L58">            return PlaceOrderResult.created(placeOrderTxService.create(userId, orderNo, idemKey, req, items));</span>
+<span class="fc" id="L59">        } catch (DuplicateKeyException e) { // 并发的重复请求已经下单，本次预占作废</span>
+<span class="fc" id="L60">            releaseQuietly(orderNo, lines);</span>
+<span class="fc" id="L61">            return PlaceOrderResult.replayed(orderMapper.selectByUserAndBizNo(userId, idemKey));</span>
+<span class="fc" id="L62">        } catch (RuntimeException e) { // 写订单失败</span>
+<span class="fc" id="L63">            releaseQuietly(orderNo, lines);</span>
+<span class="fc" id="L64">            throw e;</span>
+        }
+    }
+
+    /** 吞掉异常、只记日志：释放也失败时预占记录保持 RESERVED，交给库存服务的过期回查。 */
+    private void releaseQuietly(String orderNo, List&lt;ReserveLine&gt; lines) {
+        try {
+<span class="fc" id="L71">            inventoryApi.release(new ReleaseStockRequest(orderNo, lines));</span>
+<span class="fc" id="L72">        } catch (RuntimeException e) {</span>
+<span class="fc" id="L73">            log.warn(&quot;释放预占失败，交给过期回查，orderNo={}&quot;, orderNo, e);</span>
+<span class="fc" id="L74">        }</span>
+<span class="fc" id="L75">    }</span>
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.13.202504020838</span></div></body></html>

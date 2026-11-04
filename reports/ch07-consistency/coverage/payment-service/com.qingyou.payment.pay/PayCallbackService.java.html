@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>PayCallbackService.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">payment-service</a> &gt; <a href="index.source.html" class="el_package">com.qingyou.payment.pay</a> &gt; <span class="el_source">PayCallbackService.java</span></div><h1>PayCallbackService.java</h1><pre class="source lang-java linenums">package com.qingyou.payment.pay;
+
+import com.qingyou.common.outbox.OutboxWriter;
+import lombok.RequiredArgsConstructor;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+
+/**
+ * 支付成功回调：验签后在一个本地事务里把 t_payment 改为成功并写入自己库里的 t_outbox，由投递任务发出
+ * payment-succeeded；同步的 OrderPayApi.markPaid 就此下线。支付成功后不能失败、只能往前推。
+ *
+ * &lt;p&gt;消息键用支付单号而不是订单号：一个订单可以有多张支付单（用户换渠道重新发起），两张都付成功时第二条
+ * payment-succeeded 不能撞 uk_topic_key 回滚整个回调，订单侧收到后发现订单已支付，会要求退掉这笔重复付款。
+ */
+@Service
+@RequiredArgsConstructor
+public class PayCallbackService {
+
+    private final PaymentMapper paymentMapper;
+    private final OutboxWriter outboxWriter;
+
+    @Transactional
+    public void onPaid(PayNotify n) {
+<span class="fc bfc" id="L24" title="All 2 branches covered.">        if (paymentMapper.markSuccess(n.paymentNo(), n.channelTradeNo()) == 0) {</span>
+<span class="fc" id="L25">            return; // 重复回调：支付单已是成功状态，payment-succeeded 已写过</span>
+        }
+<span class="fc" id="L27">        outboxWriter.append(</span>
+                &quot;payment-succeeded&quot;,
+<span class="fc" id="L29">                n.paymentNo(),</span>
+<span class="fc" id="L30">                new PaymentSucceeded(n.orderNo(), n.paymentNo(), n.userId(), n.amount(), n.paidAt()),</span>
+                null);
+<span class="fc" id="L32">    }</span>
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.13.202504020838</span></div></body></html>
