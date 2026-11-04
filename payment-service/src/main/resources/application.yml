@@ -53,7 +53,7 @@ mall:
     mock:
       secret: ${PAY_MOCK_SECRET}
   rocketmq:
-    enabled: false
+    enabled: true
     endpoints: ${ROCKETMQ_ENDPOINTS:localhost:8081}
     access-key: ${ROCKETMQ_ACCESS_KEY:}
     secret-key: ${ROCKETMQ_SECRET_KEY:}

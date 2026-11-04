@@ -41,6 +41,7 @@
         <module>mall-common</module>
         <module>mall-inventory-api</module>
         <module>mall-order-api</module>
+        <module>mall-payment-api</module>
         <module>mall-user</module>
         <module>mall-product</module>
         <module>mall-order</module>
@@ -90,6 +91,11 @@
             <dependency>
                 <groupId>io.github.clarence404.mall</groupId>
                 <artifactId>mall-order-api</artifactId>
+                <version>${revision}</version>
+            </dependency>
+            <dependency>
+                <groupId>io.github.clarence404.mall</groupId>
+                <artifactId>mall-payment-api</artifactId>
                 <version>${revision}</version>
             </dependency>
             <dependency>

@@ -28,9 +28,9 @@ import org.springframework.http.ProblemDetail;
 import org.springframework.jdbc.core.JdbcTemplate;
 
 /**
- * 拆分过渡期的下单在真实 MySQL 上：并发同键只会有一笔订单，输掉的请求把远程扣掉的库存还回去。需要 Docker。
+ * 下单在真实 MySQL 上：并发同键只会有一笔订单，输掉的请求释放自己那次预占。需要 Docker。
  *
- * <p>库存不超卖的并发测试随库存服务迁到 inventory-service 的 InventoryDeductIT。
+ * <p>预占本身（不超卖、空回滚与悬挂）的并发测试在 inventory-service 的 InventoryDeductIT。
  */
 class PlaceOrderTxIT extends IntegrationTestBase {
 
@@ -49,7 +49,7 @@ class PlaceOrderTxIT extends IntegrationTestBase {
     }
 
     @Test
-    void concurrentRequestsWithSameKeyCreateOneOrderAndReturnLosersStock() throws Exception {
+    void concurrentRequestsWithSameKeyCreateOneOrderAndReleaseLosersReservations() throws Exception {
         String key = UUID.randomUUID().toString();
         List<Callable<PlaceOrderResult>> tasks = new ArrayList<>();
         for (int i = 0; i < 8; i++) {
@@ -65,18 +65,16 @@ class PlaceOrderTxIT extends IntegrationTestBase {
         assertThat(jdbc.queryForObject(
                         "SELECT COUNT(*) FROM t_order WHERE user_id = 10001 AND biz_no = ?", Integer.class, key))
                 .isEqualTo(1);
-        long deducts = count("deduct");
-        long restores = count("restore");
-        assertThat(deducts - restores).isEqualTo(1); // 每个撞唯一键的请求都把自己扣的库存还了回去
+        assertThat(count("reserve") - count("release")).isEqualTo(1); // 每个撞唯一键的请求都释放了自己的预占
     }
 
     @Test
-    void stockInsufficientFromInventoryServiceCreatesNoOrder() {
+    void stockInsufficientCreatesNoOrder() {
         ProblemDetail pd = ProblemDetail.forStatusAndDetail(HttpStatus.CONFLICT, "库存不足");
         pd.setProperty("code", "STOCK_INSUFFICIENT");
         doThrow(new RemoteBizException(HttpStatus.CONFLICT, pd))
                 .when(inventoryApi)
-                .deduct(any());
+                .reserve(any());
         String key = UUID.randomUUID().toString();
 
         assertThatThrownBy(() -> placeOrderService.place(10001L, key, request(20003L, 2)))

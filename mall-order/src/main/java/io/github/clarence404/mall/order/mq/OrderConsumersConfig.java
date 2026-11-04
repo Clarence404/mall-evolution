@@ -6,6 +6,8 @@ import io.github.clarence404.mall.order.cancel.OrderCloseService;
 import io.github.clarence404.mall.order.cancel.OrderTimeoutMessage;
 import io.github.clarence404.mall.order.notify.PaidNotifier;
 import io.github.clarence404.mall.order.paid.OrderPaidEvent;
+import io.github.clarence404.mall.order.paid.OrderPaidTxService;
+import io.github.clarence404.mall.order.paid.PaymentSucceeded;
 import io.github.clarence404.mall.order.shipment.ShipmentCreator;
 import java.util.function.Consumer;
 import lombok.extern.slf4j.Slf4j;
@@ -20,9 +22,10 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
 /**
- * mall-order 的消费者：order-paid 的 notify-consumer、shipment-consumer，以及超时关单 order-timeout-consumer。
+ * mall-order 的消费者：order-paid 的 notify-consumer、shipment-consumer，payment-succeeded 的 order-payment-consumer，
+ * 以及超时关单 order-timeout-consumer。
  *
- * <p>三个组都用并发消费，失败按阶梯退避重投，最大投递次数与死信在控制台按组配置（见 deploy/rocketmq/init-topics.sh）。
+ * <p>四个组都用并发消费，失败按阶梯退避重投，最大投递次数与死信在控制台按组配置（见 deploy/rocketmq/init-topics.sh）。
  */
 @Slf4j
 @Configuration(proxyBeanMethods = false)
@@ -52,7 +55,25 @@ class OrderConsumersConfig {
                 listener(OrderPaidEvent.class, creator::onPaid));
     }
 
-    /** 到期后用状态条件更新 10→50，影响 1 行才回补库存；用户已支付时影响 0 行，直接确认，支付成功不需要「撤回」定时消息。 */
+    /**
+     * 支付成功 → 订单待发货：「支付成功，订单确认中」这个一致性窗口就是它的消费延迟，告警单独收紧到 1 分钟。
+     */
+    @Bean(destroyMethod = "close")
+    PushConsumer orderPaymentConsumer(
+            ClientServiceProvider provider, ClientConfiguration clientConfig, OrderPaidTxService orderPaidTxService)
+            throws ClientException {
+        return ConsumerFactory.subscribe(
+                provider,
+                clientConfig,
+                "order-payment-consumer",
+                "payment-succeeded",
+                listener(PaymentSucceeded.class, orderPaidTxService::markPaid));
+    }
+
+    /**
+     * 到期后先关支付单，再用状态条件更新 10→50，影响 1 行才写 order-cancelled（库存服务消费后 release 预占）；
+     * 用户已支付时直接确认，支付成功不需要「撤回」定时消息。
+     */
     @Bean(destroyMethod = "close")
     PushConsumer orderTimeoutConsumer(
             ClientServiceProvider provider, ClientConfiguration clientConfig, OrderCloseService closeService)

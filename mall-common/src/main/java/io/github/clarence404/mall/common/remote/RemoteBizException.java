@@ -4,9 +4,10 @@ import org.springframework.http.HttpStatusCode;
 import org.springframework.http.ProblemDetail;
 
 /**
- * 下游服务返回的错误（ProblemDetail），在 HTTP 接口客户端组里统一转成这个异常，保留下游的 {@code code}。
+ * 下游服务明确拒绝的请求（4xx 的 ProblemDetail），在 HTTP 接口客户端组里统一转成这个异常，保留下游的 {@code code}。
  *
- * <p>全局异常处理器按 code 透传 4xx，这样 STOCK_INSUFFICIENT 能原样回到前端；5xx 一律转成 SYSTEM_ERROR，不外泄下游细节。
+ * <p>全局异常处理器按 code 透传 4xx，这样 STOCK_INSUFFICIENT 能原样回到前端。5xx 不会转成它（结果未知，见
+ * {@link RemoteErrorConfig}）；手工构造的 5xx 实例仍按 SYSTEM_ERROR 返回，不外泄下游细节。
  */
 public class RemoteBizException extends RuntimeException {
 

@@ -21,14 +21,25 @@ public interface PaymentMapper {
             """)
     Payment selectByPaymentNo(@Param("paymentNo") String paymentNo);
 
-    /** 影响 0 行：重复回调，支付单已是成功状态。 */
+    /**
+     * 渠道确认付款：待支付或已被我方关闭的支付单都置为成功。关闭支付单与用户付款存在竞态，钱已经到账就要如实记账，
+     * 订单侧发现订单已取消会发 order-refund-required 走原路退款。影响 0 行：重复回调。
+     */
     @Update("""
             UPDATE t_payment SET status = 1, channel_trade_no = #{channelTradeNo}, paid_at = NOW(3)
-            WHERE payment_no = #{paymentNo} AND status = 0
+            WHERE payment_no = #{paymentNo} AND status IN (0, 2)
             """)
     int markSuccess(@Param("paymentNo") String paymentNo, @Param("channelTradeNo") String channelTradeNo);
 
-    /** 订单已关闭后才收到支付：支付单转待退款，走原路退款。 */
+    /** 该订单是否已有付款成功（含待退款、已退款）的支付单。 */
+    @Select("SELECT COUNT(*) FROM t_payment WHERE order_no = #{orderNo} AND status IN (1, 3, 4)")
+    int countPaid(@Param("orderNo") String orderNo);
+
+    /** 取消订单前关闭所有待支付的支付单（演示用模拟渠道，真实渠道要先调渠道的关单接口）。 */
+    @Update("UPDATE t_payment SET status = 2 WHERE order_no = #{orderNo} AND status = 0")
+    int closePending(@Param("orderNo") String orderNo);
+
+    /** 关单后才到的支付、同一订单的重复付款：这一张支付单转待退款，走原路退款。 */
     @Update("UPDATE t_payment SET status = 3 WHERE payment_no = #{paymentNo} AND status = 1")
     int markRefundPending(@Param("paymentNo") String paymentNo);
 }

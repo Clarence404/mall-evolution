@@ -1,9 +1,12 @@
 package io.github.clarence404.mall.inventory.stock;
 
-import io.github.clarence404.mall.inventory.api.DeductStockRequest;
+import io.github.clarence404.mall.inventory.api.ConfirmStockRequest;
 import io.github.clarence404.mall.inventory.api.InventoryApi;
-import io.github.clarence404.mall.inventory.api.RestoreStockRequest;
+import io.github.clarence404.mall.inventory.api.ReleaseStockRequest;
+import io.github.clarence404.mall.inventory.api.ReserveResult;
+import io.github.clarence404.mall.inventory.api.ReserveStockRequest;
 import io.github.clarence404.mall.inventory.api.StockView;
+import io.github.clarence404.mall.inventory.reserve.ReservationService;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.RestController;
@@ -14,6 +17,7 @@ import org.springframework.web.bind.annotation.RestController;
 class InventoryController implements InventoryApi {
 
     private final InventoryService inventoryService;
+    private final ReservationService reservationService;
 
     @Override
     public List<StockView> listStocks(List<Long> skuIds) {
@@ -21,12 +25,17 @@ class InventoryController implements InventoryApi {
     }
 
     @Override
-    public void deduct(DeductStockRequest req) {
-        inventoryService.deduct(req.orderNo(), req.lines());
+    public ReserveResult reserve(ReserveStockRequest req) {
+        return reservationService.reserve(req.orderNo(), req.lines());
     }
 
     @Override
-    public void restore(RestoreStockRequest req) {
-        inventoryService.restore(req.orderNo(), req.lines());
+    public void release(ReleaseStockRequest req) {
+        reservationService.release(req.orderNo(), req.lines());
+    }
+
+    @Override
+    public void confirm(ConfirmStockRequest req) {
+        reservationService.confirm(req.orderNo());
     }
 }

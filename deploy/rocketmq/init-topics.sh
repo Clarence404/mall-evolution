@@ -13,9 +13,17 @@ done
 
 sh $ADMIN updateTopic -n "$N" -c DefaultCluster -t order-paid -a +message.type=NORMAL
 sh $ADMIN updateTopic -n "$N" -c DefaultCluster -t order-timeout -a +message.type=DELAY   # 定时消息
+# 阶段三：跨服务一致性
+sh $ADMIN updateTopic -n "$N" -c DefaultCluster -t payment-succeeded -a +message.type=NORMAL
+sh $ADMIN updateTopic -n "$N" -c DefaultCluster -t order-cancelled -a +message.type=NORMAL
+sh $ADMIN updateTopic -n "$N" -c DefaultCluster -t order-refund-required -a +message.type=NORMAL
 
 sh $ADMIN updateSubGroup -n "$N" -c DefaultCluster -g points-consumer -r 15
 sh $ADMIN updateSubGroup -n "$N" -c DefaultCluster -g notify-consumer -r 2
 sh $ADMIN updateSubGroup -n "$N" -c DefaultCluster -g shipment-consumer -r 15
 sh $ADMIN updateSubGroup -n "$N" -c DefaultCluster -g order-timeout-consumer -r 15
+sh $ADMIN updateSubGroup -n "$N" -c DefaultCluster -g order-payment-consumer -r 15
+sh $ADMIN updateSubGroup -n "$N" -c DefaultCluster -g inventory-confirm-consumer -r 15
+sh $ADMIN updateSubGroup -n "$N" -c DefaultCluster -g inventory-release-consumer -r 15
+sh $ADMIN updateSubGroup -n "$N" -c DefaultCluster -g payment-refund-consumer -r 15
 echo "topics and consumer groups ready"

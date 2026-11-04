@@ -18,6 +18,11 @@ spring:
       config:
         namespace: ${NACOS_NAMESPACE:}
         file-extension: yaml
+  http:
+    serviceclient:
+      mall-app:
+        connect-timeout: 200ms
+        read-timeout: 800ms
 
 mybatis:
   configuration:
@@ -44,8 +49,11 @@ mall:
   security:
     jwt:
       secret: ${JWT_SECRET}
+  inventory:
+    reservation-ttl: 30m                   # 比订单支付超时多 15 分钟，留出关单消息延迟和重试的时间
+    reservation-expire-interval: 5m        # 预占过期回查
   rocketmq:
-    enabled: false
+    enabled: true
     endpoints: ${ROCKETMQ_ENDPOINTS:localhost:8081}
     access-key: ${ROCKETMQ_ACCESS_KEY:}
     secret-key: ${ROCKETMQ_SECRET_KEY:}

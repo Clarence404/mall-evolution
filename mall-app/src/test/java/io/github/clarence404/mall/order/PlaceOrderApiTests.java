@@ -97,7 +97,9 @@ class PlaceOrderApiTests extends IntegrationTestBase {
     }
 
     @Test
-    void cancelPendingOrderRestoresStockRemotely() {
+    void cancelPendingOrderPublishesOrderCancelled() {
+        org.mockito.Mockito.when(paymentApi.close(org.mockito.ArgumentMatchers.anyString()))
+                .thenReturn(io.github.clarence404.mall.payment.api.ClosePaymentResult.CLOSED);
         String orderNo = createOrder(10001L);
 
         client.post()
@@ -110,9 +112,11 @@ class PlaceOrderApiTests extends IntegrationTestBase {
                 .jsonPath("$.status")
                 .isEqualTo("CANCELLED");
 
-        org.mockito.Mockito.verify(inventoryApi)
-                .restore(new io.github.clarence404.mall.inventory.api.RestoreStockRequest(
-                        orderNo, java.util.List.of(new io.github.clarence404.mall.inventory.api.StockLine(20001L, 2))));
+        org.assertj.core.api.Assertions.assertThat(jdbc.queryForObject(
+                        "SELECT COUNT(*) FROM t_outbox WHERE topic = 'order-cancelled' AND msg_key = ?",
+                        Integer.class,
+                        orderNo))
+                .isEqualTo(1);
     }
 
     private String createOrder(long userId) {

@@ -4,12 +4,12 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
 
+import io.github.clarence404.mall.common.outbox.OutboxWriter;
 import io.github.clarence404.mall.order.cancel.OrderTimeoutMessage;
 import io.github.clarence404.mall.order.domain.Order;
 import io.github.clarence404.mall.order.domain.OrderItemMapper;
 import io.github.clarence404.mall.order.domain.OrderMapper;
 import io.github.clarence404.mall.order.domain.OrderStatus;
-import io.github.clarence404.mall.order.outbox.OutboxWriter;
 import java.math.BigDecimal;
 import java.time.Duration;
 import org.junit.jupiter.api.Test;

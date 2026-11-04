@@ -9,8 +9,8 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import io.github.clarence404.mall.common.id.Ids;
-import io.github.clarence404.mall.order.outbox.OutboxMapper;
-import io.github.clarence404.mall.order.outbox.OutboxRelay;
+import io.github.clarence404.mall.common.outbox.OutboxMapper;
+import io.github.clarence404.mall.common.outbox.OutboxRelay;
 import io.github.clarence404.mall.support.IntegrationTestBase;
 import java.util.ArrayList;
 import java.util.List;

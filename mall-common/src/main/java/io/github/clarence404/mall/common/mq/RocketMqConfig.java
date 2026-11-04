@@ -21,7 +21,9 @@ import org.springframework.util.StringUtils;
  */
 @Configuration(proxyBeanMethods = false)
 @EnableConfigurationProperties(RocketMqProperties.class)
-@MapperScan(basePackages = "io.github.clarence404.mall.common.mq", annotationClass = Mapper.class)
+@MapperScan(
+        basePackages = {"io.github.clarence404.mall.common.mq", "io.github.clarence404.mall.common.outbox"},
+        annotationClass = Mapper.class)
 public class RocketMqConfig {
 
     @Bean

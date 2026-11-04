@@ -31,6 +31,9 @@ spring:
       inventory-service:
         connect-timeout: 200ms
         read-timeout: 800ms          # 扣减 P99 约 30ms，留足余量但不能拖住下单线程
+      payment-service:
+        connect-timeout: 200ms
+        read-timeout: 800ms
   mvc:
     apiversion:                 # 版本从请求头 API-Version 读，不带请求头按 1.0 处理
       default: 1.0
@@ -78,6 +81,8 @@ mall:
     pay-timeout: 15m             # 超时 15 分钟未支付取消：下单时写一条 order-timeout 定时消息
     timeout-scan-interval: 10m   # 扫描降级为兜底：每 10 分钟一次
     timeout-scan-after: 20m      # 只处理创建超过 20 分钟仍待支付的订单
+  reconcile:
+    enabled: false               # 每日对账只在生产（有三个只读从库）开启
   rocketmq:
     enabled: true
     endpoints: ${ROCKETMQ_ENDPOINTS:localhost:8081}   # Proxy 的 gRPC 接入点

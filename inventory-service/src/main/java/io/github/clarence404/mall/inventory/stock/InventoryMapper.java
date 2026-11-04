@@ -2,26 +2,32 @@ package io.github.clarence404.mall.inventory.stock;
 
 import io.github.clarence404.mall.inventory.api.StockView;
 import java.util.List;
-import org.apache.ibatis.annotations.Insert;
 import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
 import org.apache.ibatis.annotations.Select;
 import org.apache.ibatis.annotations.Update;
 
+/**
+ * stock 仍是可售数量：预占时 stock -n, reserved +n；确认时 reserved -n；释放时 stock +n, reserved -n。商品页展示 stock。
+ */
 @Mapper
 public interface InventoryMapper {
 
-    /** 影响行数为 0 表示库存不足；stock >= ? 由 InnoDB 行锁保证判断与扣减原子。 */
-    @Update("UPDATE t_inventory SET stock = stock - #{quantity} WHERE sku_id = #{skuId} AND stock >= #{quantity}")
-    int deduct(@Param("skuId") long skuId, @Param("quantity") int quantity);
+    /** stock >= n 条件更新，影响 0 行表示库存不足。 */
+    @Update("""
+            UPDATE t_inventory SET stock = stock - #{quantity}, reserved = reserved + #{quantity}
+            WHERE sku_id = #{skuId} AND stock >= #{quantity}
+            """)
+    int reserve(@Param("skuId") long skuId, @Param("quantity") int quantity);
 
-    /** 归还去重：撞主键说明这个订单已经归还过。 */
-    @Insert("INSERT INTO t_stock_restore_log (order_no) VALUES (#{orderNo})")
-    int insertRestoreLog(@Param("orderNo") String orderNo);
+    @Update("""
+            UPDATE t_inventory SET stock = stock + #{quantity}, reserved = reserved - #{quantity}
+            WHERE sku_id = #{skuId}
+            """)
+    int unreserve(@Param("skuId") long skuId, @Param("quantity") int quantity);
 
-    /** 取消订单时归还。 */
-    @Update("UPDATE t_inventory SET stock = stock + #{quantity} WHERE sku_id = #{skuId}")
-    int restore(@Param("skuId") long skuId, @Param("quantity") int quantity);
+    @Update("UPDATE t_inventory SET reserved = reserved - #{quantity} WHERE sku_id = #{skuId}")
+    int confirm(@Param("skuId") long skuId, @Param("quantity") int quantity);
 
     @Select("SELECT stock FROM t_inventory WHERE sku_id = #{skuId}")
     Integer selectStock(@Param("skuId") long skuId);

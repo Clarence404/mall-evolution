@@ -28,6 +28,13 @@ springdoc:                # 生产关闭接口文档
   swagger-ui:
     enabled: false
 
+mall:
+  reconcile:                     # 每日凌晨 2 点从三个库的只读从库对账
+    enabled: true
+    mall: {url: "jdbc:mysql://${MALL_REPLICA_HOST}:3306/mall", username: "${RECONCILE_DB_USERNAME}", password: "${RECONCILE_DB_PASSWORD}"}
+    inventory: {url: "jdbc:mysql://${INVENTORY_REPLICA_HOST}:3306/mall_inventory", username: "${RECONCILE_DB_USERNAME}", password: "${RECONCILE_DB_PASSWORD}"}
+    payment: {url: "jdbc:mysql://${PAYMENT_REPLICA_HOST}:3306/mall_payment", username: "${RECONCILE_DB_USERNAME}", password: "${RECONCILE_DB_PASSWORD}"}
+
 logging:
   level:
     root: info

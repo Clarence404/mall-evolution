@@ -1,6 +1,5 @@
 package io.github.clarence404.mall.payment;
 
-import io.github.clarence404.mall.order.api.OrderPayApi;
 import io.github.clarence404.mall.order.api.OrderQueryApi;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
@@ -12,9 +11,7 @@ import org.springframework.web.service.registry.ImportHttpServices;
  */
 @SpringBootApplication(scanBasePackages = "io.github.clarence404.mall")
 @EnableScheduling
-@ImportHttpServices(
-        group = "mall-app",
-        types = {OrderQueryApi.class, OrderPayApi.class})
+@ImportHttpServices(group = "mall-app", types = OrderQueryApi.class)
 public class PaymentServiceApplication {
 
     public static void main(String[] args) {

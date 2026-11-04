@@ -1,8 +1,5 @@
 package io.github.clarence404.mall.payment;
 
-import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.eq;
-import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -10,8 +7,6 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import com.jayway.jsonpath.JsonPath;
 import com.nimbusds.jose.jwk.source.ImmutableSecret;
-import io.github.clarence404.mall.order.api.MarkPaidResult;
-import io.github.clarence404.mall.order.api.OrderPayApi;
 import io.github.clarence404.mall.order.api.OrderQueryApi;
 import io.github.clarence404.mall.order.api.OrderSummaryDTO;
 import io.github.clarence404.mall.payment.pay.MockChannelSigner;
@@ -35,7 +30,7 @@ import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 
-/** 支付服务：建支付单（远程查订单）、渠道回调验签后同步 markPaid，订单服务用替身，H2 跑真实 SQL。 */
+/** 支付服务：建支付单（远程查订单）、渠道回调验签后同事务写 payment-succeeded、关闭支付单，订单服务用替身，H2 跑真实 SQL。 */
 @SpringBootTest
 @AutoConfigureMockMvc
 @ActiveProfiles({"it", "h2"})
@@ -53,14 +48,13 @@ class PaymentFlowH2Test {
     @MockitoBean
     OrderQueryApi orderQueryApi;
 
-    @MockitoBean
-    OrderPayApi orderPayApi;
+    @Autowired
+    io.github.clarence404.mall.payment.pay.RefundService refundService;
 
     @Test
     void createPaymentThenChannelCallbackMarksOrderPaid() throws Exception {
         when(orderQueryApi.getByOrderNo("18492033857208325120001"))
                 .thenReturn(new OrderSummaryDTO("18492033857208325120001", 10001L, 10, new BigDecimal("25.60")));
-        when(orderPayApi.markPaid(eq("18492033857208325120001"), any())).thenReturn(MarkPaidResult.PAID);
 
         String body = mvc.perform(post("/api/payments")
                         .header(HttpHeaders.AUTHORIZATION, bearer(10001L))
@@ -81,10 +75,113 @@ class PaymentFlowH2Test {
                         .content(notify))
                 .andExpect(status().isOk());
 
-        verify(orderPayApi).markPaid(eq("18492033857208325120001"), any());
+        org.assertj.core.api.Assertions.assertThat(jdbc.queryForObject(
+                        "SELECT COUNT(*) FROM t_outbox WHERE topic = 'payment-succeeded' AND msg_key = ?",
+                        Integer.class,
+                        paymentNo))
+                .isEqualTo(1); // 与支付单置成功同一事务写入，由中继发出
+        mvc.perform(post("/api/payments/notify/mock")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(notify))
+                .andExpect(status().isOk()); // 渠道重复回调：幂等
+
+        // 已付款的订单关不掉支付单：订单侧不取消，等 payment-succeeded
+        mvc.perform(post("/internal/payments/{orderNo}/close", "18492033857208325120001"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$").value("PAID"));
+        mvc.perform(post("/internal/payments/{orderNo}/close", "NOT-PAID-ORDER"))
+                .andExpect(jsonPath("$").value("CLOSED"));
         org.assertj.core.api.Assertions.assertThat(jdbc.queryForObject(
                         "SELECT status FROM t_payment WHERE payment_no = ?", Integer.class, paymentNo))
                 .isEqualTo(1);
+    }
+
+    @Test
+    void twoPaymentsOfSameOrderBothSucceedWithoutFailingTheCallback() throws Exception {
+        String orderNo = "18492033857208325120002";
+        when(orderQueryApi.getByOrderNo(orderNo))
+                .thenReturn(new OrderSummaryDTO(orderNo, 10001L, 10, new BigDecimal("25.60")));
+        String p1 = createPayment(orderNo);
+        String p2 = createPayment(orderNo); // 用户换了个渠道又发起一次
+
+        callback(p1, "T21").andExpect(status().isOk());
+        callback(p2, "T22").andExpect(status().isOk()); // 原来第二条 payment-succeeded 撞 uk_topic_key，回调永远失败
+
+        org.assertj.core.api.Assertions.assertThat(jdbc.queryForList(
+                        "SELECT msg_key FROM t_outbox WHERE topic = 'payment-succeeded' AND msg_key IN (?, ?)",
+                        String.class,
+                        p1,
+                        p2))
+                .containsExactlyInAnyOrder(p1, p2);
+        org.assertj.core.api.Assertions.assertThat(jdbc.queryForObject(
+                        "SELECT COUNT(*) FROM t_payment WHERE order_no = ? AND status = 1", Integer.class, orderNo))
+                .isEqualTo(2);
+    }
+
+    @Test
+    void lateCallbackOnClosedPaymentStillMarksSuccess() throws Exception {
+        String orderNo = "18492033857208325120003";
+        when(orderQueryApi.getByOrderNo(orderNo))
+                .thenReturn(new OrderSummaryDTO(orderNo, 10001L, 10, new BigDecimal("25.60")));
+        String paymentNo = createPayment(orderNo);
+        mvc.perform(post("/internal/payments/{orderNo}/close", orderNo))
+                .andExpect(jsonPath("$").value("CLOSED"));
+        org.assertj.core.api.Assertions.assertThat(jdbc.queryForObject(
+                        "SELECT status FROM t_payment WHERE payment_no = ?", Integer.class, paymentNo))
+                .isEqualTo(2);
+
+        callback(paymentNo, "T31").andExpect(status().isOk()); // 钱已到账：status IN (0, 2) 都置成功，订单侧再决定退款
+
+        org.assertj.core.api.Assertions.assertThat(jdbc.queryForObject(
+                        "SELECT status FROM t_payment WHERE payment_no = ?", Integer.class, paymentNo))
+                .isEqualTo(1);
+        org.assertj.core.api.Assertions.assertThat(jdbc.queryForObject(
+                        "SELECT COUNT(*) FROM t_outbox WHERE topic = 'payment-succeeded' AND msg_key = ?",
+                        Integer.class,
+                        paymentNo))
+                .isEqualTo(1);
+    }
+
+    @Test
+    void refundRequiredRefundsOnlyThatPaymentAndIsIdempotent() throws Exception {
+        String orderNo = "18492033857208325120004";
+        when(orderQueryApi.getByOrderNo(orderNo))
+                .thenReturn(new OrderSummaryDTO(orderNo, 10001L, 10, new BigDecimal("25.60")));
+        String p1 = createPayment(orderNo);
+        String p2 = createPayment(orderNo);
+        callback(p1, "T41").andExpect(status().isOk());
+        callback(p2, "T42").andExpect(status().isOk());
+
+        refundService.refund(orderNo, p2);
+        refundService.refund(orderNo, p2); // 重复消息
+
+        org.assertj.core.api.Assertions.assertThat(
+                        jdbc.queryForObject("SELECT status FROM t_payment WHERE payment_no = ?", Integer.class, p1))
+                .isEqualTo(1); // 第一笔照常入账
+        org.assertj.core.api.Assertions.assertThat(
+                        jdbc.queryForObject("SELECT status FROM t_payment WHERE payment_no = ?", Integer.class, p2))
+                .isEqualTo(3); // 第二笔待退款
+    }
+
+    private String createPayment(String orderNo) throws Exception {
+        String body = mvc.perform(post("/api/payments")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(10001L))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"orderNo\":\"" + orderNo + "\"}"))
+                .andExpect(status().isCreated())
+                .andReturn()
+                .getResponse()
+                .getContentAsString(StandardCharsets.UTF_8);
+        return JsonPath.read(body, "$.paymentNo");
+    }
+
+    private org.springframework.test.web.servlet.ResultActions callback(String paymentNo, String tradeNo)
+            throws Exception {
+        return mvc.perform(post("/api/payments/notify/mock")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"paymentNo\":\"" + paymentNo + "\",\"channelTradeNo\":\"" + tradeNo
+                        + "\",\"amount\":\"25.60\",\"sign\":\"" + signer.sign(paymentNo, tradeNo, "25.60")
+                        + "\"}"));
     }
 
     @Test

@@ -1,34 +1,33 @@
 package io.github.clarence404.mall.payment.pay;
 
-import io.github.clarence404.mall.order.api.MarkPaidRequest;
-import io.github.clarence404.mall.order.api.MarkPaidResult;
-import io.github.clarence404.mall.order.api.OrderPayApi;
+import io.github.clarence404.mall.common.outbox.OutboxWriter;
 import lombok.RequiredArgsConstructor;
-import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 /**
- * 支付成功回调（拆分过渡期）：先把 t_payment 置成功，再同步调用 OrderPayApi.markPaid。
+ * 支付成功回调：验签后在一个本地事务里把 t_payment 改为成功并写入自己库里的 t_outbox，由投递任务发出
+ * payment-succeeded；同步的 OrderPayApi.markPaid 就此下线。支付成功后不能失败、只能往前推。
  *
- * <p>调用失败（超时、5xx）直接抛出，给渠道返回失败，靠渠道的回调重试兜底；所以重复回调时即使支付单已是成功状态，
- * 也要再调一次 markPaid（订单侧按订单号幂等）。写接口不自动重试。
+ * <p>消息键用支付单号而不是订单号：一个订单可以有多张支付单（用户换渠道重新发起），两张都付成功时第二条
+ * payment-succeeded 不能撞 uk_topic_key 回滚整个回调，订单侧收到后发现订单已支付，会要求退掉这笔重复付款。
  */
-@Slf4j
 @Service
 @RequiredArgsConstructor
 public class PayCallbackService {
 
     private final PaymentMapper paymentMapper;
-    private final OrderPayApi orderPayApi;
+    private final OutboxWriter outboxWriter;
 
+    @Transactional
     public void onPaid(PayNotify n) {
         if (paymentMapper.markSuccess(n.paymentNo(), n.channelTradeNo()) == 0) {
-            log.info("重复回调，支付单已是成功状态，继续确认订单，paymentNo={}", n.paymentNo());
+            return; // 重复回调：支付单已是成功状态，payment-succeeded 已写过
         }
-        MarkPaidResult r =
-                orderPayApi.markPaid(n.orderNo(), new MarkPaidRequest(n.paymentNo(), n.amount(), n.paidAt()));
-        if (r == MarkPaidResult.ORDER_CANCELLED) {
-            paymentMapper.markRefundPending(n.paymentNo()); // 订单已超时关闭：支付单转待退款，走原路退款
-        }
+        outboxWriter.append(
+                "payment-succeeded",
+                n.paymentNo(),
+                new PaymentSucceeded(n.orderNo(), n.paymentNo(), n.userId(), n.amount(), n.paidAt()),
+                null);
     }
 }
