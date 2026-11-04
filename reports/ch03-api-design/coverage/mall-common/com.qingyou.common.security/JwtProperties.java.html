@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>JwtProperties.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">mall-common</a> &gt; <a href="index.source.html" class="el_package">com.qingyou.common.security</a> &gt; <span class="el_source">JwtProperties.java</span></div><h1>JwtProperties.java</h1><pre class="source lang-java linenums">package com.qingyou.common.security;
+
+import java.nio.charset.StandardCharsets;
+import java.time.Duration;
+import javax.crypto.SecretKey;
+import javax.crypto.spec.SecretKeySpec;
+import org.springframework.boot.context.properties.ConfigurationProperties;
+
+/**
+ * JWT 配置：访问令牌 30 分钟，刷新令牌 14 天（服务端只存哈希）。密钥由环境变量注入，至少 32 字节。
+ */
+@ConfigurationProperties(prefix = &quot;qingyou.security.jwt&quot;)
+public record JwtProperties(String secret, String issuer, Duration accessTokenTtl, Duration refreshTokenTtl) {
+
+<span class="nc" id="L15">    public JwtProperties {</span>
+<span class="nc bnc" id="L16" title="All 2 branches missed.">        if (issuer == null) {</span>
+<span class="nc" id="L17">            issuer = &quot;qingyou-mall&quot;;</span>
+        }
+<span class="nc bnc" id="L19" title="All 2 branches missed.">        if (accessTokenTtl == null) {</span>
+<span class="nc" id="L20">            accessTokenTtl = Duration.ofMinutes(30);</span>
+        }
+<span class="nc bnc" id="L22" title="All 2 branches missed.">        if (refreshTokenTtl == null) {</span>
+<span class="nc" id="L23">            refreshTokenTtl = Duration.ofDays(14);</span>
+        }
+<span class="nc" id="L25">    }</span>
+
+    public SecretKey secretKey() {
+<span class="nc bnc" id="L28" title="All 2 branches missed.">        byte[] bytes = secret == null ? new byte[0] : secret.getBytes(StandardCharsets.UTF_8);</span>
+<span class="nc bnc" id="L29" title="All 2 branches missed.">        if (bytes.length &lt; 32) {</span>
+<span class="nc" id="L30">            throw new IllegalStateException(&quot;qingyou.security.jwt.secret 至少 32 字节&quot;);</span>
+        }
+<span class="nc" id="L32">        return new SecretKeySpec(bytes, &quot;HmacSHA256&quot;);</span>
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.13.202504020838</span></div></body></html>
