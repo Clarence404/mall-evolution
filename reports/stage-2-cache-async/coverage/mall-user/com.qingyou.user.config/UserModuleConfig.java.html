@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>UserModuleConfig.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">mall-user</a> &gt; <a href="index.source.html" class="el_package">com.qingyou.user.config</a> &gt; <span class="el_source">UserModuleConfig.java</span></div><h1>UserModuleConfig.java</h1><pre class="source lang-java linenums">package com.qingyou.user.config;
+
+import com.nimbusds.jose.jwk.source.ImmutableSecret;
+import com.qingyou.common.security.JwtProperties;
+import org.apache.ibatis.annotations.Mapper;
+import org.mybatis.spring.annotation.MapperScan;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+import org.springframework.security.crypto.factory.PasswordEncoderFactories;
+import org.springframework.security.crypto.password.PasswordEncoder;
+import org.springframework.security.oauth2.jwt.JwtEncoder;
+import org.springframework.security.oauth2.jwt.NimbusJwtEncoder;
+
+/** 每个模块只扫描自己包下的 Mapper；签发令牌只在用户模块。 */
+@Configuration(proxyBeanMethods = false)
+@MapperScan(basePackages = &quot;com.qingyou.user&quot;, annotationClass = Mapper.class)
+<span class="nc" id="L17">public class UserModuleConfig {</span>
+
+    @Bean
+    PasswordEncoder passwordEncoder() {
+<span class="nc" id="L21">        return PasswordEncoderFactories.createDelegatingPasswordEncoder();</span>
+    }
+
+    @Bean
+    JwtEncoder jwtEncoder(JwtProperties props) {
+<span class="nc" id="L26">        return new NimbusJwtEncoder(new ImmutableSecret&lt;&gt;(props.secretKey()));</span>
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.13.202504020838</span></div></body></html>
