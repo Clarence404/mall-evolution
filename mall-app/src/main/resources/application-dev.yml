@@ -1,0 +1,12 @@
+# 本地：连 docker compose 起的 MySQL，只用本地开发的占位密码
+spring:
+  datasource:
+    url: jdbc:mysql://localhost:3306/mall?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai
+    username: mall
+    password: mall_dev
+  config:
+    import: optional:file:./application-local.yml   # 个人覆盖项，已加入 .gitignore
+
+logging:
+  level:
+    io.github.clarence404.mall: debug

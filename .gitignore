@@ -1,0 +1,23 @@
+# Maven
+target/
+.flattened-pom.xml
+
+# IDE
+.idea/
+*.iml
+.vscode/
+.classpath
+.project
+.settings/
+
+# 本地配置与密钥：不进仓库
+application-local.yml
+.env
+
+# OS
+.DS_Store
+Thumbs.db
+
+# 日志
+logs/
+*.log

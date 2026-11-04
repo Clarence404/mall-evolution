@@ -1,0 +1,90 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+    <parent>
+        <groupId>io.github.clarence404.mall</groupId>
+        <artifactId>mall-evolution</artifactId>
+        <version>${revision}</version>
+    </parent>
+
+    <artifactId>mall-app</artifactId>
+    <description>启动模块：启动类、配置文件、打包成可执行 jar</description>
+
+    <dependencies>
+        <dependency>
+            <groupId>io.github.clarence404.mall</groupId>
+            <artifactId>mall-user</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>io.github.clarence404.mall</groupId>
+            <artifactId>mall-product</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>io.github.clarence404.mall</groupId>
+            <artifactId>mall-inventory</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>io.github.clarence404.mall</groupId>
+            <artifactId>mall-order</artifactId>
+        </dependency>
+
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-actuator</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-flyway</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.flywaydb</groupId>
+            <artifactId>flyway-mysql</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>com.mysql</groupId>
+            <artifactId>mysql-connector-j</artifactId>
+            <scope>runtime</scope>
+        </dependency>
+
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-test</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>com.tngtech.archunit</groupId>
+            <artifactId>archunit-junit5</artifactId>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
+
+    <build>
+        <finalName>mall-app</finalName>
+        <plugins>
+            <!-- 只有启动模块打可执行 jar -->
+            <plugin>
+                <groupId>org.springframework.boot</groupId>
+                <artifactId>spring-boot-maven-plugin</artifactId>
+            </plugin>
+            <!-- 覆盖率汇总：本模块的测试会跑到依赖的业务模块，按「启动模块 + 全部依赖模块」出一份汇总报告 -->
+            <plugin>
+                <groupId>org.jacoco</groupId>
+                <artifactId>jacoco-maven-plugin</artifactId>
+                <executions>
+                    <execution>
+                        <id>report-aggregate</id>
+                        <phase>verify</phase>
+                        <goals>
+                            <goal>report-aggregate</goal>
+                        </goals>
+                        <configuration>
+                            <includeCurrentProject>true</includeCurrentProject>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+        </plugins>
+    </build>
+</project>

@@ -1,0 +1,20 @@
+# /etc/systemd/system/mall-evolution.service
+[Unit]
+Description=mall-evolution (mall-app)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=mall
+Group=mall
+WorkingDirectory=/opt/mall-evolution
+# 数据库密码等密钥只放在这个文件里：权限 600，只有部署账号可读
+EnvironmentFile=/etc/mall-evolution/env
+ExecStart=/usr/bin/java -Xms4g -Xmx4g -XX:+UseG1GC -jar /opt/mall-evolution/mall-app.jar --spring.profiles.active=prod
+SuccessExitStatus=143
+TimeoutStopSec=60
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

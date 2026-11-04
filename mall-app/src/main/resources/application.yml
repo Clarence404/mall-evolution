@@ -1,0 +1,29 @@
+# 公共配置；环境差异放 application-{dev,test,prod}.yml，密钥一律走环境变量
+spring:
+  application:
+    name: mall-app
+  profiles:
+    default: dev
+  datasource:
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    hikari:
+      maximum-pool-size: 20
+      connection-timeout: 3000
+
+server:
+  port: 8080
+  shutdown: graceful
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+  endpoint:
+    health:
+      probes:
+        enabled: true
+
+mall:
+  id:
+    worker-id: ${WORKER_ID:1}   # 雪花 ID 机器号：两台生产机分别是 1 和 2

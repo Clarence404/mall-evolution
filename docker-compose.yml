@@ -1,0 +1,26 @@
+# 本地开发依赖。只用本地开发的占位密码 mall_dev，不要在这里写任何真实凭据
+services:
+  mysql:
+    image: mysql:8.4
+    container_name: mall-mysql
+    environment:
+      MYSQL_ROOT_PASSWORD: mall_dev
+      MYSQL_DATABASE: mall
+      MYSQL_USER: mall
+      MYSQL_PASSWORD: mall_dev
+      TZ: Asia/Shanghai
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_0900_ai_ci
+    ports:
+      - "3306:3306"
+    volumes:
+      - mysql-data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-umall", "-pmall_dev"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+
+volumes:
+  mysql-data:
