@@ -1,0 +1,15 @@
+GROUP,PACKAGE,CLASS,INSTRUCTION_MISSED,INSTRUCTION_COVERED,BRANCH_MISSED,BRANCH_COVERED,LINE_MISSED,LINE_COVERED,COMPLEXITY_MISSED,COMPLEXITY_COVERED,METHOD_MISSED,METHOD_COVERED
+mall-app,com.qingyou.reconcile,ReconcileJob,259,159,8,4,46,40,16,7,9,6
+mall-app,com.qingyou.reconcile,ReconcileChecker.DiffType,0,45,0,0,0,8,0,1,0,1
+mall-app,com.qingyou.reconcile,ReconcileReader.Snapshot,0,15,0,0,0,1,0,1,0,1
+mall-app,com.qingyou.reconcile,ReconcileChecker,3,235,3,35,1,41,4,21,1,5
+mall-app,com.qingyou.reconcile,ReconcileChecker.Action,0,33,0,0,0,6,0,1,0,1
+mall-app,com.qingyou.reconcile,ReconcileProperties,15,0,0,0,1,0,1,0,1,0
+mall-app,com.qingyou.reconcile,ReconcileChecker.InventoryRow,0,12,0,0,0,1,0,1,0,1
+mall-app,com.qingyou.reconcile,ReconcileChecker.OrderRow,0,18,0,0,0,3,0,2,0,2
+mall-app,com.qingyou.reconcile,ReconcileReader,2,232,1,3,1,37,1,7,0,6
+mall-app,com.qingyou.reconcile,ReconcileChecker.PaymentRow,0,21,0,0,0,1,0,1,0,1
+mall-app,com.qingyou.reconcile,ReconcileChecker.Diff,0,15,0,0,0,1,0,1,0,1
+mall-app,com.qingyou.reconcile,ReconcileProperties.Source,12,0,0,0,1,0,1,0,1,0
+mall-app,com.qingyou.reconcile,ReconcileChecker.ReservationRow,0,15,0,0,0,1,0,1,0,1
+mall-app,com.qingyou,MallApplication,5,3,0,0,2,1,1,1,1,1

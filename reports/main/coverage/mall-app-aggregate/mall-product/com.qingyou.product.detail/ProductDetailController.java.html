@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../../jacoco-resources/report.gif" type="image/gif"/><title>ProductDetailController.java</title><link rel="stylesheet" href="../../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../../index.html" class="el_report">mall-app</a> &gt; <a href="../index.html" class="el_bundle">mall-product</a> &gt; <a href="index.source.html" class="el_package">com.qingyou.product.detail</a> &gt; <span class="el_source">ProductDetailController.java</span></div><h1>ProductDetailController.java</h1><pre class="source lang-java linenums">package com.qingyou.product.detail;
+
+import com.qingyou.common.error.BizException;
+import com.qingyou.product.api.ProductErrorCode;
+import com.qingyou.product.stock.StockDisplayService;
+import io.swagger.v3.oas.annotations.Operation;
+import jakarta.validation.constraints.Positive;
+import lombok.RequiredArgsConstructor;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.RestController;
+
+@RestController
+@RequiredArgsConstructor
+class ProductDetailController {
+
+    private final ProductDetailService productDetailService;
+    private final StockDisplayService stockDisplayService;
+
+    /** skuId 先做格式校验（正整数），不存在的 SKU 缓存空值 60 秒，防穿透。 */
+    @Operation(operationId = &quot;getProductDetail&quot;)
+    @GetMapping(&quot;/api/products/{skuId}&quot;)
+    ProductDetailPage detail(@PathVariable @Positive long skuId) {
+<span class="fc" id="L24">        ProductDetailView product = productDetailService</span>
+<span class="fc" id="L25">                .get(skuId)</span>
+<span class="fc" id="L26">                .orElseThrow(() -&gt; new BizException(ProductErrorCode.PRODUCT_NOT_FOUND, &quot;商品 &quot; + skuId + &quot; 不存在&quot;));</span>
+<span class="fc" id="L27">        return new ProductDetailPage(product, stockDisplayService.inStock(skuId));</span>
+    }
+
+<span class="fc" id="L30">    record ProductDetailPage(ProductDetailView product, boolean inStock) {}</span>
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.13.202504020838</span></div></body></html>
