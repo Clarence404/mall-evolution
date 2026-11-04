@@ -7,7 +7,9 @@ spring:
   datasource:
     driver-class-name: com.mysql.cj.jdbc.Driver
     hikari:
-      maximum-pool-size: 30
+      maximum-pool-size: 40                          # 压测第 2 轮：30 个连接不够，调到 40
+      connection-timeout: 250                        # 池子耗尽时快速失败；HikariCP 允许的下限是 250ms
+      transaction-isolation: TRANSACTION_READ_COMMITTED   # 换桶时条件不满足的 UPDATE 语句结束就释放行锁
   cloud:
     nacos:
       server-addr: ${NACOS_ADDR:localhost:8848}
@@ -51,7 +53,8 @@ mall:
       secret: ${JWT_SECRET}
   inventory:
     reservation-ttl: 30m                   # 比订单支付超时多 15 分钟，留出关单消息延迟和重试的时间
-    reservation-expire-interval: 5m        # 预占过期回查
+    reservation-expire-interval: 5m        # 预占过期回查；大促期间在 Nacos 改为 1m
+    bucket-rebalance-interval: 5s
   rocketmq:
     enabled: true
     endpoints: ${ROCKETMQ_ENDPOINTS:localhost:8081}

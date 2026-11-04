@@ -1,0 +1,5 @@
+# Nacos：inventory-service.yaml
+mall:
+  inventory:
+    reservation-expire-interval: 5m   # 大促期间改为 1m，尽快把超时订单的预占还回来
+    bucket-rebalance-interval: 5s

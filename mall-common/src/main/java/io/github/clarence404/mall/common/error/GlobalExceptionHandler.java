@@ -1,6 +1,7 @@
 package io.github.clarence404.mall.common.error;
 
 import io.github.clarence404.mall.common.remote.RemoteBizException;
+import jakarta.servlet.http.HttpServletResponse;
 import java.net.URI;
 import java.util.List;
 import java.util.Map;
@@ -30,8 +31,13 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
     private static final String PROBLEM_BASE = "https://api.mall.example/problems/";
 
     @ExceptionHandler(BizException.class)
-    public ProblemDetail handleBiz(BizException ex) {
+    public ProblemDetail handleBiz(BizException ex, HttpServletResponse response) {
         ErrorCode ec = ex.getErrorCode();
+        if (ec == CommonErrorCode.SYSTEM_BUSY) {
+            response.setHeader(HttpHeaders.RETRY_AFTER, "2"); // App 按 Retry-After 等待后再让用户重试
+            log.warn("系统繁忙，快速失败：{}", ex.getMessage());
+            return problem(ec, ec.title());
+        }
         if (ec.status().is5xxServerError()) {
             log.error("业务处理失败，code={}", ec.code(), ex);
             return problem(ec, ec.title()); // 5xx 不把内部信息给客户端

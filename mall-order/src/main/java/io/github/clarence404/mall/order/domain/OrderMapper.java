@@ -78,6 +78,8 @@ public interface OrderMapper {
     @Select("SELECT payment_no FROM t_order WHERE order_no = #{orderNo}")
     String selectPaymentNo(@Param("orderNo") String orderNo);
 
+    record SkuPendingCount(long skuId, int count) {}
+
     @Select("SELECT status FROM t_order WHERE order_no = #{orderNo}")
     OrderStatus selectStatus(@Param("orderNo") String orderNo);
 
@@ -90,6 +92,7 @@ public interface OrderMapper {
             FROM t_order
             WHERE user_id = #{userId}
               <if test="cursorId != null">AND id &lt; #{cursorId}</if>
+              <if test="minId != null">AND id &gt;= #{minId}</if>
               <if test="status != null">AND status = #{status}</if>
             ORDER BY id DESC
             LIMIT #{limit}
@@ -99,7 +102,31 @@ public interface OrderMapper {
             @Param("userId") long userId,
             @Param("status") OrderStatus status,
             @Param("cursorId") Long cursorId,
+            @Param("minId") Long minId,
             @Param("limit") int limit);
+
+    /**
+     * 下单频控：该用户在本次下单 SKU 上的待支付订单数；id 下界取 30 分钟前的雪花 ID，只扫该用户最近的订单。
+     * 两张表都归 mall-order，JOIN 不跨模块。
+     */
+    @Select("""
+            <script>
+            SELECT i.sku_id AS sku_id, COUNT(*) AS cnt
+            FROM t_order o
+            JOIN t_order_item i ON i.order_id = o.id
+            WHERE o.user_id = #{userId} AND o.id &gt;= #{minId} AND o.status = 10
+              AND i.sku_id IN <foreach collection="skuIds" item="s" open="(" separator="," close=")">#{s}</foreach>
+            GROUP BY i.sku_id
+            </script>
+            """)
+    @org.apache.ibatis.annotations.ConstructorArgs({
+        @org.apache.ibatis.annotations.Arg(column = "sku_id", javaType = long.class),
+        @org.apache.ibatis.annotations.Arg(column = "cnt", javaType = int.class)
+    })
+    List<SkuPendingCount> countPendingBySku(
+            @Param("userId") long userId,
+            @Param("minId") long minId,
+            @Param("skuIds") java.util.Collection<Long> skuIds);
 
     /** 超时未支付扫描：走 idx_status_created。 */
     @Select("""

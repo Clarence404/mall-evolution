@@ -21,6 +21,8 @@ public class Reservation {
     private int quantity;
     private int status;
     private LocalDateTime expireAt;
+    /** 分桶 SKU 预占时选中的桶，confirm / release 按它回到同一个桶；不分桶为 null。 */
+    private Integer bucketNo;
 
     public static Reservation reserved(String orderNo, ReserveLine line, LocalDateTime expireAt) {
         Reservation r = new Reservation();

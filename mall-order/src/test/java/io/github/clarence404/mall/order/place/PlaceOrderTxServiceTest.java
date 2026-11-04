@@ -11,7 +11,6 @@ import io.github.clarence404.mall.order.domain.OrderItemMapper;
 import io.github.clarence404.mall.order.domain.OrderMapper;
 import io.github.clarence404.mall.order.domain.OrderStatus;
 import java.math.BigDecimal;
-import java.time.Duration;
 import org.junit.jupiter.api.Test;
 import org.mockito.InOrder;
 
@@ -21,7 +20,7 @@ class PlaceOrderTxServiceTest {
     OrderItemMapper orderItemMapper = mock(OrderItemMapper.class);
     OutboxWriter outboxWriter = mock(OutboxWriter.class);
     PlaceOrderTxService service =
-            new PlaceOrderTxService(orderMapper, orderItemMapper, outboxWriter, Duration.ofMinutes(15));
+            new PlaceOrderTxService(orderMapper, orderItemMapper, outboxWriter, new PromoProperties());
 
     @Test
     void writesOrderItemsAndTimeoutMessageInOneTransaction() {

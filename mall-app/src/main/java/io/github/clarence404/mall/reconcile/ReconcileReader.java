@@ -92,13 +92,14 @@ class ReconcileReader {
                             (rs, n) -> new ReservationRow(rs.getString(1), rs.getLong(2), rs.getInt(3), rs.getInt(4))));
         }
 
+        // 分桶的 SKU（热点库存）：预占记在桶上，t_inventory.reserved 加上各桶 reserved 才是总预占
         List<InventoryRow> inventories =
                 inventory.query("""
-                SELECT i.sku_id, i.reserved, COALESCE(SUM(r.quantity), 0)
+                SELECT i.sku_id,
+                       i.reserved + COALESCE((SELECT SUM(b.reserved) FROM t_inventory_bucket b WHERE b.sku_id = i.sku_id), 0),
+                       COALESCE((SELECT SUM(r.quantity) FROM t_inventory_reservation r
+                                 WHERE r.sku_id = i.sku_id AND r.status = 1), 0)
                 FROM t_inventory i
-                LEFT JOIN t_inventory_reservation r ON r.sku_id = i.sku_id AND r.status = 1
-                GROUP BY i.sku_id, i.reserved
-                HAVING i.reserved <> COALESCE(SUM(r.quantity), 0)
                 """, (rs, n) -> new InventoryRow(rs.getLong(1), rs.getInt(2), rs.getInt(3)));
         return new Snapshot(orders, payments, reservations, inventories);
     }

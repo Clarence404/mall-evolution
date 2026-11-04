@@ -1,0 +1,41 @@
+# Nacos：mall-app.yaml（namespace 按 dev / test / prod 隔离）。大促时的取值见注释
+spring:
+  http:
+    serviceclient:
+      inventory-service: {connect-timeout: 200ms, read-timeout: 500ms}
+      payment-service: {connect-timeout: 200ms, read-timeout: 500ms}
+  cloud:
+    circuitbreaker:
+      resilience4j:
+        disable-time-limiter: true                # 超时只由 HTTP 客户端控制，避免 TimeLimiter 默认 1s 抢先触发
+        enable-semaphore-default-bulkhead: true
+        disable-thread-pool: true
+resilience4j:
+  circuitbreaker:
+    instances:
+      inventory-reserve:
+        sliding-window-type: TIME_BASED
+        sliding-window-size: 10                   # 统计最近 10 秒
+        minimum-number-of-calls: 100
+        failure-rate-threshold: 50
+        slow-call-duration-threshold: 300ms       # 慢于 300ms 记为慢调用
+        slow-call-rate-threshold: 60
+        wait-duration-in-open-state: 5s
+        permitted-number-of-calls-in-half-open-state: 20
+        record-failure-predicate: io.github.clarence404.mall.common.remote.RemoteFailurePredicate   # 只记超时与 5xx
+      payment-query: {sliding-window-type: TIME_BASED, sliding-window-size: 10, minimum-number-of-calls: 50, failure-rate-threshold: 50, wait-duration-in-open-state: 10s, record-failure-predicate: io.github.clarence404.mall.common.remote.RemoteFailurePredicate}
+  bulkhead:
+    instances:
+      inventory-reserve:
+        max-concurrent-calls: 60                  # 每个 Pod 同时调用库存服务的上限
+        max-wait-duration: 0                      # 拿不到许可立即拒绝，不排队
+      payment-query:                              # 只读查询也显式给舱壁，不吃 Resilience4j 的默认值（25）
+        max-concurrent-calls: 20                  # 支付状态查询比预占少得多，20 足够；满了直接降级为「状态确认中」
+        max-wait-duration: 0
+mall:
+  degrade:
+    recommend-enabled: true          # 大促：false，商品详情、购物车的「猜你喜欢」返回运营配置的固定列表
+    points-display-enabled: true     # 大促：false，订单详情、我的页面不再实时查积分
+    order-list-months: 0             # 大促：3，订单列表只查近 3 个月；0 表示不限制
+  promo:
+    activity-sku-ids: []             # 大促前一天填入活动白名单 SKU：订单里只要有一个，支付超时按 5 分钟

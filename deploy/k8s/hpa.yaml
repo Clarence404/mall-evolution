@@ -1,0 +1,26 @@
+# 日常保留 HPA；大促不依赖它（0 点尖峰一分钟内到达，Pod 启动加预热要 2 分钟），按预案提前扩容
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: mall-app
+  namespace: mall
+spec:
+  scaleTargetRef: {apiVersion: apps/v1, kind: Deployment, name: mall-app}
+  minReplicas: 4
+  maxReplicas: 16
+  metrics:
+    - type: Resource
+      resource: {name: cpu, target: {type: Utilization, averageUtilization: 60}}
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: inventory-service
+  namespace: mall
+spec:
+  scaleTargetRef: {apiVersion: apps/v1, kind: Deployment, name: inventory-service}
+  minReplicas: 3
+  maxReplicas: 8
+  metrics:
+    - type: Resource
+      resource: {name: cpu, target: {type: Utilization, averageUtilization: 60}}

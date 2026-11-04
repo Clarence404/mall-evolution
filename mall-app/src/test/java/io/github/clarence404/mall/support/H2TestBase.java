@@ -2,8 +2,11 @@ package io.github.clarence404.mall.support;
 
 import io.github.clarence404.mall.inventory.api.InventoryApi;
 import io.github.clarence404.mall.payment.api.PaymentApi;
+import org.junit.jupiter.api.BeforeEach;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 
@@ -23,4 +26,13 @@ public abstract class H2TestBase {
 
     @MockitoBean
     protected PaymentApi paymentApi;
+
+    @Autowired
+    protected JdbcTemplate jdbcTemplate;
+
+    /** 阶段四有下单频控（同一 SKU 待支付最多 2 单）：每个测试开始前把遗留的待支付订单关掉，测试之间互不影响。 */
+    @BeforeEach
+    void closeLeftoverPendingOrders() {
+        jdbcTemplate.update("UPDATE t_order SET status = 50 WHERE status = 10");
+    }
 }

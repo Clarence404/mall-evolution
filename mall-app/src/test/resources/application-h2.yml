@@ -11,6 +11,8 @@ spring:
       port: 6399
       connect-timeout: 100ms
 mall:
+  warmup:
+    top-products: 0
   cache:
     l1-invalidation-enabled: false
   order:

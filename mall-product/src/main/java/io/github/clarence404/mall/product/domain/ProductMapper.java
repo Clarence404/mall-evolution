@@ -47,6 +47,14 @@ public interface ProductMapper {
             @Param("price") BigDecimal price,
             @Param("status") Integer status);
 
+    /** 猜你喜欢：价格最接近的在售商品（演示用的简单规则）。 */
+    @Select("""
+            SELECT p.id FROM t_product p, (SELECT price FROM t_product WHERE id = #{skuId}) base
+            WHERE p.status = 1 AND p.id <> #{skuId}
+            ORDER BY ABS(p.price - base.price), p.id LIMIT #{limit}
+            """)
+    List<Long> selectSimilarSkuIds(@Param("skuId") long skuId, @Param("limit") int limit);
+
     /** 预热用：在售商品按 id 取前 N 个（真实项目按销量排行取头部商品）。 */
     @Select("SELECT id FROM t_product WHERE status = 1 ORDER BY id LIMIT #{limit}")
     List<Long> selectHotSkuIds(@Param("limit") int limit);

@@ -26,14 +26,23 @@ spring:
       config:
         namespace: ${NACOS_NAMESPACE:}
         file-extension: yaml
+    circuitbreaker:
+      http-services:
+        # 关掉：默认会给 HTTP 接口客户端再套一层熔断，无 fallback 时把原异常包成 NoFallbackAvailableException，
+        # 库存不足的 409 变成 500、自己的 inventory-reserve 熔断识别不到超时。熔断只在 InventoryReserveClient 显式加
+        enabled: false
+      resilience4j:
+        disable-time-limiter: true   # 超时只由 HTTP 客户端控制，避免 TimeLimiter 默认 1s 抢先触发
+        enable-semaphore-default-bulkhead: true   # 舱壁用信号量而不是线程池：调用仍在 Tomcat 线程里执行
+        disable-thread-pool: true                 # 不切线程，异常原样抛出（否则包成 ExecutionException）
   http:
     serviceclient:
-      inventory-service:
+      inventory-service:           # 阶段四由 800ms 收紧到 500ms：分桶后 7500 QPS 下 reserve P99 约 120ms，仍有 4 倍余量
         connect-timeout: 200ms
-        read-timeout: 800ms          # 扣减 P99 约 30ms，留足余量但不能拖住下单线程
+        read-timeout: 500ms
       payment-service:
         connect-timeout: 200ms
-        read-timeout: 800ms
+        read-timeout: 500ms
   mvc:
     apiversion:                 # 版本从请求头 API-Version 读，不带请求头按 1.0 处理
       default: 1.0
@@ -59,6 +68,30 @@ management:
       probes:
         enabled: true
 
+# 熔断与舱壁：默认值写在这里，线上以 Nacos 的 mall-app.yaml 为准（见 deploy/nacos）
+resilience4j:
+  circuitbreaker:
+    instances:
+      inventory-reserve:
+        sliding-window-type: TIME_BASED
+        sliding-window-size: 10                   # 统计最近 10 秒
+        minimum-number-of-calls: 100
+        failure-rate-threshold: 50
+        slow-call-duration-threshold: 300ms       # 慢于 300ms 记为慢调用
+        slow-call-rate-threshold: 60
+        wait-duration-in-open-state: 5s
+        permitted-number-of-calls-in-half-open-state: 20
+        record-failure-predicate: io.github.clarence404.mall.common.remote.RemoteFailurePredicate   # 只记超时与 5xx
+      payment-query: {sliding-window-type: TIME_BASED, sliding-window-size: 10, minimum-number-of-calls: 50, failure-rate-threshold: 50, wait-duration-in-open-state: 10s, record-failure-predicate: io.github.clarence404.mall.common.remote.RemoteFailurePredicate}
+  bulkhead:
+    instances:
+      inventory-reserve:
+        max-concurrent-calls: 60                  # 每个 Pod 同时调用库存服务的上限
+        max-wait-duration: 0                      # 拿不到许可立即拒绝，不排队
+      payment-query:                              # 只读查询也显式给舱壁，不吃 Resilience4j 的默认值（25）
+        max-concurrent-calls: 20                  # 支付状态查询比预占少得多，20 足够；满了直接降级为「状态确认中」
+        max-wait-duration: 0
+
 springdoc:
   paths-to-exclude: /internal/**    # 集群内接口不进对外文档
   api-docs:
@@ -81,6 +114,16 @@ mall:
     pay-timeout: 15m             # 超时 15 分钟未支付取消：下单时写一条 order-timeout 定时消息
     timeout-scan-interval: 10m   # 扫描降级为兜底：每 10 分钟一次
     timeout-scan-after: 20m      # 只处理创建超过 20 分钟仍待支付的订单
+  degrade:                       # 降级开关，大促时在 Nacos 里改（见 deploy/nacos/mall-app.yaml）
+    recommend-enabled: true
+    points-display-enabled: true
+    order-list-months: 0
+  promo:
+    activity-sku-ids: []         # 活动白名单 SKU：订单里有一个就按 5 分钟支付超时
+    activity-pay-timeout: 5m
+    normal-pay-timeout: 15m
+  recommend:
+    fallback-sku-ids: [20001, 20002, 20003]   # 推荐降级时返回的运营固定列表
   reconcile:
     enabled: false               # 每日对账只在生产（有三个只读从库）开启
   rocketmq:

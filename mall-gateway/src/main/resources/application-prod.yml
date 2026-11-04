@@ -1,4 +1,11 @@
 spring:
+  data:
+    redis:
+      sentinel:
+        master: mall-cache
+        nodes: 10.0.1.21:26379,10.0.1.22:26379,10.0.1.11:26379
+        password: ${REDIS_SENTINEL_PASSWORD}
+      password: ${REDIS_PASSWORD}
   config:
     import:
       - nacos:mall-gateway.yaml

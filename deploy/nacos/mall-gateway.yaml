@@ -1,0 +1,22 @@
+# Nacos：mall-gateway.yaml。限流阈值按压测结论调
+spring:
+  cloud:
+    gateway:
+      server:
+        webflux:
+          httpclient:
+            response-timeout: 3s
+          routes:
+            - id: order-place
+              uri: lb://mall-app
+              order: 10
+              predicates:
+                - Path=/api/orders
+                - Method=POST
+              filters:
+                - name: RequestRateLimiter
+                  args:
+                    redis-rate-limiter.replenishRate: 1     # 每个用户每秒 1 次
+                    redis-rate-limiter.burstCapacity: 3     # 允许连点 3 次的突发
+                    key-resolver: "#{@userRouteKeyResolver}"
+            # payment-notify / payment / anonymous / mall-app 兜底路由与 application.yml 相同，略

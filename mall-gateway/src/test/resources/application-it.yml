@@ -1,4 +1,9 @@
 spring:
+  data:
+    redis:                # 测试没有 Redis：RedisRateLimiter 默认放行
+      host: localhost
+      port: 6399
+      connect-timeout: 100ms
   cloud:
     nacos:
       discovery:

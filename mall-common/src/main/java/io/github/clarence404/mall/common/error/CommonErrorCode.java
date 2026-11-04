@@ -9,7 +9,9 @@ public enum CommonErrorCode implements ErrorCode {
     VALIDATION_FAILED(HttpStatus.BAD_REQUEST, "请求参数校验失败"),
     UNAUTHORIZED(HttpStatus.UNAUTHORIZED, "未登录或登录已过期"),
     FORBIDDEN(HttpStatus.FORBIDDEN, "没有权限执行该操作"),
-    SYSTEM_ERROR(HttpStatus.INTERNAL_SERVER_ERROR, "系统繁忙，请稍后再试");
+    SYSTEM_ERROR(HttpStatus.INTERNAL_SERVER_ERROR, "系统繁忙，请稍后再试"),
+    /** 熔断打开或舱壁已满：请求根本没发出去，返回 503 并带 Retry-After: 2。 */
+    SYSTEM_BUSY(HttpStatus.SERVICE_UNAVAILABLE, "当前人数较多，请稍后再试");
 
     private final HttpStatus status;
     private final String title;

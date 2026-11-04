@@ -6,4 +6,5 @@ resources:
   - inventory-service.yaml
   - payment-service.yaml
   - mall-gateway.yaml
-  # mall-app.yaml 暂不纳入：迁移期 mall-app 仍跑在云主机上（systemd），新服务稳定一个月后再加到这里
+  - mall-app.yaml   # 新服务稳定一个月后 mall-app 迁入集群（阶段四起），日常 HPA 见 hpa.yaml
+  - hpa.yaml

@@ -26,7 +26,7 @@ class InventoryController implements InventoryApi {
 
     @Override
     public ReserveResult reserve(ReserveStockRequest req) {
-        return reservationService.reserve(req.orderNo(), req.lines());
+        return reservationService.reserve(req.orderNo(), req.lines(), req.payTimeoutMinutes());
     }
 
     @Override

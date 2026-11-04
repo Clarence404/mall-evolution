@@ -1,4 +1,9 @@
 spring:
+  data:
+    redis:
+      host: localhost
+      port: 6379
+      password: mall_dev
   config:
     import:
       - optional:nacos:mall-gateway.yaml

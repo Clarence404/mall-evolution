@@ -89,7 +89,7 @@ class OrderFlowH2Test extends H2TestBase {
                         .andExpect(jsonPath("$.payAmount").value("25.60")),
                 "$.orderNo");
         assertThat(orderNo).hasSize(23);
-        verify(inventoryApi).reserve(new ReserveStockRequest(orderNo, List.of(new ReserveLine(20002L, 2))));
+        verify(inventoryApi).reserve(new ReserveStockRequest(orderNo, List.of(new ReserveLine(20002L, 2)), 15));
 
         placeOrder(key, body)
                 .andExpect(status().isCreated())

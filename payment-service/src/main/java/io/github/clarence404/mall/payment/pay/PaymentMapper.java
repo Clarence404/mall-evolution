@@ -31,6 +31,13 @@ public interface PaymentMapper {
             """)
     int markSuccess(@Param("paymentNo") String paymentNo, @Param("channelTradeNo") String channelTradeNo);
 
+    /** 订单最近一张支付单的状态，供订单页查询。 */
+    @Select("""
+            SELECT id, payment_no, order_no, user_id, amount, channel, channel_trade_no, status, paid_at, created_at
+            FROM t_payment WHERE order_no = #{orderNo} ORDER BY id DESC LIMIT 1
+            """)
+    Payment selectLatestByOrderNo(@Param("orderNo") String orderNo);
+
     /** 该订单是否已有付款成功（含待退款、已退款）的支付单。 */
     @Select("SELECT COUNT(*) FROM t_payment WHERE order_no = #{orderNo} AND status IN (1, 3, 4)")
     int countPaid(@Param("orderNo") String orderNo);

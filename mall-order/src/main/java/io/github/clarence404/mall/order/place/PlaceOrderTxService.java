@@ -7,7 +7,6 @@ import io.github.clarence404.mall.order.domain.OrderItemMapper;
 import io.github.clarence404.mall.order.domain.OrderMapper;
 import java.time.Duration;
 import java.util.List;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -22,17 +21,17 @@ public class PlaceOrderTxService {
     private final OrderMapper orderMapper;
     private final OrderItemMapper orderItemMapper;
     private final OutboxWriter outboxWriter;
-    private final Duration payTimeout;
+    private final PromoProperties promo;
 
     public PlaceOrderTxService(
             OrderMapper orderMapper,
             OrderItemMapper orderItemMapper,
             OutboxWriter outboxWriter,
-            @Value("${mall.order.pay-timeout:15m}") Duration payTimeout) {
+            PromoProperties promo) {
         this.orderMapper = orderMapper;
         this.orderItemMapper = orderItemMapper;
         this.outboxWriter = outboxWriter;
-        this.payTimeout = payTimeout;
+        this.promo = promo;
     }
 
     @Transactional(rollbackFor = Exception.class)
@@ -40,6 +39,9 @@ public class PlaceOrderTxService {
         Order order = Order.create(userId, orderNo, bizNo, req, items); // 雪花 ID 主键，状态 10
         orderMapper.insert(order); // 撞 uk_user_biz 抛 DuplicateKeyException
         orderItemMapper.batchInsert(order.items());
+        // 订单里只要有一个活动 SKU，超时关单的定时消息就按 5 分钟投递（否则 15 分钟）
+        Duration payTimeout =
+                promo.payTimeoutFor(items.stream().map(PricedItem::skuId).toList());
         outboxWriter.append(
                 "order-timeout",
                 orderNo,

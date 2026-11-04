@@ -36,6 +36,7 @@ class ReconcileReaderTest {
                         + " user_id BIGINT, amount DECIMAL(12,2), status TINYINT, paid_at DATETIME(3), updated_at DATETIME(3))");
         inventory.execute("CREATE TABLE t_inventory (sku_id BIGINT PRIMARY KEY, stock INT, reserved INT,"
                 + " updated_at DATETIME(3))");
+        inventory.execute("CREATE TABLE t_inventory_bucket (sku_id BIGINT, bucket_no INT, stock INT, reserved INT)");
         inventory.execute("CREATE TABLE t_inventory_reservation (order_no VARCHAR(32), sku_id BIGINT, quantity INT,"
                 + " status TINYINT, updated_at DATETIME(3))");
         reader = new ReconcileReader(mall, inventory, payment);
@@ -86,6 +87,17 @@ class ReconcileReaderTest {
         assertThat(check(DAY))
                 .extracting(Diff::type, Diff::bizKey)
                 .containsExactly(org.assertj.core.groups.Tuple.tuple(DiffType.RESERVED_MISMATCH, "20003"));
+    }
+
+    @Test
+    void bucketedSkuCountsReservedOnBuckets() {
+        // 热点 SKU 分桶：预占记在桶上，t_inventory.reserved 为 0
+        inventory.update("INSERT INTO t_inventory VALUES (20004, 0, 0, ?)", at(DAY, 8, 0));
+        inventory.update("INSERT INTO t_inventory_bucket VALUES (20004, 0, 10, 1), (20004, 1, 10, 2)");
+        inventory.update("INSERT INTO t_inventory_reservation VALUES ('E', 20004, 3, 1, ?)", at(DAY, 8, 0));
+        mall.update("INSERT INTO t_order VALUES ('E', 10, NULL, ?)", at(DAY, 8, 0));
+
+        assertThat(check(DAY)).isEmpty();
     }
 
     private List<Diff> check(LocalDate day) {

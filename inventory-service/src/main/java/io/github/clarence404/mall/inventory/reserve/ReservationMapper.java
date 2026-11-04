@@ -13,15 +13,15 @@ import org.apache.ibatis.annotations.Update;
 public interface ReservationMapper {
 
     @Select("""
-            SELECT id, order_no, sku_id, quantity, status, expire_at
+            SELECT id, order_no, sku_id, quantity, status, expire_at, bucket_no
             FROM t_inventory_reservation WHERE order_no = #{orderNo} ORDER BY sku_id
             """)
     List<Reservation> selectByOrderNo(@Param("orderNo") String orderNo);
 
     /** 并发时撞 uk_order_sku 抛 DuplicateKeyException，整个 reserve 事务回滚。 */
     @Insert("""
-            INSERT INTO t_inventory_reservation (id, order_no, sku_id, quantity, status, expire_at)
-            VALUES (#{id}, #{orderNo}, #{skuId}, #{quantity}, #{status}, #{expireAt})
+            INSERT INTO t_inventory_reservation (id, order_no, sku_id, quantity, status, expire_at, bucket_no)
+            VALUES (#{id}, #{orderNo}, #{skuId}, #{quantity}, #{status}, #{expireAt}, #{bucketNo})
             """)
     int insert(Reservation reservation);
 

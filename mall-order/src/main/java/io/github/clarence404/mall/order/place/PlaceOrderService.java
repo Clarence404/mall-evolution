@@ -3,13 +3,14 @@ package io.github.clarence404.mall.order.place;
 import io.github.clarence404.mall.common.error.BizException;
 import io.github.clarence404.mall.common.error.CommonErrorCode;
 import io.github.clarence404.mall.common.remote.RemoteBizException;
-import io.github.clarence404.mall.inventory.api.InventoryApi;
 import io.github.clarence404.mall.inventory.api.ReleaseStockRequest;
 import io.github.clarence404.mall.inventory.api.ReserveLine;
 import io.github.clarence404.mall.inventory.api.ReserveResult;
 import io.github.clarence404.mall.inventory.api.ReserveStockRequest;
 import io.github.clarence404.mall.order.domain.Order;
 import io.github.clarence404.mall.order.domain.OrderMapper;
+import io.github.resilience4j.bulkhead.BulkheadFullException;
+import io.github.resilience4j.circuitbreaker.CallNotPermittedException;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -17,10 +18,10 @@ import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
 
 /**
- * 下单（阶段三）：先预占库存，再在本地事务里写单；结果未知按失败处理，立即释放预占。
+ * 下单（阶段四）：计价 → 下单频控 → 经熔断器与舱壁预占 → 本地事务写单。
  *
- * <p>结果未知时不重试 reserve，先释放再由全局异常处理器返回 SYSTEM_ERROR；客户端带同一个 Idempotency-Key 重试时，
- * 由于订单没写成功，会生成新的订单号重新预占。旧订单号的预占要么已被释放，要么被空回滚占位挡住。
+ * <p>对 reserve 的结果分三类：明确失败直接抛；请求根本没发出去（熔断或舱壁拒绝）返回 SYSTEM_BUSY，库存没动、不需要 release；
+ * 结果未知先释放。写接口一律不自动重试。
  */
 @Slf4j
 @Service
@@ -31,7 +32,9 @@ public class PlaceOrderService {
     private final PricingService pricingService;
     private final PlaceOrderTxService placeOrderTxService;
     private final OrderNoGenerator orderNoGenerator;
-    private final InventoryApi inventoryApi;
+    private final InventoryReserveClient inventoryReserveClient;
+    private final PendingOrderLimiter pendingOrderLimiter;
+    private final PromoProperties promo;
 
     public PlaceOrderResult place(long userId, String idemKey, PlaceOrderRequest req) {
         Order existing = orderMapper.selectByUserAndBizNo(userId, idemKey);
@@ -39,16 +42,23 @@ public class PlaceOrderService {
             return PlaceOrderResult.replayed(existing);
         }
         List<PricedItem> items = pricingService.price(req);
+        pendingOrderLimiter.check(userId, items); // 同一 SKU 待支付最多 2 单
         String orderNo = orderNoGenerator.next(userId); // 先有订单号，作为预占的幂等键
         List<ReserveLine> lines = ReserveLine.of(items);
+        int payTimeoutMinutes =
+                (int) promo.payTimeoutFor(items.stream().map(PricedItem::skuId).toList())
+                        .toMinutes();
 
         ReserveResult result;
         try {
-            result = inventoryApi.reserve(new ReserveStockRequest(orderNo, lines)); // 读超时 800ms，不重试
+            // 经 inventory-reserve 熔断器与舱壁
+            result = inventoryReserveClient.reserve(new ReserveStockRequest(orderNo, lines, payTimeoutMinutes));
         } catch (RemoteBizException e) {
             throw e; // 4xx，如 STOCK_INSUFFICIENT：明确失败，什么都没扣
+        } catch (CallNotPermittedException | BulkheadFullException e) {
+            throw new BizException(CommonErrorCode.SYSTEM_BUSY); // 没发出去：库存没动，不需要 release
         } catch (RuntimeException e) { // 超时、连接失败或 5xx：结果未知，按失败处理并立即释放
-            releaseQuietly(orderNo, lines);
+            releaseQuietly(orderNo, lines); // release 同样经过熔断器，被拒绝时交给过期回查
             throw e;
         }
         if (result == ReserveResult.REJECTED) { // 被空回滚占位挡住：明确没预占上，不用释放
@@ -65,10 +75,10 @@ public class PlaceOrderService {
         }
     }
 
-    /** 吞掉异常、只记日志：释放也失败时预占记录保持 RESERVED，交给库存服务的过期回查。 */
+    /** 吞掉异常、只记日志：释放失败（含被熔断器拒绝）时预占记录保持 RESERVED，交给库存服务的过期回查。 */
     private void releaseQuietly(String orderNo, List<ReserveLine> lines) {
         try {
-            inventoryApi.release(new ReleaseStockRequest(orderNo, lines));
+            inventoryReserveClient.release(new ReleaseStockRequest(orderNo, lines));
         } catch (RuntimeException e) {
             log.warn("释放预占失败，交给过期回查，orderNo={}", orderNo, e);
         }

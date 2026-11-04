@@ -328,6 +328,26 @@
         }
       }
     },
+    "/api/users/me": {
+      "get": {
+        "tags": [
+          "user-profile-controller"
+        ],
+        "operationId": "getMyProfile",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/Profile"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/products/{skuId}": {
       "get": {
         "tags": [
@@ -360,6 +380,40 @@
         }
       }
     },
+    "/api/products/{skuId}/recommendations": {
+      "get": {
+        "tags": [
+          "recommend-controller"
+        ],
+        "operationId": "listRecommendations",
+        "parameters": [
+          {
+            "name": "skuId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/ProductDetailView"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/orders/{orderNo}": {
       "get": {
         "tags": [
@@ -383,6 +437,36 @@
               "*/*": {
                 "schema": {
                   "$ref": "#/components/schemas/OrderView"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/orders/{orderNo}/payment": {
+      "get": {
+        "tags": [
+          "order-query-controller"
+        ],
+        "operationId": "getOrderPayment",
+        "parameters": [
+          {
+            "name": "orderNo",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/PaymentStatusView"
                 }
               }
             }
@@ -634,6 +718,21 @@
           "phone"
         ]
       },
+      "Profile": {
+        "type": "object",
+        "properties": {
+          "userId": {
+            "type": "string"
+          },
+          "nickname": {
+            "type": "string"
+          },
+          "points": {
+            "type": "integer",
+            "format": "int64"
+          }
+        }
+      },
       "ProductDetailPage": {
         "type": "object",
         "properties": {
@@ -695,6 +794,21 @@
             "type": "string"
           },
           "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "PaymentStatusView": {
+        "type": "object",
+        "properties": {
+          "orderNo": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "paidAt": {
             "type": "string",
             "format": "date-time"
           }
