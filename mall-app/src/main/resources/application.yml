@@ -10,6 +10,11 @@ spring:
       maximum-pool-size: 20
       connection-timeout: 3000
 
+mybatis:
+  configuration:
+    map-underscore-to-camel-case: true
+    default-statement-timeout: 5
+
 server:
   port: 8080
   shutdown: graceful
@@ -26,4 +31,4 @@ management:
 
 mall:
   id:
-    worker-id: ${WORKER_ID:1}   # 雪花 ID 机器号：两台生产机分别是 1 和 2
+    worker-id: ${WORKER_ID:}   # 雪花 ID 机器号：两台生产机分别是 1 和 2；不给默认值，没配就启动失败

@@ -202,6 +202,19 @@
                     </execution>
                 </executions>
             </plugin>
+            <!-- 单元测试走 surefire（*Test / *Tests），带 Testcontainers 的集成测试走 failsafe（*IT），都挂在 verify 上 -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-failsafe-plugin</artifactId>
+                <executions>
+                    <execution>
+                        <goals>
+                            <goal>integration-test</goal>
+                            <goal>verify</goal>
+                        </goals>
+                    </execution>
+                </executions>
+            </plugin>
             <!-- 格式：palantir-java-format，./mvnw spotless:apply 一键修复 -->
             <plugin>
                 <groupId>com.diffplug.spotless</groupId>

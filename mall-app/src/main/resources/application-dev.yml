@@ -4,8 +4,14 @@ spring:
     url: jdbc:mysql://localhost:3306/mall?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai
     username: mall
     password: mall_dev
+  flyway:
+    locations: classpath:db/migration,classpath:db/seed   # 本地额外加载演示数据
   config:
     import: optional:file:./application-local.yml   # 个人覆盖项，已加入 .gitignore
+
+mall:
+  id:
+    worker-id: 1   # 本地只有一个实例
 
 logging:
   level:

@@ -1,0 +1,7 @@
+# 集成测试：数据源由 Testcontainers 的 @ServiceConnection 提供
+spring:
+  flyway:
+    locations: classpath:db/migration,classpath:db/seed
+mall:
+  id:
+    worker-id: 9

@@ -4,3 +4,6 @@ spring:
     url: jdbc:mysql://${DB_HOST}:3306/mall?serverTimezone=Asia/Shanghai
     username: ${DB_USERNAME}
     password: ${DB_PASSWORD}
+mall:
+  id:
+    worker-id: 1   # 测试环境只有一台机器
