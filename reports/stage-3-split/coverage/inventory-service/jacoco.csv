@@ -1,0 +1,12 @@
+GROUP,PACKAGE,CLASS,INSTRUCTION_MISSED,INSTRUCTION_COVERED,BRANCH_MISSED,BRANCH_COVERED,LINE_MISSED,LINE_COVERED,COMPLEXITY_MISSED,COMPLEXITY_COVERED,METHOD_MISSED,METHOD_COVERED
+inventory-service,com.qingyou.inventory.reserve,Reservation,0,38,0,2,0,10,0,4,0,3
+inventory-service,com.qingyou.inventory.reserve,ReservationService,44,188,7,21,8,32,8,16,3,7
+inventory-service,com.qingyou.inventory.reserve,InventoryConsumersConfig.OrderCancelledMessage,9,0,0,0,1,0,1,0,1,0
+inventory-service,com.qingyou.inventory.reserve,InventoryConsumersConfig.OrderPaidMessage,6,0,0,0,1,0,1,0,1,0
+inventory-service,com.qingyou.inventory.reserve,InventoryConsumersConfig,95,0,0,0,16,0,6,0,6,0
+inventory-service,com.qingyou.inventory.reserve,ReservationMapper,0,10,0,0,0,1,0,1,0,1
+inventory-service,com.qingyou.inventory.reserve,ReservationExpireJob,2,79,1,9,1,20,1,8,0,4
+inventory-service,com.qingyou.inventory.stock,InventoryController,0,27,0,0,0,6,0,4,0,4
+inventory-service,com.qingyou.inventory.stock,InventoryService,2,8,1,1,0,1,1,1,0,1
+inventory-service,com.qingyou.inventory.config,InventoryModuleConfig,0,3,0,0,0,1,0,1,0,1
+inventory-service,com.qingyou.inventory,InventoryServiceApplication,5,3,0,0,2,1,1,1,1,1

@@ -1,0 +1,15 @@
+GROUP,PACKAGE,CLASS,INSTRUCTION_MISSED,INSTRUCTION_COVERED,BRANCH_MISSED,BRANCH_COVERED,LINE_MISSED,LINE_COVERED,COMPLEXITY_MISSED,COMPLEXITY_COVERED,METHOD_MISSED,METHOD_COVERED
+mall-user,com.qingyou.user.config,UserModuleConfig,14,0,0,0,3,0,3,0,3,0
+mall-user,com.qingyou.user.auth,AuthService.TokenPair,12,0,0,0,1,0,1,0,1,0
+mall-user,com.qingyou.user.auth,AuthController.RefreshRequest,6,0,0,0,1,0,1,0,1,0
+mall-user,com.qingyou.user.auth,AuthService,184,0,16,0,42,0,16,0,8,0
+mall-user,com.qingyou.user.auth,AuthController,22,0,0,0,4,0,3,0,3,0
+mall-user,com.qingyou.user.auth,AuthController.LoginRequest,9,0,0,0,1,0,1,0,1,0
+mall-user,com.qingyou.user.api,UserErrorCode,47,0,0,0,11,0,5,0,5,0
+mall-user,com.qingyou.user.api,UserDTO,12,0,0,0,1,0,1,0,1,0
+mall-user,com.qingyou.user.domain,UserQueryService,18,0,0,0,2,0,2,0,2,0
+mall-user,com.qingyou.user.domain,User,3,0,0,0,1,0,1,0,1,0
+mall-user,com.qingyou.user.points,OrderPaidEvent,0,15,0,0,0,1,0,1,0,1
+mall-user,com.qingyou.user.points,PointsConsumerConfig,60,0,0,0,14,0,4,0,4,0
+mall-user,com.qingyou.user.points,PointsGrantService,0,23,0,2,0,5,0,2,0,1
+mall-user,com.qingyou.user.points,PointsMapper,7,0,0,0,1,0,1,0,1,0

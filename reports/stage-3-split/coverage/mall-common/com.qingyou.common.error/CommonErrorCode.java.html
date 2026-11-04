@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>CommonErrorCode.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">mall-common</a> &gt; <a href="index.source.html" class="el_package">com.qingyou.common.error</a> &gt; <span class="el_source">CommonErrorCode.java</span></div><h1>CommonErrorCode.java</h1><pre class="source lang-java linenums">package com.qingyou.common.error;
+
+import org.springframework.http.HttpStatus;
+
+/**
+ * mall-common 的通用错误码，不带模块前缀。
+ */
+<span class="nc" id="L8">public enum CommonErrorCode implements ErrorCode {</span>
+<span class="nc" id="L9">    VALIDATION_FAILED(HttpStatus.BAD_REQUEST, &quot;请求参数校验失败&quot;),</span>
+<span class="nc" id="L10">    UNAUTHORIZED(HttpStatus.UNAUTHORIZED, &quot;未登录或登录已过期&quot;),</span>
+<span class="nc" id="L11">    FORBIDDEN(HttpStatus.FORBIDDEN, &quot;没有权限执行该操作&quot;),</span>
+<span class="nc" id="L12">    SYSTEM_ERROR(HttpStatus.INTERNAL_SERVER_ERROR, &quot;系统繁忙，请稍后再试&quot;);</span>
+
+    private final HttpStatus status;
+    private final String title;
+
+<span class="nc" id="L17">    CommonErrorCode(HttpStatus status, String title) {</span>
+<span class="nc" id="L18">        this.status = status;</span>
+<span class="nc" id="L19">        this.title = title;</span>
+<span class="nc" id="L20">    }</span>
+
+    @Override
+    public HttpStatus status() {
+<span class="nc" id="L24">        return status;</span>
+    }
+
+    @Override
+    public String title() {
+<span class="nc" id="L29">        return title;</span>
+    }
+
+    @Override
+    public String code() {
+<span class="nc" id="L34">        return name();</span>
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.13.202504020838</span></div></body></html>
