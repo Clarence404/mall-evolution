@@ -1,0 +1,143 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>WorkerIdLease.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">mall-common</a> &gt; <a href="index.source.html" class="el_package">com.qingyou.common.id</a> &gt; <span class="el_source">WorkerIdLease.java</span></div><h1>WorkerIdLease.java</h1><pre class="source lang-java linenums">package com.qingyou.common.id;
+
+import java.time.Duration;
+import java.util.List;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
+import java.util.function.LongSupplier;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.data.redis.core.StringRedisTemplate;
+import org.springframework.data.redis.core.script.RedisScript;
+
+/**
+ * 雪花机器号租约（Kubernetes 起）：Pod 名每次发布都变，机器号不能再写死在配置里，改为启动时向 Redis 租一个。
+ *
+ * &lt;ul&gt;
+ *   &lt;li&gt;租：从主机名的哈希开始，依次对 0–1023 执行 {@code SET qingyou:snowflake:worker:{服务}:{号} 实例ID NX PX ttl}，抢到为止
+ *   &lt;li&gt;续：每 renewInterval 续一次（键的值还是自己才 PEXPIRE）；续约失败只要没过期就继续发号，过期了就停
+ *   &lt;li&gt;丢：续约时发现键已被别的实例占了，立即标记失效
+ *   &lt;li&gt;还：停机时删除自己的键（值还是自己才删）
+ * &lt;/ul&gt;
+ *
+ * &lt;p&gt;租约失效后 {@link LeasedIdGenerator} 拒绝发号：宁可下单失败，也不冒和别的实例撞号的风险。
+ */
+<span class="fc" id="L25">@Slf4j</span>
+public class WorkerIdLease implements AutoCloseable {
+
+    static final int MAX_WORKERS = (int) SnowflakeIdGenerator.MAX_WORKER_ID + 1;
+
+<span class="fc" id="L30">    private static final RedisScript&lt;Long&gt; RENEW = RedisScript.of(</span>
+            &quot;if redis.call('get', KEYS[1]) == ARGV[1] then return redis.call('pexpire', KEYS[1], ARGV[2]) else return 0 end&quot;,
+            Long.class);
+<span class="fc" id="L33">    private static final RedisScript&lt;Long&gt; RELEASE = RedisScript.of(</span>
+            &quot;if redis.call('get', KEYS[1]) == ARGV[1] then return redis.call('del', KEYS[1]) else return 0 end&quot;,
+            Long.class);
+
+    private final StringRedisTemplate redis;
+    private final String service;
+    private final String hostname;
+    private final String instanceId;
+    private final Duration ttl;
+    private final Duration renewInterval;
+    private final LongSupplier clock;
+
+<span class="fc" id="L45">    private volatile int workerId = -1;</span>
+    private volatile long validUntil;
+    private volatile boolean lost;
+    private ScheduledExecutorService renewer;
+
+    public WorkerIdLease(
+            StringRedisTemplate redis, String service, String hostname, Duration ttl, Duration renewInterval) {
+<span class="fc" id="L52">        this(redis, service, hostname, ttl, renewInterval, System::currentTimeMillis);</span>
+<span class="fc" id="L53">    }</span>
+
+    WorkerIdLease(
+            StringRedisTemplate redis,
+            String service,
+            String hostname,
+            Duration ttl,
+            Duration renewInterval,
+<span class="fc" id="L61">            LongSupplier clock) {</span>
+<span class="fc" id="L62">        this.redis = redis;</span>
+<span class="fc" id="L63">        this.service = service;</span>
+<span class="fc" id="L64">        this.hostname = hostname;</span>
+<span class="fc" id="L65">        this.instanceId = hostname + &quot;/&quot; + Long.toHexString(System.nanoTime());</span>
+<span class="fc" id="L66">        this.ttl = ttl;</span>
+<span class="fc" id="L67">        this.renewInterval = renewInterval;</span>
+<span class="fc" id="L68">        this.clock = clock;</span>
+<span class="fc" id="L69">    }</span>
+
+    /** 租一个机器号并开始定时续约；1024 个号都被占用时启动失败。 */
+    public synchronized int acquire() {
+<span class="fc" id="L73">        int start = Math.floorMod(hostname.hashCode(), MAX_WORKERS); // 从主机名的哈希开始找，各实例尽量不在同一处争抢</span>
+<span class="pc bpc" id="L74" title="1 of 2 branches missed.">        for (int i = 0; i &lt; MAX_WORKERS; i++) {</span>
+<span class="fc" id="L75">            int id = (start + i) % MAX_WORKERS;</span>
+<span class="fc" id="L76">            long now = clock.getAsLong();</span>
+<span class="fc bfc" id="L77" title="All 2 branches covered.">            if (Boolean.TRUE.equals(redis.opsForValue().setIfAbsent(key(id), instanceId, ttl))) {</span>
+<span class="fc" id="L78">                workerId = id;</span>
+<span class="fc" id="L79">                validUntil = now + ttl.toMillis();</span>
+<span class="fc" id="L80">                startRenewal();</span>
+<span class="fc" id="L81">                log.info(&quot;租到雪花机器号 {}（服务 {}，实例 {}）&quot;, id, service, instanceId);</span>
+<span class="fc" id="L82">                return id;</span>
+            }
+        }
+<span class="nc" id="L85">        throw new IllegalStateException(&quot;服务 &quot; + service + &quot; 的 &quot; + MAX_WORKERS + &quot; 个雪花机器号都已被占用&quot;);</span>
+    }
+
+    /** 续约一次：键还是自己的就延长；被别人占了立即失效；Redis 出错只记日志，等租约自然过期。 */
+    void renew() {
+<span class="fc" id="L90">        long start = clock.getAsLong();</span>
+        try {
+<span class="fc" id="L92">            Long renewed = redis.execute(RENEW, List.of(key(workerId)), instanceId, String.valueOf(ttl.toMillis()));</span>
+<span class="pc bpc" id="L93" title="1 of 4 branches missed.">            if (renewed != null &amp;&amp; renewed == 1L) {</span>
+<span class="fc" id="L94">                validUntil = start + ttl.toMillis();</span>
+            } else {
+<span class="fc" id="L96">                lost = true;</span>
+<span class="fc" id="L97">                log.error(&quot;雪花机器号 {} 的租约已丢失（键过期或被别的实例占用），停止发号&quot;, workerId);</span>
+            }
+<span class="fc" id="L99">        } catch (RuntimeException e) {</span>
+<span class="fc" id="L100">            log.warn(&quot;雪花机器号 {} 续约失败，{} 毫秒后租约到期&quot;, workerId, validUntil - start, e);</span>
+<span class="fc" id="L101">        }</span>
+<span class="fc" id="L102">    }</span>
+
+    /** 租约是否仍然有效：没丢、没过期。 */
+    public boolean isValid() {
+<span class="pc bpc" id="L106" title="1 of 6 branches missed.">        return workerId &gt;= 0 &amp;&amp; !lost &amp;&amp; clock.getAsLong() &lt; validUntil;</span>
+    }
+
+    public int workerId() {
+<span class="fc" id="L110">        return workerId;</span>
+    }
+
+    private void startRenewal() {
+<span class="fc" id="L114">        renewer = Executors.newSingleThreadScheduledExecutor(r -&gt; {</span>
+<span class="fc" id="L115">            Thread t = new Thread(r, &quot;worker-id-lease&quot;);</span>
+<span class="fc" id="L116">            t.setDaemon(true);</span>
+<span class="fc" id="L117">            return t;</span>
+        });
+<span class="fc" id="L119">        long period = renewInterval.toMillis();</span>
+<span class="fc" id="L120">        renewer.scheduleAtFixedRate(this::renew, period, period, TimeUnit.MILLISECONDS);</span>
+<span class="fc" id="L121">    }</span>
+
+    /** 停机时停止续约并归还机器号。 */
+    @Override
+    public synchronized void close() {
+<span class="pc bpc" id="L126" title="1 of 2 branches missed.">        if (renewer != null) {</span>
+<span class="fc" id="L127">            renewer.shutdownNow();</span>
+        }
+<span class="pc bpc" id="L129" title="1 of 4 branches missed.">        if (workerId &gt;= 0 &amp;&amp; !lost) {</span>
+            try {
+<span class="fc" id="L131">                redis.execute(RELEASE, List.of(key(workerId)), instanceId);</span>
+<span class="nc" id="L132">            } catch (RuntimeException e) {</span>
+<span class="nc" id="L133">                log.warn(&quot;归还雪花机器号 {} 失败，等租约自然过期&quot;, workerId, e);</span>
+<span class="fc" id="L134">            }</span>
+        }
+<span class="fc" id="L136">        lost = true;</span>
+<span class="fc" id="L137">    }</span>
+
+    String key(int id) {
+<span class="fc" id="L140">        return &quot;qingyou:snowflake:worker:&quot; + service + &quot;:&quot; + id;</span>
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.13.202504020838</span></div></body></html>

@@ -1,0 +1,68 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>OrderCloseService.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">mall-order</a> &gt; <a href="index.source.html" class="el_package">com.qingyou.order.cancel</a> &gt; <span class="el_source">OrderCloseService.java</span></div><h1>OrderCloseService.java</h1><pre class="source lang-java linenums">package com.qingyou.order.cancel;
+
+import com.qingyou.common.outbox.OutboxWriter;
+import com.qingyou.inventory.api.ReserveLine;
+import com.qingyou.order.domain.Order;
+import com.qingyou.order.domain.OrderItemMapper;
+import com.qingyou.order.domain.OrderMapper;
+import com.qingyou.order.domain.OrderStatus;
+import com.qingyou.payment.api.ClosePaymentResult;
+import com.qingyou.payment.api.PaymentApi;
+import java.util.List;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.support.TransactionTemplate;
+
+/**
+ * 取消订单（用户取消，或 order-timeout-consumer 收到超时消息）：先请 payment-service 关闭支付单，关闭成功后在本地事务里
+ * 把订单从 10 改为 50 并写入 order-cancelled，库存服务的 inventory-release-consumer 收到后执行 release。
+ *
+ * &lt;p&gt;关闭支付单返回 PAID 说明用户已经付款，这时不取消，等 payment-succeeded 到达。
+ */
+<span class="fc" id="L22">@Slf4j</span>
+@Service
+public class OrderCloseService {
+
+    private final OrderMapper orderMapper;
+    private final OrderItemMapper orderItemMapper;
+    private final PaymentApi paymentApi;
+    private final OutboxWriter outboxWriter;
+    private final TransactionTemplate transactionTemplate;
+
+    public OrderCloseService(
+            OrderMapper orderMapper,
+            OrderItemMapper orderItemMapper,
+            PaymentApi paymentApi,
+            OutboxWriter outboxWriter,
+<span class="fc" id="L37">            TransactionTemplate transactionTemplate) {</span>
+<span class="fc" id="L38">        this.orderMapper = orderMapper;</span>
+<span class="fc" id="L39">        this.orderItemMapper = orderItemMapper;</span>
+<span class="fc" id="L40">        this.paymentApi = paymentApi;</span>
+<span class="fc" id="L41">        this.outboxWriter = outboxWriter;</span>
+<span class="fc" id="L42">        this.transactionTemplate = transactionTemplate;</span>
+<span class="fc" id="L43">    }</span>
+
+    /** 返回 true 表示本次关掉了订单；已支付、已关闭或用户恰好付了款时返回 false。 */
+    public boolean closeIfUnpaid(String orderNo) {
+<span class="fc" id="L47">        Order order = orderMapper.selectByOrderNo(orderNo);</span>
+<span class="pc bpc" id="L48" title="1 of 4 branches missed.">        if (order == null || order.getStatus() != OrderStatus.PENDING_PAYMENT) {</span>
+<span class="fc" id="L49">            return false;</span>
+        }
+<span class="fc bfc" id="L51" title="All 2 branches covered.">        if (paymentApi.close(orderNo) == ClosePaymentResult.PAID) {</span>
+<span class="fc" id="L52">            log.info(&quot;关单时发现用户已付款，不取消，等待 payment-succeeded，orderNo={}&quot;, orderNo);</span>
+<span class="fc" id="L53">            return false;</span>
+        }
+<span class="fc" id="L55">        Boolean closed = transactionTemplate.execute(status -&gt; {</span>
+<span class="pc bpc" id="L56" title="1 of 2 branches missed.">            if (orderMapper.transit(orderNo, OrderStatus.PENDING_PAYMENT, OrderStatus.CANCELLED, null) == 0) {</span>
+<span class="nc" id="L57">                return false;</span>
+            }
+<span class="fc" id="L59">            List&lt;ReserveLine&gt; lines = orderItemMapper.selectByOrderId(order.getId()).stream()</span>
+<span class="fc" id="L60">                    .map(i -&gt; new ReserveLine(i.getSkuId(), i.getQuantity()))</span>
+<span class="fc" id="L61">                    .toList();</span>
+<span class="fc" id="L62">            outboxWriter.append(&quot;order-cancelled&quot;, orderNo, new OrderCancelledEvent(orderNo, lines), null);</span>
+<span class="fc" id="L63">            return true;</span>
+        });
+<span class="fc" id="L65">        return Boolean.TRUE.equals(closed);</span>
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.13.202504020838</span></div></body></html>

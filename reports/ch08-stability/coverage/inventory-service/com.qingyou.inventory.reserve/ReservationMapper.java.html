@@ -1,0 +1,62 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>ReservationMapper.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">inventory-service</a> &gt; <a href="index.source.html" class="el_package">com.qingyou.inventory.reserve</a> &gt; <span class="el_source">ReservationMapper.java</span></div><h1>ReservationMapper.java</h1><pre class="source lang-java linenums">package com.qingyou.inventory.reserve;
+
+import com.qingyou.common.id.Ids;
+import com.qingyou.inventory.api.ReserveLine;
+import java.util.List;
+import org.apache.ibatis.annotations.Insert;
+import org.apache.ibatis.annotations.Mapper;
+import org.apache.ibatis.annotations.Param;
+import org.apache.ibatis.annotations.Select;
+import org.apache.ibatis.annotations.Update;
+
+@Mapper
+public interface ReservationMapper {
+
+    @Select(&quot;&quot;&quot;
+            SELECT id, order_no, sku_id, quantity, status, expire_at, bucket_no
+            FROM t_inventory_reservation WHERE order_no = #{orderNo} ORDER BY sku_id
+            &quot;&quot;&quot;)
+    List&lt;Reservation&gt; selectByOrderNo(@Param(&quot;orderNo&quot;) String orderNo);
+
+    /** 并发时撞 uk_order_sku 抛 DuplicateKeyException，整个 reserve 事务回滚。 */
+    @Insert(&quot;&quot;&quot;
+            INSERT INTO t_inventory_reservation (id, order_no, sku_id, quantity, status, expire_at, bucket_no)
+            VALUES (#{id}, #{orderNo}, #{skuId}, #{quantity}, #{status}, #{expireAt}, #{bucketNo})
+            &quot;&quot;&quot;)
+    int insert(Reservation reservation);
+
+    /**
+     * 空回滚占位：INSERT IGNORE ... status = 3。返回 1 说明从没预占过，返回 0 说明记录已存在。
+     *
+     * &lt;p&gt;不用 ON DUPLICATE KEY UPDATE id = id：Connector/J 默认返回 found rows，已存在也返回 1。
+     */
+    default int insertReleasedIfAbsent(String orderNo, ReserveLine line) {
+<span class="fc" id="L34">        return insertIgnoreReleased(Ids.next(), orderNo, line.skuId(), line.quantity());</span>
+    }
+
+    @Insert(&quot;&quot;&quot;
+            INSERT IGNORE INTO t_inventory_reservation (id, order_no, sku_id, quantity, status, expire_at)
+            VALUES (#{id}, #{orderNo}, #{skuId}, #{quantity}, 3, NOW(3))
+            &quot;&quot;&quot;)
+    int insertIgnoreReleased(
+            @Param(&quot;id&quot;) long id,
+            @Param(&quot;orderNo&quot;) String orderNo,
+            @Param(&quot;skuId&quot;) long skuId,
+            @Param(&quot;quantity&quot;) int quantity);
+
+    /** 带旧状态的条件更新：执行两次与执行一次结果相同。 */
+    @Update(&quot;&quot;&quot;
+            UPDATE t_inventory_reservation SET status = #{to}
+            WHERE order_no = #{orderNo} AND sku_id = #{skuId} AND status = #{from}
+            &quot;&quot;&quot;)
+    int transit(
+            @Param(&quot;orderNo&quot;) String orderNo, @Param(&quot;skuId&quot;) long skuId, @Param(&quot;from&quot;) int from, @Param(&quot;to&quot;) int to);
+
+    /** 预占过期回查：按 idx_status_expire 找出已过期仍为 RESERVED 的订单。 */
+    @Select(&quot;&quot;&quot;
+            SELECT DISTINCT order_no FROM t_inventory_reservation
+            WHERE status = 1 AND expire_at &lt; NOW(3) LIMIT #{limit}
+            &quot;&quot;&quot;)
+    List&lt;String&gt; selectExpiredOrderNos(@Param(&quot;limit&quot;) int limit);
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.13.202504020838</span></div></body></html>

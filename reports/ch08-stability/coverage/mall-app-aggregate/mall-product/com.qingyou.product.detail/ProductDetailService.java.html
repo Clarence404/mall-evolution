@@ -1,0 +1,110 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../../jacoco-resources/report.gif" type="image/gif"/><title>ProductDetailService.java</title><link rel="stylesheet" href="../../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../../index.html" class="el_report">mall-app</a> &gt; <a href="../index.html" class="el_bundle">mall-product</a> &gt; <a href="index.source.html" class="el_package">com.qingyou.product.detail</a> &gt; <span class="el_source">ProductDetailService.java</span></div><h1>ProductDetailService.java</h1><pre class="source lang-java linenums">package com.qingyou.product.detail;
+
+import com.github.benmanes.caffeine.cache.Cache;
+import com.github.benmanes.caffeine.cache.Caffeine;
+import com.qingyou.product.domain.ProductMapper;
+import io.micrometer.core.instrument.Counter;
+import io.micrometer.core.instrument.MeterRegistry;
+import io.micrometer.core.instrument.binder.cache.CaffeineCacheMetrics;
+import java.time.Duration;
+import java.util.Optional;
+import java.util.concurrent.ThreadLocalRandom;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.dao.DataAccessException;
+import org.springframework.data.redis.core.StringRedisTemplate;
+import org.springframework.data.redis.serializer.SerializationException;
+import org.springframework.stereotype.Service;
+import tools.jackson.core.JacksonException;
+import tools.jackson.databind.json.JsonMapper;
+
+/**
+ * 商品详情两级缓存：L1 Caffeine（每实例一份，写入后 30 秒，最多 1 万条）+ L2 Redis（30 分钟 + 0–5 分钟随机）。
+ *
+ * &lt;p&gt;Cache Aside 的读路径；写路径的失效见 {@link ProductCacheInvalidator}。下单计价不经过这里，直接查 t_product。
+ */
+<span class="fc" id="L25">@Slf4j</span>
+@Service
+public class ProductDetailService {
+
+    static final String KEY_PREFIX = &quot;product:detail:&quot;;
+    private static final String NULL_JSON = &quot;{}&quot;; // 空值占位，防穿透
+
+<span class="fc" id="L32">    private final Cache&lt;Long, Optional&lt;ProductDetailView&gt;&gt; local = Caffeine.newBuilder()</span>
+<span class="fc" id="L33">            .maximumSize(10_000)</span>
+<span class="fc" id="L34">            .expireAfterWrite(Duration.ofSeconds(30)) // 兜底丢失的失效广播</span>
+<span class="fc" id="L35">            .recordStats()</span>
+<span class="fc" id="L36">            .build();</span>
+
+    private final StringRedisTemplate redis;
+    private final JsonMapper jsonMapper;
+    private final ProductMapper productMapper;
+    private final Counter l2Hit;
+    private final Counter l2Miss;
+    private final Counter l2Null;
+    private final Counter dbLoad;
+
+    public ProductDetailService(
+<span class="fc" id="L47">            StringRedisTemplate redis, JsonMapper jsonMapper, ProductMapper productMapper, MeterRegistry registry) {</span>
+<span class="fc" id="L48">        this.redis = redis;</span>
+<span class="fc" id="L49">        this.jsonMapper = jsonMapper;</span>
+<span class="fc" id="L50">        this.productMapper = productMapper;</span>
+<span class="fc" id="L51">        CaffeineCacheMetrics.monitor(registry, local, &quot;product_detail&quot;); // cache.gets{result=hit|miss}</span>
+<span class="fc" id="L52">        this.l2Hit = registry.counter(&quot;product.detail.l2&quot;, &quot;result&quot;, &quot;hit&quot;);</span>
+<span class="fc" id="L53">        this.l2Miss = registry.counter(&quot;product.detail.l2&quot;, &quot;result&quot;, &quot;miss&quot;);</span>
+<span class="fc" id="L54">        this.l2Null = registry.counter(&quot;product.detail.l2&quot;, &quot;result&quot;, &quot;null&quot;);</span>
+<span class="fc" id="L55">        this.dbLoad = registry.counter(&quot;product.detail.db.load&quot;); // 回源次数，超过 100 QPS 告警</span>
+<span class="fc" id="L56">    }</span>
+
+    public Optional&lt;ProductDetailView&gt; get(long skuId) {
+        // 同一 skuId 并发未命中时，本 JVM 只有一个线程去查 Redis / 数据库
+<span class="fc" id="L60">        return local.get(skuId, this::loadFromRemote);</span>
+    }
+
+    private Optional&lt;ProductDetailView&gt; loadFromRemote(long skuId) {
+<span class="fc" id="L64">        String key = KEY_PREFIX + skuId;</span>
+        String json;
+        try {
+<span class="fc" id="L67">            json = redis.opsForValue().get(key);</span>
+<span class="fc" id="L68">        } catch (DataAccessException | SerializationException e) {</span>
+            // 缓存出问题宁可回源：连不上、超时（QueryTimeoutException）、命令报错（RedisSystemException）都是
+            // DataAccessException，一律直接查库并跳过回写，不把 Redis 故障变成接口 500
+<span class="fc" id="L71">            log.warn(&quot;读取 Redis 失败，直接回源，skuId={}&quot;, skuId, e);</span>
+<span class="fc" id="L72">            dbLoad.increment();</span>
+<span class="fc" id="L73">            return Optional.ofNullable(productMapper.selectDetail(skuId));</span>
+<span class="fc" id="L74">        }</span>
+<span class="fc bfc" id="L75" title="All 2 branches covered.">        if (json != null) {</span>
+<span class="fc bfc" id="L76" title="All 2 branches covered.">            if (NULL_JSON.equals(json)) {</span>
+<span class="fc" id="L77">                l2Null.increment();</span>
+<span class="fc" id="L78">                return Optional.empty();</span>
+            }
+            try {
+<span class="fc" id="L81">                ProductDetailView cached = jsonMapper.readValue(json, ProductDetailView.class);</span>
+<span class="fc" id="L82">                l2Hit.increment();</span>
+<span class="fc" id="L83">                return Optional.of(cached);</span>
+<span class="fc" id="L84">            } catch (JacksonException e) {</span>
+                // 缓存里的值读不出来（多半是 ProductDetailView 改过结构）：按未命中回源，下面会用新结构覆盖
+<span class="fc" id="L86">                log.warn(&quot;商品详情缓存反序列化失败，按未命中回源，skuId={}&quot;, skuId, e);</span>
+            }
+        }
+<span class="fc" id="L89">        l2Miss.increment();</span>
+<span class="fc" id="L90">        dbLoad.increment();</span>
+<span class="fc" id="L91">        ProductDetailView view = productMapper.selectDetail(skuId); // 回源只查 t_product</span>
+        try {
+<span class="fc bfc" id="L93" title="All 2 branches covered.">            if (view == null) {</span>
+<span class="fc" id="L94">                redis.opsForValue().set(key, NULL_JSON, Duration.ofSeconds(60));</span>
+<span class="fc" id="L95">                return Optional.empty();</span>
+            }
+<span class="fc" id="L97">            Duration ttl = Duration.ofMinutes(30)</span>
+<span class="fc" id="L98">                    .plusSeconds(ThreadLocalRandom.current().nextInt(300));</span>
+<span class="fc" id="L99">            redis.opsForValue().set(key, jsonMapper.writeValueAsString(view), ttl);</span>
+<span class="fc" id="L100">        } catch (DataAccessException | SerializationException | JacksonException e) {</span>
+<span class="fc" id="L101">            log.warn(&quot;回写 Redis 失败，跳过，skuId={}&quot;, skuId, e);</span>
+<span class="fc" id="L102">        }</span>
+<span class="fc" id="L103">        return Optional.ofNullable(view);</span>
+    }
+
+    void evictLocal(long skuId) {
+<span class="fc" id="L107">        local.invalidate(skuId);</span>
+<span class="fc" id="L108">    }</span>
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.13.202504020838</span></div></body></html>
