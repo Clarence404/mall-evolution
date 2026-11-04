@@ -1,42 +1,72 @@
 # mall-evolution
 
-Java Doc「项目演进」模块的配套代码：示例商城订单服务，从模块化单体一步步演进到分布式。
+Java Doc「项目演进」模块的配套代码：示例商城订单服务，从 3 人的模块化单体一步步演进到大促下单峰值 5000 QPS 的分布式系统。
+
+**版本基线**：JDK 21、Spring Boot 4.0.9、Spring Cloud 2025.1.4、Spring Cloud Alibaba 2025.1.0.0、MySQL 8.4、Redis 8、RocketMQ 5（rocketmq-client-java 5.2.2）、Flyway 11、Testcontainers 2、Resilience4j 2、Gatling 3.16。
 
 [![verify](https://github.com/Clarence404/mall-evolution/actions/workflows/verify.yml/badge.svg)](https://github.com/Clarence404/mall-evolution/actions/workflows/verify.yml) [测试报告](https://clarence404.github.io/mall-evolution/)
 
 ## 阶段
 
-| 标签 | 对应文章 |
-|------|---------|
-| `stage-1-monolith` | [工程搭建](https://clarence404.github.io/java-doc/project/1_project_setup.html)、[数据建模](https://clarence404.github.io/java-doc/project/2_data_model.html)、[接口设计](https://clarence404.github.io/java-doc/project/3_api_design.html) |
-| `stage-2-cache-async` | [引入缓存](https://clarence404.github.io/java-doc/project/4_cache.html)、[异步化](https://clarence404.github.io/java-doc/project/5_async.html) |
-| `stage-3-split` | [拆分服务](https://clarence404.github.io/java-doc/project/6_split.html)、[跨服务一致性](https://clarence404.github.io/java-doc/project/7_consistency.html) |
-| `stage-4-stability` | [稳定性](https://clarence404.github.io/java-doc/project/8_stability.html)、[可观测与发布](https://clarence404.github.io/java-doc/project/9_observability_release.html) |
+每个阶段打一个标签，`git checkout <标签>` 即可看到当时的代码；每篇文章一个提交，提交信息里写了对应哪一篇。
 
-## 本地运行
+| 标签 | 对应文章 | 文章链接 |
+|------|---------|---------|
+| — | 项目演进总览 | <https://clarence404.github.io/java-doc/project/0_overview.html> |
+| `stage-1-monolith` | 工程搭建 | <https://clarence404.github.io/java-doc/project/1_project_setup.html> |
+| `stage-1-monolith` | 数据建模 | <https://clarence404.github.io/java-doc/project/2_data_model.html> |
+| `stage-1-monolith` | 接口设计 | <https://clarence404.github.io/java-doc/project/3_api_design.html> |
+| `stage-2-cache-async` | 引入缓存 | <https://clarence404.github.io/java-doc/project/4_cache.html> |
+| `stage-2-cache-async` | 异步化 | <https://clarence404.github.io/java-doc/project/5_async.html> |
+| `stage-3-split` | 拆分服务 | <https://clarence404.github.io/java-doc/project/6_split.html> |
+| `stage-3-split` | 跨服务一致性 | <https://clarence404.github.io/java-doc/project/7_consistency.html> |
+| `stage-4-stability` | 稳定性 | <https://clarence404.github.io/java-doc/project/8_stability.html> |
+| `stage-4-stability` | 可观测与发布 | <https://clarence404.github.io/java-doc/project/9_observability_release.html> |
+| `main` | 复盘 | <https://clarence404.github.io/java-doc/project/10_retrospective.html> |
 
-需要 JDK 21、Docker（只用于起依赖和跑集成测试）。
+## 本地运行（最终形态）
+
+需要 JDK 21；依赖用 Docker 起（也只有集成测试需要 Docker）。所有密码都是本地开发用的占位值 `mall_dev`。
 
 ```bash
-docker compose up -d                # MySQL 8.4、Redis 8、RocketMQ 5（NameServer + Broker/Proxy），占位密码 mall_dev
-./mvnw -B verify                    # 格式、Checkstyle、ArchUnit、单元测试、H2 主流程测试；有 Docker 时同时跑 Testcontainers 集成测试
+docker compose up -d     # MySQL 8.4（含 mall_inventory / mall_payment 库）、Redis 8、RocketMQ 5（NameServer + Broker/Proxy + 建 Topic）、Nacos 3
 ./mvnw -B -DskipTests package
-java -jar mall-app/target/mall-app.jar   # 默认 dev profile，Flyway 建表并加载演示数据
+
+# 各开一个终端，默认 dev profile，Flyway 自动建表并加载演示数据
+java -jar inventory-service/target/inventory-service.jar   # :8082
+java -jar payment-service/target/payment-service.jar       # :8083
+java -jar mall-app/target/mall-app.jar                     # :8080
+java -jar mall-gateway/target/mall-gateway.jar             # :9000，对外入口
 ```
 
-演示账号：`13800000000` / `mall123`（用户 10001）；运营演示账号 `13800000009` / `mall123`（ADMIN，可调 `/api/admin/**` 后台改价接口，普通用户调用返回 403）。
+演示账号 `13800000000` / `mall123`（用户 10001），运营演示账号 `13800000009` / `mall123`（ADMIN，可调 `/api/admin/**` 后台改价接口，普通用户调用返回 403），演示商品 20001–20004（20004 已下架）。经网关下单：
 
 ```bash
-TOKEN=$(curl -s localhost:8080/api/auth/login -H 'Content-Type: application/json' \
+TOKEN=$(curl -s localhost:9000/api/auth/login -H 'Content-Type: application/json' \
   -d '{"phone":"13800000000","password":"mall123"}' | jq -r .accessToken)
-curl -i localhost:8080/api/orders -H "Authorization: Bearer $TOKEN" \
+curl -i localhost:9000/api/orders -H "Authorization: Bearer $TOKEN" \
   -H "Idempotency-Key: $(uuidgen)" -H 'Content-Type: application/json' \
   -d '{"lines":[{"skuId":"20001","quantity":2}],"address":{"receiver":"张三","phone":"13800000000","detail":"杭州市西湖区"}}'
 ```
 
-测试分三层：纯单元测试（Mockito）；`*H2Test` / `ApplicationContextSmokeTest` 用 H2 的 MySQL 兼容模式跑 Flyway 和真实 SQL，不需要 Docker；`*IT` / `*ApiTests` 用 Testcontainers 起 MySQL 8.4，没有 Docker 时自动跳过，并发、锁相关的结论以它们为准。
+接口文档：<http://localhost:8080/swagger-ui.html>（仅 dev / test 环境开启）。看早期阶段时 `git checkout stage-1-monolith`，那时只有 `mall-app` 一个进程，`docker compose up -d mysql` 即可。
 
-接口文档：<http://localhost:8080/swagger-ui.html>（仅 dev / test 环境开启）。
+## 构建与测试
+
+```bash
+./mvnw -B verify          # Enforcer、Spotless（palantir）、Checkstyle、ArchUnit、单元测试、H2 主流程测试、Testcontainers 集成测试
+./mvnw -pl perf gatling:test -DbaseUrl=https://<压测环境网关>   # 只在同构压测环境执行
+```
+
+测试分三层：
+
+| 层 | 命名 | 需要 Docker | 覆盖 |
+|----|------|------------|------|
+| 单元测试 | `*Test` | 否 | 下单幂等、预占结果三分类、去重消费、关单、中继投递与 traceparent、熔断谓词、对账比对等 |
+| H2 全上下文测试 | `*H2Test`、`ApplicationContextSmokeTest` | 否 | H2 的 MySQL 兼容模式跑全部 Flyway 迁移与真实 SQL：下单与重放、取消、支付消息、库存预占的空回滚与悬挂、分桶、熔断打开返回 503、下单频控；同时导出 `api/openapi.json` |
+| 集成测试 | `*IT`、`*ApiTests` | 是 | Testcontainers 起 MySQL 8.4 / Redis 8：雪花机器号租约（两实例不同号、租约丢失拒绝发号）、并发同键只下一单、不超卖、交叉下单不死锁、reserve 与 release 竞态、`FOR UPDATE SKIP LOCKED` 加租约的中继不重发、两级缓存失效、预热后注册到真实 Nacos 3.1 且端口正确 |
+
+没有 Docker 的机器上集成测试会自动跳过（`@Testcontainers(disabledWithoutDocker = true)`），并发、锁、隔离级别相关的结论以集成测试为准。PR 检查用 oasdiff 把导出的 openapi.json 与目标分支（main）上的 `api/openapi.json` 比对，删字段、改类型这类破坏性变更直接失败。
 
 ## 测试报告
 
@@ -50,17 +80,51 @@ curl -i localhost:8080/api/orders -H "Authorization: Bearer $TOKEN" \
 
 ```text
 mall-evolution/
-├── mall-common/      错误码、ProblemDetail 全局异常处理、雪花 ID、JWT 鉴权、RocketMQ 客户端与消费去重表
-├── mall-user/        用户、登录与刷新令牌、积分（points-consumer）
-├── mall-product/     商品、详情两级缓存（Caffeine + Redis）、库存展示
-├── mall-inventory/   库存扣减
-├── mall-order/       下单、查询、取消与超时关单、支付单、本地消息表 t_outbox 与中继、通知 / 发货单消费者
-├── mall-app/         启动模块：配置、Flyway 迁移、ArchUnit 与集成测试
-├── api/openapi.json  接口契约基线，CI 做兼容性 diff
+├── mall-common/          错误码与 ProblemDetail、雪花 ID（显式配置或向 Redis 租机器号）、JWT、RocketMQ 客户端、本地消息表 t_outbox 与中继、消费去重、远程错误透传、降级开关
+├── mall-inventory-api/   库存服务的远程契约：InventoryApi（@HttpExchange，reserve / confirm / release）
+├── mall-order-api/       订单的远程契约：OrderQueryApi、OrderErrorCode
+├── mall-payment-api/     支付服务的远程契约：PaymentApi（关闭支付单、查询）
+├── mall-user/            用户、登录与刷新令牌、积分（points-consumer）
+├── mall-product/         商品、详情两级缓存（Caffeine + Redis）、库存展示、猜你喜欢
+├── mall-order/           下单（预占 + 熔断舱壁 + 频控）、查询、取消与超时关单、支付消息消费、通知 / 发货单消费者
+├── mall-app/             订单、商品、用户的启动模块：配置、Flyway、每日对账、ArchUnit / H2 / 集成测试
+├── inventory-service/    库存服务：预占、过期回查、热点分桶，独享 mall_inventory
+├── payment-service/      支付服务：渠道回调、payment-succeeded、关单与退款，独享 mall_payment
+├── mall-gateway/         入口网关：路由 /api/**、JWT 校验、按「用户 + 路由」限流
+├── perf/                 Gatling 压测脚本
+├── api/openapi.json      对外接口契约基线
+├── deploy/
+│   ├── k8s/              Deployment / Rollout + AnalysisTemplate、Service、Ingress、HPA、Flyway PreSync Job、Secret 模板
+│   ├── argocd/           Argo CD Application
+│   ├── observability/    OTel Collector（两层）、Prometheus SLO 与组件告警、PodMonitor、Alertmanager、Grafana 业务大盘
+│   ├── nacos/            Nacos 配置样例（熔断舱壁、降级开关、活动白名单、限流路由、结构化日志）
+│   ├── redis/ rocketmq/ mysql/   本地与自建环境的 Redis Sentinel、Broker、建库建 Topic 脚本
+│   ├── promo/            大促预案脚本（扩容、分桶与合并）
+│   └── mall-evolution.service、deploy.sh   阶段一的 systemd 单元与逐台发布脚本
 ├── config/checkstyle/
-├── deploy/           systemd 单元与逐台发布脚本、Redis 主从 + Sentinel 配置、RocketMQ 本地 Broker 与建 Topic 脚本
-└── .github/workflows/
+├── Dockerfile            按模块构建镜像，内置 OpenTelemetry Java Agent
+└── .github/workflows/    完整验证与测试报告发布（verify）、PR 检查（verify + 契约 diff + 密钥扫描 + 清单与告警规则校验）、阶段一部署、发布（镜像 → GitOps）
 ```
+
+## 复盘：四个阶段的决策怎么落在代码里
+
+对应 [复盘](https://clarence404.github.io/java-doc/project/10_retrospective.html)。按标签对比代码，能直接看到每一步改了什么、没改什么：
+
+| 做对的事 | 在代码里的体现 |
+|---------|---------------|
+| 边界先于部署 | 阶段一 `ModuleBoundaryTest` 守住「业务模块之间只走 api 包」；阶段三拆库存只是把 `mall-inventory` 的 api 包抽成 `mall-inventory-api`、加上 `@HttpExchange`，订单里注入的仍是 `InventoryApi` |
+| 正确性交给数据库约束 | `uk_user_biz`（下单幂等）、`uk_topic_key`（一单一种消息只写一条）、`uk_order_sku`（预占幂等、空回滚与悬挂）、`t_consume_record` 主键，加上所有状态流转的带旧状态条件更新 |
+| 一套可靠消息机制用到底 | `t_outbox` 在异步化引入，跨服务一致性时抽到 `mall-common`，三个服务共用；没有引入事务消息 |
+| 写操作不自动重试，结果未知按失败处理 | `PlaceOrderService` 对 reserve 的三类处理：明确失败直接抛、没发出去返回 `SYSTEM_BUSY`、结果未知立即释放，未知状态交给过期回查与每日对账收敛 |
+
+| 走过的弯路 | 在提交历史里 |
+|-----------|-------------|
+| 超时关单从定时扫描起步 | 阶段一 `OrderTimeoutScanJob` 每分钟扫；阶段二改为定时消息 + 每 10 分钟兜底。关单逻辑一开始就写成按订单号的 `closeIfUnpaid(orderNo)`，换触发方式时只换调度 |
+| 订单号规则中途更换 | 阶段一 19 位雪花 ID 字符串，阶段三 `OrderNoGenerator` 改为嵌入用户 ID 低 10 位；存量 19 位订单号由 `userGene` 返回 -1 识别 |
+| 拆分过渡期的「先扣后补」与同步 `markPaid` | `6_split` 提交里的 `deduct → 写单 → restore`、关单后归还库存的重试表 `t_stock_restore_task` 与 `OrderPayApi.markPaid`，在 `7_consistency` 提交里分别被预占、`order-cancelled` 消息和 `payment-succeeded` 消息替换 |
+| 链路追踪接得晚 | 阶段一 `TraceIdFilter` 只在单进程有效，阶段四才换成 OpenTelemetry，并让 traceparent 穿过 `t_outbox` |
+
+明确没做、等触发条件出现再做的：多活与异地容灾、`t_order` 分库分表、服务网格（金丝雀目前按 Pod 数分流）、Redis 预扣库存、生产全链路压测、Seata、继续拆订单 / 商品 / 用户、Redis Cluster、binlog 订阅删缓存、顺序消息、准实时对账（目前每日一次）。
 
 ## 许可证
 
