@@ -1,0 +1,77 @@
+# 下单两条 SLO（30 天）：成功率 99.9%（POST /api/orders 中非 5xx 的占比，STOCK_INSUFFICIENT 这类 4xx 不算错）；
+# P99 < 800ms（800ms 内完成的请求占比 >= 99%）。告警按错误预算的燃烧速率，快慢两档。
+groups:
+  - name: mall-app-place-order-slo
+    rules:
+      - record: slo:place_order:error_ratio:rate5m
+        expr: |
+          sum(rate(http_server_requests_seconds_count{application="mall-app",method="POST",uri="/api/orders",status=~"5.."}[5m]))
+          / sum(rate(http_server_requests_seconds_count{application="mall-app",method="POST",uri="/api/orders"}[5m]))
+      - record: slo:place_order:error_ratio:rate30m
+        expr: |
+          sum(rate(http_server_requests_seconds_count{application="mall-app",method="POST",uri="/api/orders",status=~"5.."}[30m]))
+          / sum(rate(http_server_requests_seconds_count{application="mall-app",method="POST",uri="/api/orders"}[30m]))
+      - record: slo:place_order:error_ratio:rate1h
+        expr: |
+          sum(rate(http_server_requests_seconds_count{application="mall-app",method="POST",uri="/api/orders",status=~"5.."}[1h]))
+          / sum(rate(http_server_requests_seconds_count{application="mall-app",method="POST",uri="/api/orders"}[1h]))
+      - record: slo:place_order:error_ratio:rate6h
+        expr: |
+          sum(rate(http_server_requests_seconds_count{application="mall-app",method="POST",uri="/api/orders",status=~"5.."}[6h]))
+          / sum(rate(http_server_requests_seconds_count{application="mall-app",method="POST",uri="/api/orders"}[6h]))
+      - alert: PlaceOrderBudgetFastBurn          # 1 小时烧掉月度预算的 2%
+        expr: |
+          slo:place_order:error_ratio:rate1h > (14.4 * 0.001)
+          and slo:place_order:error_ratio:rate5m > (14.4 * 0.001)
+        labels: {severity: page, team: trade, application: mall-app}
+        annotations:
+          summary: "下单错误预算快速燃烧，当前错误率 {{ $value | humanizePercentage }}"
+      - alert: PlaceOrderBudgetSlowBurn          # 6 小时烧掉 5%
+        expr: |
+          slo:place_order:error_ratio:rate6h > (6 * 0.001)
+          and slo:place_order:error_ratio:rate30m > (6 * 0.001)
+        labels: {severity: page, team: trade, application: mall-app}
+        annotations:
+          summary: "下单错误预算缓慢燃烧，当前错误率 {{ $value | humanizePercentage }}"
+
+  # 延迟 SLO 写法相同：分子换成 le="0.8" 桶之外的请求（management.metrics.distribution.slo 生成了这个桶）
+  - name: mall-app-place-order-latency-slo
+    rules:
+      - record: slo:place_order_latency:slow_ratio:rate5m
+        expr: |
+          1 - (
+            sum(rate(http_server_requests_seconds_bucket{application="mall-app",method="POST",uri="/api/orders",le="0.8"}[5m]))
+            / sum(rate(http_server_requests_seconds_count{application="mall-app",method="POST",uri="/api/orders"}[5m]))
+          )
+      - record: slo:place_order_latency:slow_ratio:rate30m
+        expr: |
+          1 - (
+            sum(rate(http_server_requests_seconds_bucket{application="mall-app",method="POST",uri="/api/orders",le="0.8"}[30m]))
+            / sum(rate(http_server_requests_seconds_count{application="mall-app",method="POST",uri="/api/orders"}[30m]))
+          )
+      - record: slo:place_order_latency:slow_ratio:rate1h
+        expr: |
+          1 - (
+            sum(rate(http_server_requests_seconds_bucket{application="mall-app",method="POST",uri="/api/orders",le="0.8"}[1h]))
+            / sum(rate(http_server_requests_seconds_count{application="mall-app",method="POST",uri="/api/orders"}[1h]))
+          )
+      - record: slo:place_order_latency:slow_ratio:rate6h
+        expr: |
+          1 - (
+            sum(rate(http_server_requests_seconds_bucket{application="mall-app",method="POST",uri="/api/orders",le="0.8"}[6h]))
+            / sum(rate(http_server_requests_seconds_count{application="mall-app",method="POST",uri="/api/orders"}[6h]))
+          )
+      - alert: PlaceOrderLatencyBudgetFastBurn   # 预算 1%
+        expr: |
+          slo:place_order_latency:slow_ratio:rate1h > (14.4 * 0.01)
+          and slo:place_order_latency:slow_ratio:rate5m > (14.4 * 0.01)
+        labels: {severity: page, team: trade, application: mall-app}
+        annotations:
+          summary: "下单延迟预算快速燃烧，慢于 800ms 的占比 {{ $value | humanizePercentage }}"
+      - alert: PlaceOrderLatencyBudgetSlowBurn   # 6 小时烧掉 5%
+        expr: |
+          slo:place_order_latency:slow_ratio:rate6h > (6 * 0.01)
+          and slo:place_order_latency:slow_ratio:rate30m > (6 * 0.01)
+        labels: {severity: page, team: trade, application: mall-app}
+        annotations:
+          summary: "下单延迟预算缓慢燃烧，慢于 800ms 的占比 {{ $value | humanizePercentage }}"

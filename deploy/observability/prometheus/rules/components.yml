@@ -1,0 +1,79 @@
+# 统一告警：把引入缓存、异步化、跨服务一致性、稳定性几篇定下的阈值原样收进 Prometheus，经 Alertmanager 统一推送。
+# Redis 用 redis_exporter 抓取；RocketMQ 托管实例的堆积与死信经云厂商的 Prometheus 接入导入（指标名按 rocketmq-exporter
+# 的命名写，接入时按厂商实际指标名替换）。应用指标来自各服务 /actuator/prometheus（Micrometer）。
+groups:
+  - name: cache
+    rules:
+      - alert: ProductDetailDbLoadHigh            # 回源 QPS 超过 100：大面积过期或 Redis 不可用
+        expr: sum(rate(product_detail_db_load_total{application="mall-app"}[1m])) > 100
+        for: 2m
+        labels: {severity: page, team: product}
+      - alert: ProductDetailL1HitRateLow
+        expr: |
+          sum(rate(cache_gets_total{cache="product_detail",result="hit"}[10m]))
+          / sum(rate(cache_gets_total{cache="product_detail"}[10m])) < 0.7
+        for: 10m
+        labels: {severity: ticket, team: product}
+      - alert: RedisEvictingKeys                  # 驱逐大于 0：容量不够
+        expr: increase(redis_evicted_keys_total[10m]) > 0
+        labels: {severity: ticket, team: sre}
+      - alert: RedisMasterSwitched
+        expr: changes(redis_instance_info{role="master"}[10m]) > 0
+        labels: {severity: ticket, team: sre}
+
+  - name: async
+    rules:
+      - alert: OutboxPendingTooLong               # 中继或 Broker 出了问题（三个服务）
+        expr: max by (application) (outbox_pending_age_seconds) > 60
+        for: 1m
+        labels: {severity: page, team: trade}
+        annotations:
+          summary: "{{ $labels.application }} 的 t_outbox 最老待发送记录已等待 {{ $value }} 秒"
+      - alert: OutboxFailedRecords
+        expr: max by (application) (outbox_failed_count) > 0
+        labels: {severity: ticket, team: trade}
+      - alert: ConsumerDeadLetter                 # notify-consumer 的死信不告警：通知类消息过时即作废
+        expr: sum by (group) (rocketmq_group_diff{group=~"%DLQ%.*",group!="%DLQ%notify-consumer"}) > 0
+        labels: {severity: ticket, team: trade}
+      - alert: ConsumerBacklog
+        expr: |
+          sum by (group) (rocketmq_group_diff{group!~"%DLQ%.*"}) > 5000
+          or max by (group) (rocketmq_group_get_latency_by_storetime{group!~"%DLQ%.*"}) > 300000
+        for: 5m
+        labels: {severity: ticket, team: trade}
+      - alert: RocketMQUnavailable                # 根因告警：抑制规则压掉各消费组的堆积告警
+        expr: up{job="rocketmq-exporter"} == 0 or rocketmq_brokeruntime_msg_put_total_today_now == 0
+        for: 2m
+        labels: {severity: page, team: sre}
+
+  - name: consistency
+    rules:
+      - alert: OrderPaymentConsumerLag            # 就是「支付成功，订单确认中」那个窗口，单独收紧到 1 分钟
+        expr: max(rocketmq_group_get_latency_by_storetime{group="order-payment-consumer"}) > 60000
+        for: 1m
+        labels: {severity: page, team: trade}
+      - alert: ReconcileDiffFound
+        expr: max(reconcile_diff_count{application="mall-app"}) > 0
+        labels: {severity: ticket, team: trade}
+
+  - name: stability
+    rules:
+      - alert: CircuitBreakerOpen
+        expr: max by (application, name) (resilience4j_circuitbreaker_state{name=~"inventory-reserve|payment-query",state="open"}) == 1
+        labels: {severity: page, team: trade}
+        annotations:
+          summary: "{{ $labels.application }} 的熔断器 {{ $labels.name }} 已打开"
+      - alert: BulkheadSaturated                  # 舱壁许可耗尽，开始拒绝；基线取压测时的值
+        expr: min by (application, name) (resilience4j_bulkhead_available_concurrent_calls{name="inventory-reserve"}) == 0
+        for: 5m
+        labels: {severity: ticket, team: trade}
+      - alert: GatewayRateLimitedHigh             # 网关 429 比例持续高于压测基线
+        expr: |
+          sum(rate(http_server_requests_seconds_count{application="mall-gateway",status="429"}[5m]))
+          / sum(rate(http_server_requests_seconds_count{application="mall-gateway"}[5m])) > 0.05
+        for: 5m
+        labels: {severity: ticket, team: sre}
+      - alert: PendingOrderLimitHigh
+        expr: sum(rate(order_pending_limit_total{application="mall-app"}[5m])) > 5
+        for: 5m
+        labels: {severity: ticket, team: trade}

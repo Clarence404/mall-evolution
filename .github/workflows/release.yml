@@ -1,0 +1,84 @@
+# 发布流水线：GitHub Actions 跑 verify、构建镜像、把镜像 digest 写进 GitOps 仓库；
+# Argo CD 发现变更后同步（PreSync 跑 Flyway），Argo Rollouts 按 5% → 25% → 100% 放量并自动分析。
+# 构建镜像与写 GitOps 需要镜像仓库和 GitOps 仓库的凭据，只在仓库变量 DEPLOY_ENABLED=true 时执行；
+# 本仓库是演示仓库，没有配这些凭据，push 到 main 时只跑 verify。
+# 回滚：Rollouts 自动中止后 GitOps 仓库里还是新版本，由发布人 revert 那次提交，Argo CD 不会再把它推上去。
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+      - run: ./mvnw -B verify
+      - uses: actions/upload-artifact@v7
+        with:
+          name: jars
+          path: '*/target/*.jar'
+  image:
+    needs: verify
+    if: ${{ vars.DEPLOY_ENABLED == 'true' }}
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        module: [mall-app, inventory-service, payment-service, mall-gateway]
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v8
+        with:
+          name: jars
+      - uses: docker/setup-buildx-action@v4
+      - uses: docker/login-action@v4
+        with:
+          registry: ${{ vars.REGISTRY }}
+          username: ${{ secrets.REGISTRY_USERNAME }}
+          password: ${{ secrets.REGISTRY_PASSWORD }}
+      - id: build
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          build-args: MODULE=${{ matrix.module }}
+          push: true
+          tags: ${{ vars.REGISTRY }}/mall/${{ matrix.module }}:${{ github.sha }}
+      # matrix 各路的 job outputs 会互相覆盖，digest 用 artifact 传给下一步
+      - run: echo "${{ vars.REGISTRY }}/mall/${{ matrix.module }}@${{ steps.build.outputs.digest }}" > digest-${{ matrix.module }}.txt
+      - uses: actions/upload-artifact@v7
+        with:
+          name: digest-${{ matrix.module }}
+          path: digest-${{ matrix.module }}.txt
+  gitops:
+    needs: image
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          repository: ${{ vars.GITOPS_REPO }}
+          token: ${{ secrets.GITOPS_TOKEN }}
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: digest-*
+          merge-multiple: true
+          path: digests
+      - name: 写入镜像 digest
+        run: |
+          export APP=$(cat digests/digest-mall-app.txt) INV=$(cat digests/digest-inventory-service.txt)
+          export PAY=$(cat digests/digest-payment-service.txt) GW=$(cat digests/digest-mall-gateway.txt)
+          yq -i '(select(.kind == "Rollout") | .spec.template.spec.containers[0].image) = strenv(APP)' prod/mall-app.yaml
+          yq -i '(select(.kind == "Job" and .metadata.name == "mall-app-flyway") | .spec.template.spec.initContainers[0].image) = strenv(APP)' prod/flyway-presync-job.yaml
+          yq -i '(select(.kind == "Job" and .metadata.name == "inventory-service-flyway") | .spec.template.spec.initContainers[0].image) = strenv(INV)' prod/flyway-presync-job.yaml
+          yq -i '(select(.kind == "Job" and .metadata.name == "payment-service-flyway") | .spec.template.spec.initContainers[0].image) = strenv(PAY)' prod/flyway-presync-job.yaml
+          yq -i '(select(.kind == "Rollout") | .spec.template.spec.containers[0].image) = strenv(INV)' prod/inventory-service.yaml
+          yq -i '(select(.kind == "Deployment") | .spec.template.spec.containers[0].image) = strenv(PAY)' prod/payment-service.yaml
+          yq -i '(select(.kind == "Deployment") | .spec.template.spec.containers[0].image) = strenv(GW)' prod/mall-gateway.yaml
+          rm -rf digests
+          git config user.name "mall-release-bot"
+          git config user.email "release-bot@mall.example"
+          git commit -am "release: mall-evolution ${{ github.sha }}"
+          git push

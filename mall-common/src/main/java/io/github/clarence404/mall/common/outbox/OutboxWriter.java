@@ -1,7 +1,11 @@
 package io.github.clarence404.mall.common.outbox;
 
 import io.github.clarence404.mall.common.json.Json;
+import io.opentelemetry.api.trace.propagation.W3CTraceContextPropagator;
+import io.opentelemetry.context.Context;
 import java.time.LocalDateTime;
+import java.util.HashMap;
+import java.util.Map;
 import java.util.concurrent.Executor;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.ObjectProvider;
@@ -30,6 +34,11 @@ public class OutboxWriter {
     @Transactional(propagation = Propagation.MANDATORY) // 必须在业务事务内调用
     public void append(String topic, String orderNo, Object payload, LocalDateTime deliverAt) {
         OutboxRecord r = OutboxRecord.of(topic, orderNo, Json.write(payload), deliverAt);
+        if (deliverAt == null) { // 定时消息 order-timeout 不存，免得一条 Trace 拖 15 分钟
+            Map<String, String> carrier = new HashMap<>();
+            W3CTraceContextPropagator.getInstance().inject(Context.current(), carrier, Map::put);
+            r.setTraceParent(carrier.get("traceparent"));
+        }
         outboxMapper.insert(r);
         TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
             @Override

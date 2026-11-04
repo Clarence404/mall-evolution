@@ -1,14 +1,13 @@
-# mall-app 迁入集群后的清单：迁移期它仍跑在云主机上（systemd），与集群内服务都注册到 Nacos，互相按服务名调用；
-# 新服务稳定一个月后再应用这份清单。
-apiVersion: apps/v1
-kind: Deployment
+# mall-app 迁入集群后改用 Argo Rollouts：金丝雀 5% → 25% → 100%，每步按错误率和 P99 自动分析，不达标自动回滚。
+# 按 Pod 数分流（不配 trafficRouting）：服务间按 Nacos 里的实例轮询，Kubernetes 层的权重路由管不到这段流量，
+# Rollouts 按比例换算金丝雀 Pod 数并向上取整；平时 4 个 Pod，5% 这一步实际是一个 Pod 的份额。
+apiVersion: argoproj.io/v1alpha1
+kind: Rollout
 metadata:
   name: mall-app
   namespace: mall
 spec:
   replicas: 4
-  strategy:
-    rollingUpdate: {maxSurge: 1, maxUnavailable: 0}
   selector:
     matchLabels: {app: mall-app}
   template:
@@ -18,9 +17,26 @@ spec:
       terminationGracePeriodSeconds: 60
       containers:
         - name: app
-          image: mall/mall-app:2.0.0
+          image: mall/mall-app:2.0.0          # 由流水线写入镜像 digest
           ports: [{containerPort: 8080}]
           envFrom: [{secretRef: {name: mall-app-secret}}]
+          env:
+            - name: JAVA_TOOL_OPTIONS
+              value: "-javaagent:/opt/otel/opentelemetry-javaagent.jar"
+            - name: OTEL_SERVICE_NAME
+              value: mall-app
+            - name: OTEL_RESOURCE_ATTRIBUTES
+              value: service.namespace=mall,deployment.environment.name=prod
+            - name: NODE_IP
+              valueFrom: {fieldRef: {fieldPath: status.hostIP}}
+            - name: OTEL_EXPORTER_OTLP_ENDPOINT
+              value: http://$(NODE_IP):4318                  # 发给本节点的 Collector
+            - name: OTEL_TRACES_SAMPLER_ARG
+              value: "1.0"                                   # 全量上报，采样交给 Collector
+            - name: OTEL_METRICS_EXPORTER
+              value: none                                    # 指标走 Micrometer，避免两套口径
+            - name: OTEL_LOGS_EXPORTER
+              value: none                                    # 日志走 stdout，由 Collector 采集
           resources:
             requests: {cpu: "2", memory: 8Gi}
             limits: {memory: 8Gi}
@@ -34,8 +50,52 @@ spec:
             httpGet: {path: /actuator/health/readiness, port: 8080}
           lifecycle:
             preStop:
-              exec:
+              exec:   # 停机先从 Nacos 注销并等待 15 秒，再由 server.shutdown: graceful 处理完在途请求
                 command: ["sh", "-c", "curl -s -X POST localhost:8080/internal/offline; sleep 15"]
+  strategy:
+    canary:
+      analysis:
+        startingStep: 1                   # 从第一次暂停开始持续分析
+        templates: [{templateName: canary-health}]
+        args:
+          - name: app
+            value: mall-app
+          - name: canary-hash
+            valueFrom: {podTemplateHashValue: Latest}
+      steps:
+        - setWeight: 5
+        - pause: {duration: 5m}
+        - setWeight: 25
+        - pause: {duration: 10m}
+        - setWeight: 100
+---
+apiVersion: argoproj.io/v1alpha1
+kind: AnalysisTemplate
+metadata:
+  name: canary-health
+  namespace: mall
+spec:
+  args: [{name: app}, {name: canary-hash}]
+  metrics:
+    - name: error-rate
+      interval: 1m
+      failureLimit: 1                     # 累计两次不达标即中止
+      successCondition: result[0] < 0.005
+      provider:
+        prometheus:
+          address: http://prometheus.monitoring.svc:9090
+          query: |
+            sum(rate(http_server_requests_seconds_count{application="{{args.app}}",rollouts_pod_template_hash="{{args.canary-hash}}",status=~"5.."}[2m]))
+            / sum(rate(http_server_requests_seconds_count{application="{{args.app}}",rollouts_pod_template_hash="{{args.canary-hash}}"}[2m]))
+    - name: p99
+      interval: 1m
+      failureLimit: 1
+      successCondition: result[0] < 0.8
+      provider:
+        prometheus:
+          address: http://prometheus.monitoring.svc:9090
+          query: |
+            histogram_quantile(0.99, sum by (le) (rate(http_server_requests_seconds_bucket{application="{{args.app}}",rollouts_pod_template_hash="{{args.canary-hash}}"}[2m])))
 ---
 apiVersion: v1
 kind: Service

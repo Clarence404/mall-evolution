@@ -1,0 +1,34 @@
+# 一个入口、一套分级：page 推到值班 IM 并电话呼叫，ticket 只进值班群、第二天处理。云监控和 MQ 控制台的告警下线。
+# webhook 地址由部署时注入，不进仓库。
+route:
+  receiver: oncall-group
+  group_by: [alertname, application]
+  group_wait: 30s
+  group_interval: 5m
+  repeat_interval: 4h
+  routes:
+    - matchers: [severity="page"]
+      receiver: oncall-page
+      repeat_interval: 30m
+    - matchers: [severity="ticket"]
+      receiver: oncall-group
+
+receivers:
+  - name: oncall-page
+    webhook_configs:
+      - url: http://alert-bridge.monitoring.svc/im-and-phone     # 值班 IM + 电话呼叫的桥接服务
+        send_resolved: true
+  - name: oncall-group
+    webhook_configs:
+      - url: http://alert-bridge.monitoring.svc/im-group
+        send_resolved: true
+
+inhibit_rules:
+  # RocketMQ 实例整体不可用时，压掉各消费组的堆积告警，只留根因那一条
+  - source_matchers: [alertname="RocketMQUnavailable"]
+    target_matchers: [alertname=~"ConsumerBacklog|OrderPaymentConsumerLag|OutboxPendingTooLong"]
+  # 熔断已打开时，压掉同一服务的下单错误预算告警，避免同一件事呼两次。SLO 告警来自 sum() 聚合的记录规则，
+  # 本身没有 application 标签，在告警规则里静态补上 application: mall-app，equal 才能匹配上
+  - source_matchers: [alertname="CircuitBreakerOpen"]
+    target_matchers: [alertname=~"PlaceOrderBudget.*"]
+    equal: [application]

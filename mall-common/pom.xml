@@ -43,6 +43,11 @@
             <groupId>io.micrometer</groupId>
             <artifactId>micrometer-core</artifactId>
         </dependency>
+        <!-- 阶段四：链路由 OpenTelemetry Java Agent 采集，代码里只用 API 读当前 Span、在 outbox 里存取 traceparent -->
+        <dependency>
+            <groupId>io.opentelemetry</groupId>
+            <artifactId>opentelemetry-api</artifactId>
+        </dependency>
         <!-- ServiceRegistry：停机时主动从注册中心注销 -->
         <dependency>
             <groupId>org.springframework.cloud</groupId>

@@ -1,0 +1,22 @@
+# Argo CD 拉取式部署：GitOps 仓库里的镜像 digest 一变，Argo CD 就同步（先 PreSync 跑 Flyway，再更新 Rollout）。
+# 大促前 48 小时冻结：把 syncPolicy.automated 去掉（关闭自动同步），只同步经值班负责人批准的修复，修复同样走金丝雀与自动分析。
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: mall-evolution
+  namespace: argocd
+spec:
+  project: default
+  source:
+    repoURL: https://git.example.com/mall/mall-gitops.git
+    targetRevision: main
+    path: prod
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: mall
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=false

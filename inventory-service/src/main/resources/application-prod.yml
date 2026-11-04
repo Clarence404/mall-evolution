@@ -1,5 +1,7 @@
 # 生产（Kubernetes）：数据库密码等密钥由 Secret 注入环境变量，不进 Nacos
 spring:
+  flyway:
+    enabled: false              # 迁移由 Argo CD 的 PreSync Job 用有 DDL 权限的账号执行，应用账号只有 DML 权限
   datasource:
     url: jdbc:mysql://${DB_HOST}:3306/mall_inventory
     username: ${DB_USERNAME}

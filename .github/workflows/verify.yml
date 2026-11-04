@@ -63,3 +63,16 @@ jobs:
             -schema-location default \
             -schema-location 'https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json' \
             /w/deploy/k8s
+  # Prometheus 规则与 Alertmanager 配置：promtool / amtool 语法与表达式检查
+  observability-config:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: promtool check rules
+        run: |
+          docker run --rm -v "$PWD":/w --entrypoint promtool prom/prometheus:v3.5.0 \
+            check rules /w/deploy/observability/prometheus/rules/components.yml /w/deploy/observability/prometheus/rules/place-order-slo.yml
+      - name: amtool check-config
+        run: |
+          docker run --rm -v "$PWD":/w --entrypoint amtool prom/alertmanager:v0.28.1 \
+            check-config /w/deploy/observability/alertmanager/alertmanager.yml

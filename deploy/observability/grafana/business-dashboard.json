@@ -1,0 +1,254 @@
+{
+  "title": "示例商城 · 业务大盘",
+  "uid": "mall-business",
+  "tags": [
+    "mall",
+    "business"
+  ],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "30s",
+  "time": {
+    "from": "now-6h",
+    "to": "now"
+  },
+  "panels": [
+    {
+      "id": 1,
+      "type": "timeseries",
+      "title": "下单量（每分钟，对比上周同时段）",
+      "description": "突然掉一半而错误率不高，多半是前端或网关的问题",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 0,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(increase(http_server_requests_seconds_count{application=\"mall-app\",method=\"POST\",uri=\"/api/orders\",status=\"201\"}[1m]))",
+          "legendFormat": "本周"
+        },
+        {
+          "refId": "B",
+          "expr": "sum(increase(http_server_requests_seconds_count{application=\"mall-app\",method=\"POST\",uri=\"/api/orders\",status=\"201\"}[1m] offset 1w))",
+          "legendFormat": "上周"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      }
+    },
+    {
+      "id": 2,
+      "type": "timeseries",
+      "title": "支付成功率（按渠道）",
+      "description": "某个渠道单独下跌，切换默认渠道",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 0,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (channel) (rate(pay_callback_total{application=\"payment-service\",result=\"success\"}[5m])) / sum by (channel) (rate(pay_callback_total{application=\"payment-service\"}[5m]))",
+          "legendFormat": "{{channel}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      }
+    },
+    {
+      "id": 3,
+      "type": "timeseries",
+      "title": "t_outbox 最老待发送时长",
+      "description": "持续上涨说明中继或 Broker 出了问题",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 8,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "max by (application) (outbox_pending_age_seconds)",
+          "legendFormat": "{{application}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      }
+    },
+    {
+      "id": 4,
+      "type": "timeseries",
+      "title": "各消费组堆积（order-payment-consumer 置顶）",
+      "description": "只有一个组涨，是这个组的下游慢了",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 8,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(rocketmq_group_diff{group=\"order-payment-consumer\"})",
+          "legendFormat": "order-payment-consumer"
+        },
+        {
+          "refId": "B",
+          "expr": "sum by (group) (rocketmq_group_diff{group!~\"%DLQ%.*\",group!=\"order-payment-consumer\"})",
+          "legendFormat": "{{group}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      }
+    },
+    {
+      "id": 5,
+      "type": "timeseries",
+      "title": "对账差异数",
+      "description": "某类差异连续两天出现，说明有系统性 bug",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 16,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "max(reconcile_diff_count{application=\"mall-app\"})",
+          "legendFormat": "差异数"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      }
+    },
+    {
+      "id": 6,
+      "type": "timeseries",
+      "title": "稳定性保护：熔断器状态、限流命中、频控拒绝",
+      "description": "大促时一眼看出哪些保护正在起作用；降级开关当前取值见 Nacos 的 mall.degrade.*",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 16,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "max by (name) (resilience4j_circuitbreaker_state{state=\"open\"})",
+          "legendFormat": "熔断打开 {{name}}"
+        },
+        {
+          "refId": "B",
+          "expr": "sum(rate(http_server_requests_seconds_count{application=\"mall-gateway\",status=\"429\"}[1m]))",
+          "legendFormat": "网关 429"
+        },
+        {
+          "refId": "C",
+          "expr": "sum(rate(order_pending_limit_total{application=\"mall-app\"}[1m]))",
+          "legendFormat": "ORDER_PENDING_LIMIT"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      }
+    }
+  ],
+  "annotations": {
+    "list": []
+  },
+  "templating": {
+    "list": []
+  }
+}

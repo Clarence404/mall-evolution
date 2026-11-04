@@ -18,6 +18,8 @@ public class OutboxRecord {
     private int status;
     private int retryCount;
     private LocalDateTime nextRetryAt;
+    /** W3C traceparent：写 outbox 时存下当前 Trace，中继在另一个线程投递时恢复，消费者那一段才能挂回下单请求。 */
+    private String traceParent;
 
     public static OutboxRecord of(String topic, String msgKey, String payload, LocalDateTime deliverAt) {
         OutboxRecord r = new OutboxRecord();
@@ -61,5 +63,13 @@ public class OutboxRecord {
 
     public LocalDateTime nextRetryAt() {
         return nextRetryAt;
+    }
+
+    public String traceParent() {
+        return traceParent;
+    }
+
+    public void setTraceParent(String traceParent) {
+        this.traceParent = traceParent;
     }
 }

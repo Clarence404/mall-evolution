@@ -8,3 +8,4 @@ resources:
   - mall-gateway.yaml
   - mall-app.yaml   # 新服务稳定一个月后 mall-app 迁入集群（阶段四起），日常 HPA 见 hpa.yaml
   - hpa.yaml
+  - flyway-presync-job.yaml

@@ -1,4 +1,5 @@
 # 入口：Ingress → mall-gateway（Service）→ 按 Nacos 里的实例路由到 mall-app / payment-service
+# 网关保持 Deployment 滚动更新：路由与限流规则走 Nacos 配置（Beta 推送），镜像本身很少变化。
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -20,6 +21,23 @@ spec:
           image: mall/mall-gateway:1.0.0
           ports: [{containerPort: 8080}]
           envFrom: [{secretRef: {name: mall-gateway-secret}}]
+          env:
+            - name: JAVA_TOOL_OPTIONS
+              value: "-javaagent:/opt/otel/opentelemetry-javaagent.jar"
+            - name: OTEL_SERVICE_NAME
+              value: mall-gateway
+            - name: OTEL_RESOURCE_ATTRIBUTES
+              value: service.namespace=mall,deployment.environment.name=prod
+            - name: NODE_IP
+              valueFrom: {fieldRef: {fieldPath: status.hostIP}}
+            - name: OTEL_EXPORTER_OTLP_ENDPOINT
+              value: http://$(NODE_IP):4318
+            - name: OTEL_TRACES_SAMPLER_ARG
+              value: "1.0"
+            - name: OTEL_METRICS_EXPORTER
+              value: none
+            - name: OTEL_LOGS_EXPORTER
+              value: none
           resources:
             requests: {cpu: "1", memory: 1Gi}
             limits: {memory: 1Gi}

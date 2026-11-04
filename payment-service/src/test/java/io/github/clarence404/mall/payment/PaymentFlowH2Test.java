@@ -51,6 +51,9 @@ class PaymentFlowH2Test {
     @Autowired
     io.github.clarence404.mall.payment.pay.RefundService refundService;
 
+    @Autowired
+    io.micrometer.core.instrument.MeterRegistry meterRegistry;
+
     @Test
     void createPaymentThenChannelCallbackMarksOrderPaid() throws Exception {
         when(orderQueryApi.getByOrderNo("18492033857208325120001"))
@@ -182,6 +185,27 @@ class PaymentFlowH2Test {
                 .content("{\"paymentNo\":\"" + paymentNo + "\",\"channelTradeNo\":\"" + tradeNo
                         + "\",\"amount\":\"25.60\",\"sign\":\"" + signer.sign(paymentNo, tradeNo, "25.60")
                         + "\"}"));
+    }
+
+    @Test
+    void callbackMetricOnlyTagsKnownChannels() throws Exception {
+        mvc.perform(post("/api/payments/notify/{channel}", "evil-" + System.nanoTime())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"paymentNo\":\"P\",\"channelTradeNo\":\"T\",\"amount\":\"1.00\",\"sign\":\"bad\"}"))
+                .andExpect(status().isUnauthorized());
+
+        // 路径参数随便填的渠道名不进标签，归到 unknown，时序数量不会被撑爆
+        org.assertj.core.api.Assertions.assertThat(
+                        meterRegistry.find("pay.callback").counters())
+                .allSatisfy(c -> org.assertj.core.api.Assertions.assertThat(
+                                c.getId().getTag("channel"))
+                        .isIn("mock", "unknown"));
+        org.assertj.core.api.Assertions.assertThat(meterRegistry
+                        .get("pay.callback")
+                        .tags("channel", "unknown", "result", "failure")
+                        .counter()
+                        .count())
+                .isPositive();
     }
 
     @Test

@@ -1,4 +1,4 @@
-# Nacos：mall-gateway.yaml。限流阈值按压测结论调
+# Nacos：mall-gateway.yaml。限流阈值按压测结论调；改这里等同于一次发布，先 Beta 推给一个 Pod 观察 5 分钟再全量
 spring:
   cloud:
     gateway:

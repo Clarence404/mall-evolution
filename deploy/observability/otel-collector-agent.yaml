@@ -1,0 +1,88 @@
+# OTel Collector 第一层：每个节点一个 DaemonSet，接收本节点 Pod 的 OTLP、读取容器日志；
+# Span 按 traceId 转发给网关层的 3 个副本做尾部采样，日志写 Loki（只用 namespace / app / level 三个标签）。
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: otel-collector-agent
+  namespace: monitoring
+data:
+  config.yaml: |
+    receivers:
+      otlp:
+        protocols:
+          http: {endpoint: 0.0.0.0:4318}
+          grpc: {endpoint: 0.0.0.0:4317}
+      filelog:
+        include: [/var/log/pods/mall_*/*/*.log]
+        operators:
+          - type: container                      # 解析 containerd 日志格式，带上 namespace / pod / container
+          - type: json_parser                    # 应用输出的 logstash JSON，trace_id、span_id 是顶层字段
+            parse_from: body
+            if: 'body matches "^\\{"'
+    processors:
+      memory_limiter: {check_interval: 1s, limit_percentage: 80, spike_limit_percentage: 20}
+      batch: {}
+      k8sattributes:
+        extract:
+          labels:
+            - tag_name: app
+              key: app
+              from: pod
+      transform/loki-labels:
+        log_statements:
+          - context: log
+            statements:
+              - set(resource.attributes["loki.resource.labels"], "k8s.namespace.name, app")
+              - set(attributes["loki.attribute.labels"], "level")
+    exporters:
+      loadbalancing:                             # 同一个 traceId 的 Span 送到同一个网关副本，尾部采样才看得到完整 Trace
+        routing_key: traceID
+        protocol:
+          otlp:
+            tls: {insecure: true}
+        resolver:
+          dns: {hostname: otel-collector-gateway-headless.monitoring.svc, port: 4317}
+      loki:
+        endpoint: http://loki.monitoring.svc:3100/loki/api/v1/push
+    service:
+      pipelines:
+        traces:
+          receivers: [otlp]
+          processors: [memory_limiter, k8sattributes, batch]
+          exporters: [loadbalancing]
+        logs:
+          receivers: [filelog]
+          processors: [memory_limiter, k8sattributes, transform/loki-labels, batch]
+          exporters: [loki]
+---
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: otel-collector-agent
+  namespace: monitoring
+spec:
+  selector:
+    matchLabels: {app: otel-collector-agent}
+  template:
+    metadata:
+      labels: {app: otel-collector-agent}
+    spec:
+      serviceAccountName: otel-collector
+      containers:
+        - name: collector
+          image: otel/opentelemetry-collector-contrib:0.120.0
+          args: ["--config=/conf/config.yaml"]
+          ports:
+            - {containerPort: 4318, hostPort: 4318, name: otlp-http}   # 应用发给 $(NODE_IP):4318
+            - {containerPort: 4317, hostPort: 4317, name: otlp-grpc}
+          resources:
+            requests: {cpu: 200m, memory: 256Mi}
+            limits: {memory: 512Mi}
+          volumeMounts:
+            - {name: conf, mountPath: /conf}
+            - {name: pods, mountPath: /var/log/pods, readOnly: true}
+      volumes:
+        - name: conf
+          configMap: {name: otel-collector-agent}
+        - name: pods
+          hostPath: {path: /var/log/pods}

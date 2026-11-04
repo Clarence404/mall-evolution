@@ -17,6 +17,8 @@ spring:
       password: ${NACOS_PASSWORD:}
       discovery:
         namespace: ${NACOS_NAMESPACE:}
+        register-enabled: false   # 关掉自动注册：预热完成、就绪后由 RegisterWhenReady 注册
+        port: ${server.port}      # 端口本由自动注册从 Web 服务器启动事件里填，关掉自动注册后要显式给，否则注册成 -1
       config:
         namespace: ${NACOS_NAMESPACE:}
         file-extension: yaml
@@ -36,10 +38,16 @@ server:
   shutdown: graceful
 
 management:
+  metrics:
+    tags:
+      application: ${spring.application.name}
+    distribution:
+      slo:
+        http.server.requests: 800ms      # 生成 le="0.8" 的桶，延迟 SLO 直接用它算
   endpoints:
     web:
       exposure:
-        include: health,info,metrics
+        include: health,info,metrics,prometheus
   endpoint:
     health:
       probes:

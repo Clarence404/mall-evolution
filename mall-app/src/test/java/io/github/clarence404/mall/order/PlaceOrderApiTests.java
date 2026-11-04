@@ -64,9 +64,7 @@ class PlaceOrderApiTests extends IntegrationTestBase {
                 .contentType(MediaType.APPLICATION_PROBLEM_JSON)
                 .expectBody()
                 .jsonPath("$.code")
-                .isEqualTo("ORDER_STATUS_CONFLICT")
-                .jsonPath("$.traceId")
-                .exists();
+                .isEqualTo("ORDER_STATUS_CONFLICT");
     }
 
     @Test

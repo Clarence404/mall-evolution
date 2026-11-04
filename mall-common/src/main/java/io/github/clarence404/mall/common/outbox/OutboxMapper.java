@@ -12,12 +12,12 @@ import org.apache.ibatis.annotations.Update;
 @Mapper
 public interface OutboxMapper {
 
-    String COLUMNS = "id, topic, msg_key, payload, deliver_at, status, retry_count, next_retry_at";
+    String COLUMNS = "id, topic, msg_key, payload, trace_parent, deliver_at, status, retry_count, next_retry_at";
 
     /** uk_topic_key：一笔订单的同一种消息只写一条。 */
     @Insert("""
-            INSERT INTO t_outbox (id, topic, msg_key, payload, deliver_at, status, retry_count, next_retry_at)
-            VALUES (#{id}, #{topic}, #{msgKey}, #{payload}, #{deliverAt}, 0, 0, #{nextRetryAt})
+            INSERT INTO t_outbox (id, topic, msg_key, payload, trace_parent, deliver_at, status, retry_count, next_retry_at)
+            VALUES (#{id}, #{topic}, #{msgKey}, #{payload}, #{traceParent}, #{deliverAt}, 0, 0, #{nextRetryAt})
             """)
     int insert(OutboxRecord record);
 
@@ -32,7 +32,7 @@ public interface OutboxMapper {
 
     /** 扫表兜底：到了 next_retry_at 仍未发送的记录。 */
     @Select("""
-            SELECT id, topic, msg_key, payload, deliver_at, status, retry_count, next_retry_at
+            SELECT id, topic, msg_key, payload, trace_parent, deliver_at, status, retry_count, next_retry_at
             FROM t_outbox WHERE status = 0 AND next_retry_at <= NOW(3)
             ORDER BY next_retry_at LIMIT #{limit}
             FOR UPDATE SKIP LOCKED

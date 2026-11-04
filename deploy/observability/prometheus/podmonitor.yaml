@@ -1,0 +1,21 @@
+# Prometheus 抓取各服务 /actuator/prometheus；把 Pod 标签 rollouts-pod-template-hash 带进指标，金丝雀分析按它只看新版本。
+apiVersion: monitoring.coreos.com/v1
+kind: PodMonitor
+metadata:
+  name: mall-services
+  namespace: monitoring
+spec:
+  namespaceSelector:
+    matchNames: [mall]
+  selector:
+    matchExpressions:
+      - {key: app, operator: In, values: [mall-app, inventory-service, payment-service, mall-gateway]}
+  podMetricsEndpoints:
+    - targetPort: 8080
+      path: /actuator/prometheus
+      interval: 15s
+      relabelings:
+        - sourceLabels: [__meta_kubernetes_pod_label_rollouts_pod_template_hash]
+          targetLabel: rollouts_pod_template_hash
+        - sourceLabels: [__meta_kubernetes_pod_label_app]
+          targetLabel: app

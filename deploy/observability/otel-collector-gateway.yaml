@@ -1,0 +1,74 @@
+# OTel Collector 第二层：3 个副本做尾部采样——错误、慢于 800ms 的 Trace 全部保留，其余保留 10%，写 Tempo。
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: otel-collector-gateway
+  namespace: monitoring
+data:
+  config.yaml: |
+    receivers:
+      otlp:
+        protocols:
+          grpc: {endpoint: 0.0.0.0:4317}
+    processors:
+      memory_limiter: {check_interval: 1s, limit_percentage: 80, spike_limit_percentage: 20}
+      tail_sampling:
+        decision_wait: 10s
+        num_traces: 200000
+        policies:
+          - name: errors
+            type: status_code
+            status_code: {status_codes: [ERROR]}
+          - name: slow
+            type: latency
+            latency: {threshold_ms: 800}
+          - name: sample-rest
+            type: probabilistic
+            probabilistic: {sampling_percentage: 10}
+      batch: {}
+    exporters:
+      otlp/tempo:
+        endpoint: tempo-distributor.monitoring.svc:4317
+        tls: {insecure: true}
+    service:
+      pipelines:
+        traces:
+          receivers: [otlp]
+          processors: [memory_limiter, tail_sampling, batch]
+          exporters: [otlp/tempo]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: otel-collector-gateway
+  namespace: monitoring
+spec:
+  replicas: 3
+  selector:
+    matchLabels: {app: otel-collector-gateway}
+  template:
+    metadata:
+      labels: {app: otel-collector-gateway}
+    spec:
+      containers:
+        - name: collector
+          image: otel/opentelemetry-collector-contrib:0.120.0
+          args: ["--config=/conf/config.yaml"]
+          ports: [{containerPort: 4317, name: otlp-grpc}]
+          resources:
+            requests: {cpu: "1", memory: 2Gi}
+            limits: {memory: 2Gi}
+          volumeMounts: [{name: conf, mountPath: /conf}]
+      volumes:
+        - name: conf
+          configMap: {name: otel-collector-gateway}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: otel-collector-gateway-headless       # loadbalancing exporter 按 DNS 解析出每个副本
+  namespace: monitoring
+spec:
+  clusterIP: None
+  selector: {app: otel-collector-gateway}
+  ports: [{port: 4317, targetPort: 4317, name: otlp-grpc}]

@@ -1,5 +1,7 @@
-# 生产环境：只放非敏感项，密钥由 systemd 的 EnvironmentFile=/etc/mall-evolution/env 注入
+# 生产环境：只放非敏感项，密钥由 Kubernetes Secret（mall-app-secret）以环境变量注入
 spring:
+  flyway:
+    enabled: false              # 迁移由 Argo CD 的 PreSync Job 用有 DDL 权限的账号执行，应用账号只有 DML 权限
   datasource:
     url: jdbc:mysql://${DB_HOST}:3306/mall
     username: ${DB_USERNAME}

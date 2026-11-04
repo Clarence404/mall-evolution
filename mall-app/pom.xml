@@ -30,6 +30,11 @@
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-actuator</artifactId>
         </dependency>
+        <!-- 阶段四：Prometheus 抓取 /actuator/prometheus -->
+        <dependency>
+            <groupId>io.micrometer</groupId>
+            <artifactId>micrometer-registry-prometheus</artifactId>
+        </dependency>
         <!-- 阶段三：Nacos 注册与配置、HTTP 接口客户端 + LoadBalancer -->
         <dependency>
             <groupId>org.springframework.boot</groupId>

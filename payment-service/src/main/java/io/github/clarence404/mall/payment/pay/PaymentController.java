@@ -24,6 +24,10 @@ class PaymentController {
     private final PaymentMapper paymentMapper;
     private final PayCallbackService payCallbackService;
     private final MockChannelSigner signer;
+    private final io.micrometer.core.instrument.MeterRegistry meterRegistry;
+
+    /** 已接入的渠道；新渠道上线时加在这里。 */
+    static final java.util.Set<String> KNOWN_CHANNELS = java.util.Set.of(PaymentService.MOCK_CHANNEL);
 
     @Operation(operationId = "createPayment")
     @PostMapping("/api/payments")
@@ -37,6 +41,26 @@ class PaymentController {
     @Operation(operationId = "mockChannelNotify")
     @PostMapping("/api/payments/notify/{channel}")
     String notify(@PathVariable String channel, @RequestBody @Valid ChannelNotify req) {
+        try {
+            String result = handleNotify(channel, req);
+            meterRegistry
+                    .counter("pay.callback", "channel", channelTag(channel), "result", "success")
+                    .increment();
+            return result;
+        } catch (RuntimeException e) { // 业务大盘「支付成功率（按渠道）」
+            meterRegistry
+                    .counter("pay.callback", "channel", channelTag(channel), "result", "failure")
+                    .increment();
+            throw e;
+        }
+    }
+
+    /** 渠道标签只取已知渠道：路径参数谁都能填，原样做标签会被随意的值撑爆时序数量。 */
+    static String channelTag(String channel) {
+        return KNOWN_CHANNELS.contains(channel) ? channel : "unknown";
+    }
+
+    private String handleNotify(String channel, ChannelNotify req) {
         if (!PaymentService.MOCK_CHANNEL.equals(channel)
                 || !signer.verify(req.paymentNo(), req.channelTradeNo(), req.amount(), req.sign())) {
             throw new BizException(PayErrorCode.PAY_SIGNATURE_INVALID);

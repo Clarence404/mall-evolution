@@ -1,13 +1,13 @@
-# 新服务先上 Kubernetes：每个服务一个 Deployment 加一个 Service
-apiVersion: apps/v1
-kind: Deployment
+# inventory-service 也走 Argo Rollouts 金丝雀：背景事故就是库存服务的一次发布打挂了下单，它和 mall-app 一样按
+# 错误率与 P99 自动分析、不达标自动回滚（复用 mall-app.yaml 里的 AnalysisTemplate canary-health）。
+# payment-service 与 mall-gateway 仍是 Deployment 滚动更新，见各自清单里的说明。
+apiVersion: argoproj.io/v1alpha1
+kind: Rollout
 metadata:
   name: inventory-service
   namespace: mall
 spec:
   replicas: 3
-  strategy:
-    rollingUpdate: {maxSurge: 1, maxUnavailable: 0}     # 先起新的、就绪后再停旧的
   selector:
     matchLabels: {app: inventory-service}
   template:
@@ -20,6 +20,23 @@ spec:
           image: mall/inventory-service:1.4.0
           ports: [{containerPort: 8080}]
           envFrom: [{secretRef: {name: inventory-service-secret}}]
+          env:
+            - name: JAVA_TOOL_OPTIONS
+              value: "-javaagent:/opt/otel/opentelemetry-javaagent.jar"
+            - name: OTEL_SERVICE_NAME
+              value: inventory-service
+            - name: OTEL_RESOURCE_ATTRIBUTES
+              value: service.namespace=mall,deployment.environment.name=prod
+            - name: NODE_IP
+              valueFrom: {fieldRef: {fieldPath: status.hostIP}}
+            - name: OTEL_EXPORTER_OTLP_ENDPOINT
+              value: http://$(NODE_IP):4318
+            - name: OTEL_TRACES_SAMPLER_ARG
+              value: "1.0"
+            - name: OTEL_METRICS_EXPORTER
+              value: none
+            - name: OTEL_LOGS_EXPORTER
+              value: none
           resources:
             requests: {cpu: "1", memory: 2Gi}
             limits: {memory: 2Gi}
@@ -35,6 +52,22 @@ spec:
             preStop:
               exec:
                 command: ["sh", "-c", "curl -s -X POST localhost:8080/internal/offline; sleep 15"]
+  strategy:
+    canary:
+      analysis:
+        startingStep: 1
+        templates: [{templateName: canary-health}]
+        args:
+          - name: app
+            value: inventory-service
+          - name: canary-hash
+            valueFrom: {podTemplateHashValue: Latest}
+      steps:                                  # 3 个 Pod：第一步实际是 1 个金丝雀 Pod
+        - setWeight: 10
+        - pause: {duration: 5m}
+        - setWeight: 50
+        - pause: {duration: 10m}
+        - setWeight: 100
 ---
 apiVersion: v1
 kind: Service

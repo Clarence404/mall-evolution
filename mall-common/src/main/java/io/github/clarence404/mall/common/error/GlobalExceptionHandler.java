@@ -1,13 +1,14 @@
 package io.github.clarence404.mall.common.error;
 
 import io.github.clarence404.mall.common.remote.RemoteBizException;
+import io.opentelemetry.api.trace.Span;
+import io.opentelemetry.api.trace.SpanContext;
 import jakarta.servlet.http.HttpServletResponse;
 import java.net.URI;
 import java.util.List;
 import java.util.Map;
 import lombok.extern.slf4j.Slf4j;
 import org.jspecify.annotations.Nullable;
-import org.slf4j.MDC;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.http.ProblemDetail;
@@ -124,8 +125,13 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
         return pd;
     }
 
+    /**
+     * traceId 改从 OpenTelemetry 的当前 Span 取（Java Agent 在入口生成），阶段一的 TraceIdFilter 下线，字段名不变，客户端无感。
+     * 没挂 agent 时（本地、测试）当前 Span 无效，返回 null。
+     */
     static String currentTraceId() {
-        return MDC.get(TraceIdFilter.MDC_KEY);
+        SpanContext ctx = Span.current().getSpanContext();
+        return ctx.isValid() ? ctx.getTraceId() : null;
     }
 
     private static String errorField(@Nullable String parameterName, Object error) {

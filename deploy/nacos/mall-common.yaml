@@ -1,0 +1,12 @@
+# Nacos：mall-common.yaml（group=COMMON_GROUP），各服务公共配置
+logging:
+  structured:
+    format:
+      console: logstash          # MDC 里的 trace_id、span_id（agent 写入）成为 JSON 顶层字段，Loki 按它过滤
+management:
+  metrics:
+    tags:
+      application: ${spring.application.name}
+    distribution:
+      slo:
+        http.server.requests: 800ms      # 生成 le="0.8" 的桶，延迟 SLO 直接用它算

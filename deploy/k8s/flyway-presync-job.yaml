@@ -1,0 +1,107 @@
+# 数据库变更：Argo CD 同步时先用 PreSync 钩子执行 Flyway，再更新各服务的镜像。三个有库的服务各一个 Job，各连自己的库。
+# 用有 DDL 权限的账号执行；应用 Pod 上 spring.flyway.enabled=false，运行账号只有 DML 权限。
+# 每次表变更都得让新旧代码都能跑（先扩后缩）；超过 5 分钟的大表 DDL 交给 gh-ost 在低峰单独执行，不放进这里。
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: mall-app-flyway
+  namespace: mall
+  annotations:
+    argocd.argoproj.io/hook: PreSync
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
+spec:
+  backoffLimit: 0
+  activeDeadlineSeconds: 600
+  template:
+    spec:
+      restartPolicy: Never
+      volumes:
+        - name: migrations
+          emptyDir: {}
+      initContainers:
+        - name: copy-migrations              # 迁移脚本取自同一个应用镜像，版本与代码一致
+          image: mall/mall-app:2.0.0
+          command: ["sh", "-c", "cp -r /app/db/migration/. /flyway/sql/"]
+          volumeMounts: [{name: migrations, mountPath: /flyway/sql}]
+      containers:
+        - name: flyway
+          image: flyway/flyway:11
+          args: ["-locations=filesystem:/flyway/sql", "-connectRetries=10", "migrate"]
+          env:
+            - name: FLYWAY_URL
+              valueFrom: {secretKeyRef: {name: mall-app-ddl-secret, key: url}}
+            - name: FLYWAY_USER
+              valueFrom: {secretKeyRef: {name: mall-app-ddl-secret, key: username}}
+            - name: FLYWAY_PASSWORD
+              valueFrom: {secretKeyRef: {name: mall-app-ddl-secret, key: password}}
+          volumeMounts: [{name: migrations, mountPath: /flyway/sql}]
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: inventory-service-flyway
+  namespace: mall
+  annotations:
+    argocd.argoproj.io/hook: PreSync
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
+spec:
+  backoffLimit: 0
+  activeDeadlineSeconds: 600
+  template:
+    spec:
+      restartPolicy: Never
+      volumes:
+        - name: migrations
+          emptyDir: {}
+      initContainers:
+        - name: copy-migrations              # 迁移脚本取自同一个应用镜像，版本与代码一致
+          image: mall/inventory-service:2.0.0
+          command: ["sh", "-c", "cp -r /app/db/migration/. /flyway/sql/"]
+          volumeMounts: [{name: migrations, mountPath: /flyway/sql}]
+      containers:
+        - name: flyway
+          image: flyway/flyway:11
+          args: ["-locations=filesystem:/flyway/sql", "-connectRetries=10", "migrate"]
+          env:
+            - name: FLYWAY_URL
+              valueFrom: {secretKeyRef: {name: inventory-service-ddl-secret, key: url}}
+            - name: FLYWAY_USER
+              valueFrom: {secretKeyRef: {name: inventory-service-ddl-secret, key: username}}
+            - name: FLYWAY_PASSWORD
+              valueFrom: {secretKeyRef: {name: inventory-service-ddl-secret, key: password}}
+          volumeMounts: [{name: migrations, mountPath: /flyway/sql}]
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: payment-service-flyway
+  namespace: mall
+  annotations:
+    argocd.argoproj.io/hook: PreSync
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
+spec:
+  backoffLimit: 0
+  activeDeadlineSeconds: 600
+  template:
+    spec:
+      restartPolicy: Never
+      volumes:
+        - name: migrations
+          emptyDir: {}
+      initContainers:
+        - name: copy-migrations              # 迁移脚本取自同一个应用镜像，版本与代码一致
+          image: mall/payment-service:2.0.0
+          command: ["sh", "-c", "cp -r /app/db/migration/. /flyway/sql/"]
+          volumeMounts: [{name: migrations, mountPath: /flyway/sql}]
+      containers:
+        - name: flyway
+          image: flyway/flyway:11
+          args: ["-locations=filesystem:/flyway/sql", "-connectRetries=10", "migrate"]
+          env:
+            - name: FLYWAY_URL
+              valueFrom: {secretKeyRef: {name: payment-service-ddl-secret, key: url}}
+            - name: FLYWAY_USER
+              valueFrom: {secretKeyRef: {name: payment-service-ddl-secret, key: username}}
+            - name: FLYWAY_PASSWORD
+              valueFrom: {secretKeyRef: {name: payment-service-ddl-secret, key: password}}
+          volumeMounts: [{name: migrations, mountPath: /flyway/sql}]

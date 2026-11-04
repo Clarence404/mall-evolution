@@ -1,5 +1,9 @@
 package io.github.clarence404.mall.common.outbox;
 
+import io.opentelemetry.api.trace.propagation.W3CTraceContextPropagator;
+import io.opentelemetry.context.Context;
+import io.opentelemetry.context.Scope;
+import io.opentelemetry.context.propagation.TextMapGetter;
 import java.nio.charset.StandardCharsets;
 import java.time.ZoneId;
 import java.util.List;
@@ -116,6 +120,19 @@ public class OutboxRelay {
         return due.size();
     }
 
+    /** 只返回 r.traceParent() 的 TextMapGetter。 */
+    static final TextMapGetter<OutboxRecord> OUTBOX_GETTER = new TextMapGetter<>() {
+        @Override
+        public Iterable<String> keys(OutboxRecord carrier) {
+            return List.of("traceparent");
+        }
+
+        @Override
+        public String get(OutboxRecord carrier, String key) {
+            return carrier == null || !"traceparent".equals(key) ? null : carrier.traceParent();
+        }
+    };
+
     /** 在事务外发送一条并回写状态；发送失败返回 false。 */
     boolean send(OutboxRecord r) {
         MessageBuilder b = provider.newMessageBuilder()
@@ -126,7 +143,9 @@ public class OutboxRelay {
             b.setDeliveryTimestamp(
                     r.deliverAt().atZone(ZoneId.systemDefault()).toInstant().toEpochMilli());
         }
-        try {
+        // 在原 Trace 下发送：agent 生成的 producer span 挂回下单请求，traceparent 随消息属性传给消费者
+        Context parent = W3CTraceContextPropagator.getInstance().extract(Context.root(), r, OUTBOX_GETTER);
+        try (Scope ignored = parent.makeCurrent()) {
             producer.send(b.build()); // 同步发送，Broker 确认后才置 SENT
         } catch (ClientException e) {
             log.warn("消息发送失败，等待重试，topic={}, key={}", r.topic(), r.msgKey(), e);

@@ -10,8 +10,8 @@ import org.springframework.boot.ApplicationRunner;
 import org.springframework.stereotype.Component;
 
 /**
- * 启动预热（大促 T-1 天预案的一部分）：把头部商品加载进 L1，之后 Spring Boot 才把就绪状态切到 ACCEPTING_TRAFFIC，
- * readiness 探针在预热之后才通过，新扩出来的 Pod 不会在 0 点集中回源。
+ * 启动预热：建好连接池、把头部商品加载进 L1，之后 Spring Boot 才把就绪状态切到 ACCEPTING_TRAFFIC，
+ * readiness 探针和 Nacos 注册都在预热之后，新扩出来的 Pod 不会在 0 点集中回源。
  */
 @Slf4j
 @Component

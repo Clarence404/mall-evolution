@@ -11,6 +11,7 @@ Java Doc「项目演进」模块的配套代码：示例商城订单服务，从
 | `stage-1-monolith` | [工程搭建](https://clarence404.github.io/java-doc/project/1_project_setup.html)、[数据建模](https://clarence404.github.io/java-doc/project/2_data_model.html)、[接口设计](https://clarence404.github.io/java-doc/project/3_api_design.html) |
 | `stage-2-cache-async` | [引入缓存](https://clarence404.github.io/java-doc/project/4_cache.html)、[异步化](https://clarence404.github.io/java-doc/project/5_async.html) |
 | `stage-3-split` | [拆分服务](https://clarence404.github.io/java-doc/project/6_split.html)、[跨服务一致性](https://clarence404.github.io/java-doc/project/7_consistency.html) |
+| `stage-4-stability` | [稳定性](https://clarence404.github.io/java-doc/project/8_stability.html)、[可观测与发布](https://clarence404.github.io/java-doc/project/9_observability_release.html) |
 
 ## 本地运行
 
