@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>PaymentService.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">mall-order</a> &gt; <a href="index.source.html" class="el_package">com.qingyou.order.pay</a> &gt; <span class="el_source">PaymentService.java</span></div><h1>PaymentService.java</h1><pre class="source lang-java linenums">package com.qingyou.order.pay;
+
+import com.qingyou.common.error.BizException;
+import com.qingyou.common.id.Ids;
+import com.qingyou.order.api.OrderErrorCode;
+import com.qingyou.order.domain.Order;
+import com.qingyou.order.domain.OrderStatus;
+import com.qingyou.order.query.OrderQueryService;
+import lombok.RequiredArgsConstructor;
+import org.springframework.stereotype.Service;
+
+/** 发起支付：一笔订单可能有多次支付尝试，每次一张支付单。 */
+@Service
+@RequiredArgsConstructor
+public class PaymentService {
+
+    public static final String MOCK_CHANNEL = &quot;mock&quot;;
+
+    private final OrderQueryService orderQueryService;
+    private final PaymentMapper paymentMapper;
+
+    public Payment create(long userId, String orderNo) {
+<span class="nc" id="L23">        Order order = orderQueryService.getOwn(userId, orderNo);</span>
+<span class="nc bnc" id="L24" title="All 2 branches missed.">        if (order.getStatus() != OrderStatus.PENDING_PAYMENT) {</span>
+<span class="nc" id="L25">            throw new BizException(OrderErrorCode.ORDER_STATUS_CONFLICT, &quot;订单 &quot; + orderNo + &quot; 不是待支付状态&quot;);</span>
+        }
+<span class="nc" id="L27">        Payment p = new Payment();</span>
+<span class="nc" id="L28">        p.setId(Ids.next());</span>
+<span class="nc" id="L29">        p.setPaymentNo(String.valueOf(p.getId()));</span>
+<span class="nc" id="L30">        p.setOrderId(order.getId());</span>
+<span class="nc" id="L31">        p.setOrderNo(order.getOrderNo());</span>
+<span class="nc" id="L32">        p.setUserId(userId);</span>
+<span class="nc" id="L33">        p.setAmount(order.getPayAmount());</span>
+<span class="nc" id="L34">        p.setChannel(MOCK_CHANNEL);</span>
+<span class="nc" id="L35">        paymentMapper.insert(p);</span>
+<span class="nc" id="L36">        return p;</span>
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.13.202504020838</span></div></body></html>

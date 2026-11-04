@@ -1,0 +1,98 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../../jacoco-resources/report.gif" type="image/gif"/><title>OrderMapper.java</title><link rel="stylesheet" href="../../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../../index.html" class="el_report">mall-app</a> &gt; <a href="../index.html" class="el_bundle">mall-order</a> &gt; <a href="index.source.html" class="el_package">com.qingyou.order.domain</a> &gt; <span class="el_source">OrderMapper.java</span></div><h1>OrderMapper.java</h1><pre class="source lang-java linenums">package com.qingyou.order.domain;
+
+import java.time.LocalDateTime;
+import java.util.List;
+import org.apache.ibatis.annotations.Insert;
+import org.apache.ibatis.annotations.Mapper;
+import org.apache.ibatis.annotations.Param;
+import org.apache.ibatis.annotations.Select;
+import org.apache.ibatis.annotations.Update;
+
+/** 只读写 mall-order 自己的表，不 JOIN 其他模块的表。 */
+@Mapper
+public interface OrderMapper {
+
+    String COLUMNS = &quot;id, order_no, user_id, biz_no, status, total_amount, freight_amount, discount_amount, pay_amount,&quot;
+            + &quot; receiver_name, receiver_phone, receiver_addr, remark, paid_at, version, created_at, updated_at&quot;;
+
+    /** 撞 uk_user_biz 抛 DuplicateKeyException。 */
+    @Insert(&quot;&quot;&quot;
+            INSERT INTO t_order (id, order_no, user_id, biz_no, status, total_amount, freight_amount, discount_amount,
+                pay_amount, receiver_name, receiver_phone, receiver_addr, remark, created_at)
+            VALUES (#{id}, #{orderNo}, #{userId}, #{bizNo}, #{status}, #{totalAmount}, #{freightAmount},
+                #{discountAmount}, #{payAmount}, #{receiverName}, #{receiverPhone}, #{receiverAddr}, #{remark},
+                #{createdAt})
+            &quot;&quot;&quot;)
+    int insert(Order order);
+
+    @Select(&quot;SELECT &quot; + COLUMNS + &quot; FROM t_order WHERE user_id = #{userId} AND biz_no = #{bizNo}&quot;)
+    Order selectByUserAndBizNo(@Param(&quot;userId&quot;) long userId, @Param(&quot;bizNo&quot;) String bizNo);
+
+    @Select(&quot;SELECT &quot; + COLUMNS + &quot; FROM t_order WHERE order_no = #{orderNo}&quot;)
+    Order selectByOrderNo(@Param(&quot;orderNo&quot;) String orderNo);
+
+    @Select(&quot;SELECT &quot; + COLUMNS + &quot; FROM t_order WHERE id = #{id}&quot;)
+    Order selectById(@Param(&quot;id&quot;) long id);
+
+    /**
+     * 状态流转入口：先按 {@link OrderStatus} 的流转表校验，非法流转属于代码错误，直接抛异常、不碰数据库；
+     * 合法的再做带旧状态的条件更新，影响 0 行说明状态已被别人改过。
+     */
+    default int updateStatus(long id, OrderStatus from, OrderStatus to) {
+<span class="fc" id="L42">        from.checkTransitTo(to);</span>
+<span class="fc" id="L43">        return casStatus(id, from, to);</span>
+    }
+
+    /** 带旧状态的条件更新（只由 updateStatus 调用）。进入待发货时同时记录支付时间。 */
+    @Update(&quot;&quot;&quot;
+            UPDATE t_order SET status = #{to},
+                paid_at = CASE WHEN #{to} = 20 THEN NOW(3) ELSE paid_at END
+            WHERE id = #{id} AND status = #{from}
+            &quot;&quot;&quot;)
+    int casStatus(@Param(&quot;id&quot;) long id, @Param(&quot;from&quot;) OrderStatus from, @Param(&quot;to&quot;) OrderStatus to);
+
+    /**
+     * 我的订单：游标分页，走 idx_user_id (user_id, id)，索引本身按 id 有序；带 status 时在回表后过滤。多取一条判断 hasMore。
+     */
+    @Select(&quot;&quot;&quot;
+            &lt;script&gt;
+            SELECT id, order_no, status, pay_amount, created_at
+            FROM t_order
+            WHERE user_id = #{userId}
+              &lt;if test=&quot;cursorId != null&quot;&gt;AND id &amp;lt; #{cursorId}&lt;/if&gt;
+              &lt;if test=&quot;status != null&quot;&gt;AND status = #{status}&lt;/if&gt;
+            ORDER BY id DESC
+            LIMIT #{limit}
+            &lt;/script&gt;
+            &quot;&quot;&quot;)
+    List&lt;Order&gt; listByUser(
+            @Param(&quot;userId&quot;) long userId,
+            @Param(&quot;status&quot;) OrderStatus status,
+            @Param(&quot;cursorId&quot;) Long cursorId,
+            @Param(&quot;limit&quot;) int limit);
+
+    /** 超时未支付扫描：走 idx_status_created。 */
+    @Select(&quot;&quot;&quot;
+            SELECT order_no FROM t_order
+            WHERE status = 10 AND created_at &lt; #{before}
+            ORDER BY created_at LIMIT #{limit}
+            &quot;&quot;&quot;)
+    List&lt;String&gt; selectUnpaidOrderNosBefore(@Param(&quot;before&quot;) LocalDateTime before, @Param(&quot;limit&quot;) int limit);
+
+    /** 状态以外的字段修改用 version 乐观锁，防止后写覆盖先写；null 字段保持不变。 */
+    @Update(&quot;&quot;&quot;
+            UPDATE t_order SET
+                receiver_name = COALESCE(#{name}, receiver_name),
+                receiver_phone = COALESCE(#{phone}, receiver_phone),
+                receiver_addr = COALESCE(#{addr}, receiver_addr),
+                version = version + 1
+            WHERE id = #{id} AND version = #{version} AND status IN (10, 20)
+            &quot;&quot;&quot;)
+    int updateAddress(
+            @Param(&quot;id&quot;) long id,
+            @Param(&quot;version&quot;) int version,
+            @Param(&quot;name&quot;) String name,
+            @Param(&quot;phone&quot;) String phone,
+            @Param(&quot;addr&quot;) String addr);
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.13.202504020838</span></div></body></html>
