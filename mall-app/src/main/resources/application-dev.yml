@@ -4,6 +4,11 @@ spring:
     url: jdbc:mysql://localhost:3306/mall?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai
     username: mall
     password: mall_dev
+  data:
+    redis:                      # docker compose 起的单机 Redis
+      host: localhost
+      port: 6379
+      password: mall_dev
   flyway:
     locations: classpath:db/migration,classpath:db/seed   # 本地额外加载演示数据
   config:

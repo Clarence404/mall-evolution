@@ -18,6 +18,7 @@ import org.springframework.security.oauth2.jwt.JwtValidators;
 import org.springframework.security.oauth2.jwt.NimbusJwtDecoder;
 import org.springframework.security.web.AuthenticationEntryPoint;
 import org.springframework.security.web.SecurityFilterChain;
+import org.springframework.security.web.access.AccessDeniedHandler;
 import tools.jackson.databind.json.JsonMapper;
 
 /**
@@ -29,7 +30,11 @@ import tools.jackson.databind.json.JsonMapper;
 public class SecurityConfig {
 
     @Bean
-    SecurityFilterChain apiSecurity(HttpSecurity http, JwtDecoder jwtDecoder, AuthenticationEntryPoint entryPoint)
+    SecurityFilterChain apiSecurity(
+            HttpSecurity http,
+            JwtDecoder jwtDecoder,
+            AuthenticationEntryPoint entryPoint,
+            AccessDeniedHandler accessDeniedHandler)
             throws Exception {
         http.csrf(c -> c.disable())
                 .sessionManagement(s -> s.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
@@ -46,12 +51,15 @@ public class SecurityConfig {
                         .permitAll()
                         .requestMatchers(HttpMethod.GET, "/api/products/**")
                         .permitAll()
+                        .requestMatchers("/api/admin/**") // 运营后台：令牌里要有 ADMIN 角色
+                        .hasRole("ADMIN")
                         .anyRequest()
                         .authenticated())
                 .oauth2ResourceServer(o -> o.jwt(j ->
                                 j.decoder(jwtDecoder).jwtAuthenticationConverter(LoginUserAuthentication.converter()))
                         .authenticationEntryPoint(entryPoint))
-                .exceptionHandling(e -> e.authenticationEntryPoint(entryPoint));
+                .exceptionHandling(
+                        e -> e.authenticationEntryPoint(entryPoint).accessDeniedHandler(accessDeniedHandler));
         return http.build();
     }
 
@@ -63,6 +71,19 @@ public class SecurityConfig {
         decoder.setJwtValidator(
                 new DelegatingOAuth2TokenValidator<>(JwtValidators.createDefaultWithIssuer(props.issuer())));
         return decoder;
+    }
+
+    /** 已登录但角色不够（如普通用户调后台接口）时返回 403 的 ProblemDetail。 */
+    @Bean
+    AccessDeniedHandler problemAccessDeniedHandler(JsonMapper jsonMapper) {
+        return (request, response, ex) -> {
+            ProblemDetail pd = GlobalExceptionHandler.problem(CommonErrorCode.FORBIDDEN, "需要运营后台权限");
+            pd.setInstance(java.net.URI.create(request.getRequestURI()));
+            response.setStatus(403);
+            response.setContentType(MediaType.APPLICATION_PROBLEM_JSON_VALUE);
+            response.setCharacterEncoding("UTF-8");
+            jsonMapper.writeValue(response.getOutputStream(), pd);
+        };
     }
 
     /** 未登录或令牌无效时返回 401 的 ProblemDetail，与业务错误格式一致。 */

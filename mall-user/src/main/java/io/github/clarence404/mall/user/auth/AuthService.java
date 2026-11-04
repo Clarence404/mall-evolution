@@ -3,6 +3,7 @@ package io.github.clarence404.mall.user.auth;
 import io.github.clarence404.mall.common.error.BizException;
 import io.github.clarence404.mall.common.id.Ids;
 import io.github.clarence404.mall.common.security.JwtProperties;
+import io.github.clarence404.mall.common.security.LoginUserAuthentication;
 import io.github.clarence404.mall.user.api.UserErrorCode;
 import io.github.clarence404.mall.user.domain.User;
 import io.github.clarence404.mall.user.domain.UserMapper;
@@ -14,6 +15,7 @@ import java.time.Instant;
 import java.time.LocalDateTime;
 import java.util.Base64;
 import java.util.HexFormat;
+import java.util.List;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.oauth2.jose.jws.MacAlgorithm;
@@ -47,10 +49,10 @@ public class AuthService {
                 || !passwordEncoder.matches(password, user.getPasswordHash())) {
             throw new BizException(UserErrorCode.USER_LOGIN_FAILED);
         }
-        return issue(user.getId());
+        return issue(user);
     }
 
-    /** 刷新时轮换：旧刷新令牌作废，签发新的一对。 */
+    /** 刷新时轮换：旧刷新令牌作废，签发新的一对；角色按库里当前的值重新签，已禁用的用户刷新失败。 */
     @Transactional
     public TokenPair refresh(String refreshToken) {
         String hash = sha256(refreshToken);
@@ -58,7 +60,11 @@ public class AuthService {
         if (userId == null || refreshTokenMapper.deleteByHash(hash) == 0) {
             throw new BizException(UserErrorCode.USER_REFRESH_TOKEN_INVALID);
         }
-        return issue(userId);
+        User user = userMapper.selectById(userId);
+        if (user == null || user.getStatus() != User.ACTIVE) {
+            throw new BizException(UserErrorCode.USER_REFRESH_TOKEN_INVALID);
+        }
+        return issue(user);
     }
 
     @Transactional
@@ -71,11 +77,13 @@ public class AuthService {
         refreshTokenMapper.deleteByUser(userId);
     }
 
-    public String issueAccessToken(long userId) {
+    /** 访问令牌：sub 是用户 ID，roles 是角色（后台接口要求 ADMIN）。 */
+    public String issueAccessToken(long userId, String role) {
         Instant now = Instant.now();
         JwtClaimsSet claims = JwtClaimsSet.builder()
                 .issuer(props.issuer())
                 .subject(String.valueOf(userId))
+                .claim(LoginUserAuthentication.ROLES_CLAIM, List.of(role == null ? User.ROLE_USER : role))
                 .issuedAt(now)
                 .expiresAt(now.plus(props.accessTokenTtl()))
                 .build();
@@ -83,14 +91,17 @@ public class AuthService {
         return jwtEncoder.encode(JwtEncoderParameters.from(header, claims)).getTokenValue();
     }
 
-    private TokenPair issue(long userId) {
+    private TokenPair issue(User user) {
+        long userId = user.getId();
         byte[] raw = new byte[32];
         RANDOM.nextBytes(raw);
         String refreshToken = Base64.getUrlEncoder().withoutPadding().encodeToString(raw);
         refreshTokenMapper.insert(
                 Ids.next(), userId, sha256(refreshToken), LocalDateTime.now().plus(props.refreshTokenTtl()));
         return new TokenPair(
-                issueAccessToken(userId), refreshToken, props.accessTokenTtl().toSeconds());
+                issueAccessToken(userId, user.getRole()),
+                refreshToken,
+                props.accessTokenTtl().toSeconds());
     }
 
     static String sha256(String value) {

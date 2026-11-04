@@ -9,6 +9,13 @@ spring:
     hikari:
       maximum-pool-size: 20
       connection-timeout: 3000
+  data:
+    redis:
+      timeout: 200ms            # 缓存慢了宁可回源，不让请求卡在 Redis 上
+      connect-timeout: 1s
+      lettuce:
+        pool:
+          max-active: 32
   mvc:
     apiversion:                 # 版本从请求头 API-Version 读，不带请求头按 1.0 处理
       default: 1.0
@@ -28,7 +35,7 @@ management:
   endpoints:
     web:
       exposure:
-        include: health,info
+        include: health,info,metrics   # 缓存命中率等 Micrometer 指标
   endpoint:
     health:
       probes:

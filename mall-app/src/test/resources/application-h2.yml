@@ -5,6 +5,13 @@ spring:
     driver-class-name: org.h2.Driver
     username: sa
     password: ""
+  data:
+    redis:                      # 没有 Redis：连不上时商品详情直接回源，测试走的是降级路径
+      host: localhost
+      port: 6399
+      connect-timeout: 100ms
 mall:
+  cache:
+    l1-invalidation-enabled: false
   order:
     timeout-scan-interval: 1h

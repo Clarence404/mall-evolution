@@ -21,7 +21,7 @@ docker compose up -d mysql          # MySQL 8.4，占位密码 mall_dev
 java -jar mall-app/target/mall-app.jar   # 默认 dev profile，Flyway 建表并加载演示数据
 ```
 
-演示账号：`13800000000` / `mall123`（用户 10001）。
+演示账号：`13800000000` / `mall123`（用户 10001）；运营演示账号 `13800000009` / `mall123`（ADMIN，可调 `/api/admin/**` 后台改价接口，普通用户调用返回 403）。
 
 ```bash
 TOKEN=$(curl -s localhost:8080/api/auth/login -H 'Content-Type: application/json' \

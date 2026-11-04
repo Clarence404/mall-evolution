@@ -8,6 +8,7 @@ import org.springframework.http.HttpStatus;
 public enum CommonErrorCode implements ErrorCode {
     VALIDATION_FAILED(HttpStatus.BAD_REQUEST, "请求参数校验失败"),
     UNAUTHORIZED(HttpStatus.UNAUTHORIZED, "未登录或登录已过期"),
+    FORBIDDEN(HttpStatus.FORBIDDEN, "没有权限执行该操作"),
     SYSTEM_ERROR(HttpStatus.INTERNAL_SERVER_ERROR, "系统繁忙，请稍后再试");
 
     private final HttpStatus status;

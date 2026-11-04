@@ -22,5 +22,17 @@ services:
       timeout: 3s
       retries: 30
 
+  redis:
+    image: redis:8
+    container_name: mall-redis
+    command: ["redis-server", "--requirepass", "mall_dev", "--maxmemory", "256mb", "--maxmemory-policy", "allkeys-lfu", "--appendonly", "no"]
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "mall_dev", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+
 volumes:
   mysql-data:

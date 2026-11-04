@@ -1,6 +1,8 @@
 package io.github.clarence404.mall.inventory.stock;
 
 import io.github.clarence404.mall.inventory.api.InventoryApi;
+import io.github.clarence404.mall.inventory.api.StockView;
+import java.util.List;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
@@ -14,6 +16,11 @@ import org.springframework.transaction.annotation.Transactional;
 public class InventoryService implements InventoryApi {
 
     private final InventoryMapper inventoryMapper;
+
+    @Override
+    public List<StockView> listStocks(List<Long> skuIds) {
+        return skuIds.isEmpty() ? List.of() : inventoryMapper.selectStocks(skuIds);
+    }
 
     @Override
     @Transactional(propagation = Propagation.MANDATORY)

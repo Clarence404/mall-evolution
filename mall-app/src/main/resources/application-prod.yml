@@ -6,6 +6,17 @@ spring:
     password: ${DB_PASSWORD}
     hikari:
       maximum-pool-size: 30
+  data:
+    redis:                      # 一主一从 + 3 个 Sentinel，Lettuce 向 Sentinel 询问当前主节点，切换后自动重连
+      sentinel:
+        master: mall-cache
+        nodes: 10.0.1.21:26379,10.0.1.22:26379,10.0.1.11:26379
+        password: ${REDIS_SENTINEL_PASSWORD}
+      password: ${REDIS_PASSWORD}
+      timeout: 200ms
+      lettuce:
+        pool:
+          max-active: 32
 
 springdoc:                # 生产关闭接口文档
   api-docs:
