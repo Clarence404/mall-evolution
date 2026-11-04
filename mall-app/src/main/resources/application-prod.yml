@@ -7,6 +7,12 @@ spring:
     hikari:
       maximum-pool-size: 30
 
+springdoc:                # 生产关闭接口文档
+  api-docs:
+    enabled: false
+  swagger-ui:
+    enabled: false
+
 logging:
   level:
     root: info

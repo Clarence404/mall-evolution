@@ -12,6 +12,12 @@ spring:
 mall:
   id:
     worker-id: 1   # 本地只有一个实例
+  security:
+    jwt:
+      secret: dev-only-jwt-secret-change-me-0123456789   # 本地开发占位，非真实密钥
+  pay:
+    mock:
+      secret: dev-only-mock-pay-secret
 
 logging:
   level:

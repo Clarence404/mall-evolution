@@ -1,6 +1,7 @@
 package io.github.clarence404.mall.order.place;
 
 import io.github.clarence404.mall.common.error.BizException;
+import io.github.clarence404.mall.order.api.OrderErrorCode;
 import io.github.clarence404.mall.product.api.ProductApi;
 import io.github.clarence404.mall.product.api.ProductDTO;
 import io.github.clarence404.mall.product.api.ProductErrorCode;
@@ -35,7 +36,7 @@ public class PricingService {
                         throw new BizException(ProductErrorCode.PRODUCT_NOT_FOUND, "商品 " + e.getKey() + " 不存在");
                     }
                     if (!p.onShelf()) {
-                        throw new BizException(ProductErrorCode.PRODUCT_NOT_FOUND, "商品 " + p.name() + " 已下架");
+                        throw new BizException(OrderErrorCode.ORDER_SKU_OFF_SHELF, "商品 " + p.name() + " 已下架");
                     }
                     return new PricedItem(p.id(), p.name(), p.image(), p.price(), e.getValue());
                 })

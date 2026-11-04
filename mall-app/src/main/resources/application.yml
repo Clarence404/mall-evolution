@@ -9,6 +9,11 @@ spring:
     hikari:
       maximum-pool-size: 20
       connection-timeout: 3000
+  mvc:
+    apiversion:                 # 版本从请求头 API-Version 读，不带请求头按 1.0 处理
+      default: 1.0
+      use:
+        header: API-Version
 
 mybatis:
   configuration:
@@ -29,6 +34,23 @@ management:
       probes:
         enabled: true
 
+springdoc:
+  api-docs:
+    path: /v3/api-docs
+  swagger-ui:
+    path: /swagger-ui.html
+
 mall:
   id:
     worker-id: ${WORKER_ID:}   # 雪花 ID 机器号：两台生产机分别是 1 和 2；不给默认值，没配就启动失败
+  security:
+    jwt:
+      secret: ${JWT_SECRET}
+      access-token-ttl: 30m
+      refresh-token-ttl: 14d
+  pay:
+    mock:
+      secret: ${PAY_MOCK_SECRET}
+  order:
+    pay-timeout: 15m             # 超时 15 分钟未支付取消
+    timeout-scan-interval: 60s   # 阶段一每分钟扫一次

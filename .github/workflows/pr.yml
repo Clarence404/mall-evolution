@@ -11,6 +11,17 @@ jobs:
           java-version: '21'
           cache: maven
       - run: ./mvnw -B verify
+      # 接口契约：冒烟测试导出的 openapi.json 与 PR 目标分支（通常是 main）上已合入的那一版比较，
+      # 删字段、改类型等破坏性变更直接失败。基准取目标分支而不是 PR 自己的 api/openapi.json，PR 改了基线文件也绕不过去
+      - name: OpenAPI breaking-change check
+        run: |
+          git fetch --depth=1 origin "${{ github.base_ref }}"
+          mkdir -p /tmp/oas-base
+          if ! git show FETCH_HEAD:api/openapi.json > /tmp/oas-base/openapi.json; then
+            echo "目标分支上还没有 api/openapi.json，跳过兼容检查"; exit 0
+          fi
+          docker run --rm -v /tmp/oas-base:/base -v "$PWD":/w tufin/oasdiff breaking \
+            /base/openapi.json /w/mall-app/target/openapi.json --fail-on ERR
   secret-scan:
     runs-on: ubuntu-latest
     steps:

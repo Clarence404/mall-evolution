@@ -1,5 +1,7 @@
 package io.github.clarence404.mall.order.domain;
 
+import java.time.LocalDateTime;
+import java.util.List;
 import org.apache.ibatis.annotations.Insert;
 import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
@@ -48,4 +50,48 @@ public interface OrderMapper {
             WHERE id = #{id} AND status = #{from}
             """)
     int casStatus(@Param("id") long id, @Param("from") OrderStatus from, @Param("to") OrderStatus to);
+
+    /**
+     * 我的订单：游标分页，走 idx_user_id (user_id, id)，索引本身按 id 有序；带 status 时在回表后过滤。多取一条判断 hasMore。
+     */
+    @Select("""
+            <script>
+            SELECT id, order_no, status, pay_amount, created_at
+            FROM t_order
+            WHERE user_id = #{userId}
+              <if test="cursorId != null">AND id &lt; #{cursorId}</if>
+              <if test="status != null">AND status = #{status}</if>
+            ORDER BY id DESC
+            LIMIT #{limit}
+            </script>
+            """)
+    List<Order> listByUser(
+            @Param("userId") long userId,
+            @Param("status") OrderStatus status,
+            @Param("cursorId") Long cursorId,
+            @Param("limit") int limit);
+
+    /** 超时未支付扫描：走 idx_status_created。 */
+    @Select("""
+            SELECT order_no FROM t_order
+            WHERE status = 10 AND created_at < #{before}
+            ORDER BY created_at LIMIT #{limit}
+            """)
+    List<String> selectUnpaidOrderNosBefore(@Param("before") LocalDateTime before, @Param("limit") int limit);
+
+    /** 状态以外的字段修改用 version 乐观锁，防止后写覆盖先写；null 字段保持不变。 */
+    @Update("""
+            UPDATE t_order SET
+                receiver_name = COALESCE(#{name}, receiver_name),
+                receiver_phone = COALESCE(#{phone}, receiver_phone),
+                receiver_addr = COALESCE(#{addr}, receiver_addr),
+                version = version + 1
+            WHERE id = #{id} AND version = #{version} AND status IN (10, 20)
+            """)
+    int updateAddress(
+            @Param("id") long id,
+            @Param("version") int version,
+            @Param("name") String name,
+            @Param("phone") String phone,
+            @Param("addr") String addr);
 }

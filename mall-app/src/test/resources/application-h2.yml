@@ -1,0 +1,10 @@
+# 不需要 Docker 的测试：H2 的 MySQL 兼容模式，Flyway 照常建表。只用来跑通 SQL 与主流程，不替代 Testcontainers 上的 MySQL 测试
+spring:
+  datasource:
+    url: jdbc:h2:mem:mall;MODE=MySQL;DB_CLOSE_DELAY=-1
+    driver-class-name: org.h2.Driver
+    username: sa
+    password: ""
+mall:
+  order:
+    timeout-scan-interval: 1h

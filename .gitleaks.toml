@@ -1,0 +1,13 @@
+# 密钥扫描配置：沿用默认规则，只放行本地开发与测试用的占位值
+[extend]
+useDefault = true
+
+[allowlist]
+description = "本地开发 / 测试的占位密码与演示数据，不是真实凭据"
+paths = [
+  '''application-dev\.yml''',
+  '''application-it\.yml''',
+  '''db/seed/.*\.sql''',
+  '''TestTokens\.java''',
+  '''docker-compose\.yml''',
+]
