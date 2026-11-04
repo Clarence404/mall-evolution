@@ -1,0 +1,134 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../../jacoco-resources/report.gif" type="image/gif"/><title>ReconcileChecker.java</title><link rel="stylesheet" href="../../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../../index.html" class="el_report">mall-app</a> &gt; <a href="../index.html" class="el_bundle">mall-app</a> &gt; <a href="index.source.html" class="el_package">com.qingyou.reconcile</a> &gt; <span class="el_source">ReconcileChecker.java</span></div><h1>ReconcileChecker.java</h1><pre class="source lang-java linenums">package com.qingyou.reconcile;
+
+import java.math.BigDecimal;
+import java.time.LocalDateTime;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import java.util.function.Function;
+import java.util.stream.Collectors;
+
+/**
+ * 每日对账的比对逻辑（纯函数，便于测试）：只看数据、不看过程。按 order_no 归并三个库的数据，输出差错与处理方式。
+ *
+ * &lt;table&gt;
+ *   &lt;caption&gt;检查项&lt;/caption&gt;
+ *   &lt;tr&gt;&lt;td&gt;支付成功，订单仍待支付&lt;/td&gt;&lt;td&gt;补发 payment-succeeded&lt;/td&gt;&lt;/tr&gt;
+ *   &lt;tr&gt;&lt;td&gt;支付成功，订单已取消且未退款&lt;/td&gt;&lt;td&gt;补发 order-refund-required&lt;/td&gt;&lt;/tr&gt;
+ *   &lt;tr&gt;&lt;td&gt;订单已被另一张支付单付过，这张支付成功且未退款（重复付款）&lt;/td&gt;&lt;td&gt;补发 order-refund-required&lt;/td&gt;&lt;/tr&gt;
+ *   &lt;tr&gt;&lt;td&gt;订单已取消，预占仍 RESERVED / CONFIRMED&lt;/td&gt;&lt;td&gt;RESERVED 自动 release；CONFIRMED 转人工&lt;/td&gt;&lt;/tr&gt;
+ *   &lt;tr&gt;&lt;td&gt;订单已支付，预占仍 RESERVED&lt;/td&gt;&lt;td&gt;自动 confirm&lt;/td&gt;&lt;/tr&gt;
+ *   &lt;tr&gt;&lt;td&gt;某 SKU 的 reserved ≠ 同一快照里 RESERVED 记录数量之和&lt;/td&gt;&lt;td&gt;只告警，人工核对流水后修正&lt;/td&gt;&lt;/tr&gt;
+ * &lt;/table&gt;
+ */
+public final class ReconcileChecker {
+
+    static final int ORDER_PENDING_PAYMENT = 10;
+    static final int ORDER_CANCELLED = 50;
+<span class="fc" id="L29">    static final Set&lt;Integer&gt; ORDER_PAID = Set.of(20, 30, 40, 60);</span>
+    static final int PAYMENT_SUCCESS = 1;
+    static final int RESERVED = 1;
+    static final int CONFIRMED = 2;
+
+    private ReconcileChecker() {}
+
+    public static List&lt;Diff&gt; check(
+            List&lt;OrderRow&gt; orders,
+            List&lt;PaymentRow&gt; payments,
+            List&lt;ReservationRow&gt; reservations,
+            List&lt;InventoryRow&gt; inventories) {
+<span class="fc" id="L41">        List&lt;Diff&gt; diffs = new ArrayList&lt;&gt;();</span>
+<span class="fc" id="L42">        Map&lt;String, OrderRow&gt; orderByNo =</span>
+<span class="pc" id="L43">                orders.stream().collect(Collectors.toMap(OrderRow::orderNo, Function.identity(), (a, b) -&gt; a));</span>
+
+<span class="fc bfc" id="L45" title="All 2 branches covered.">        for (PaymentRow p : payments) {</span>
+<span class="fc" id="L46">            OrderRow o = orderByNo.get(p.orderNo());</span>
+<span class="pc bpc" id="L47" title="1 of 4 branches missed.">            if (o == null || p.status() != PAYMENT_SUCCESS) {</span>
+<span class="fc" id="L48">                continue;</span>
+            }
+<span class="fc bfc" id="L50" title="All 2 branches covered.">            if (o.status() == ORDER_PENDING_PAYMENT) {</span>
+<span class="fc" id="L51">                diffs.add(</span>
+<span class="fc" id="L52">                        new Diff(DiffType.PAID_BUT_ORDER_PENDING, p.orderNo(), Action.REPUBLISH_PAYMENT_SUCCEEDED, p));</span>
+<span class="fc bfc" id="L53" title="All 2 branches covered.">            } else if (o.status() == ORDER_CANCELLED) {</span>
+<span class="fc" id="L54">                diffs.add(</span>
+<span class="fc" id="L55">                        new Diff(DiffType.PAID_BUT_ORDER_CANCELLED, p.orderNo(), Action.REPUBLISH_REFUND_REQUIRED, p));</span>
+<span class="pc bpc" id="L56" title="1 of 2 branches missed.">            } else if (ORDER_PAID.contains(o.status())</span>
+<span class="fc bfc" id="L57" title="All 2 branches covered.">                    &amp;&amp; o.paymentNo() != null</span>
+<span class="fc bfc" id="L58" title="All 2 branches covered.">                    &amp;&amp; !o.paymentNo().equals(p.paymentNo())) {</span>
+<span class="fc" id="L59">                diffs.add(new Diff(DiffType.PAID_TWICE, p.orderNo(), Action.REPUBLISH_REFUND_REQUIRED, p));</span>
+            }
+<span class="fc" id="L61">        }</span>
+
+<span class="fc" id="L63">        reservations.stream()</span>
+<span class="fc" id="L64">                .collect(Collectors.groupingBy(ReservationRow::orderNo))</span>
+<span class="fc" id="L65">                .forEach((orderNo, rows) -&gt; {</span>
+<span class="fc" id="L66">                    OrderRow o = orderByNo.get(orderNo);</span>
+<span class="pc bpc" id="L67" title="1 of 2 branches missed.">                    if (o == null) {</span>
+<span class="nc" id="L68">                        return; // 订单不存在的预占由库存服务的过期回查处理</span>
+                    }
+<span class="fc bfc" id="L70" title="All 2 branches covered.">                    boolean anyReserved = rows.stream().anyMatch(r -&gt; r.status() == RESERVED);</span>
+<span class="fc bfc" id="L71" title="All 2 branches covered.">                    boolean anyConfirmed = rows.stream().anyMatch(r -&gt; r.status() == CONFIRMED);</span>
+<span class="fc bfc" id="L72" title="All 4 branches covered.">                    if (o.status() == ORDER_CANCELLED &amp;&amp; anyReserved) {</span>
+<span class="fc" id="L73">                        diffs.add(new Diff(DiffType.CANCELLED_BUT_RESERVED, orderNo, Action.RELEASE, rows));</span>
+                    }
+<span class="fc bfc" id="L75" title="All 4 branches covered.">                    if (o.status() == ORDER_CANCELLED &amp;&amp; anyConfirmed) {</span>
+<span class="fc" id="L76">                        diffs.add(new Diff(DiffType.CANCELLED_BUT_CONFIRMED, orderNo, Action.MANUAL, rows));</span>
+                    }
+<span class="fc bfc" id="L78" title="All 4 branches covered.">                    if (ORDER_PAID.contains(o.status()) &amp;&amp; anyReserved) {</span>
+<span class="fc" id="L79">                        diffs.add(new Diff(DiffType.PAID_BUT_RESERVED, orderNo, Action.CONFIRM, rows));</span>
+                    }
+<span class="fc" id="L81">                });</span>
+
+        // 两个数取自库存库同一条语句（同一快照），见 ReconcileReader；不能拿当天变动的预占去比，否则几天前的活跃预占每晚都误报
+<span class="fc bfc" id="L84" title="All 2 branches covered.">        for (InventoryRow inv : inventories) {</span>
+<span class="fc" id="L85">            int expected = inv.activeReserved();</span>
+<span class="fc bfc" id="L86" title="All 2 branches covered.">            if (inv.reserved() != expected) {</span>
+<span class="fc" id="L87">                diffs.add(new Diff(</span>
+                        DiffType.RESERVED_MISMATCH,
+<span class="fc" id="L89">                        String.valueOf(inv.skuId()),</span>
+                        Action.MANUAL,
+<span class="fc" id="L91">                        &quot;reserved=&quot; + inv.reserved() + &quot;, RESERVED 记录之和=&quot; + expected));</span>
+            }
+<span class="fc" id="L93">        }</span>
+<span class="fc" id="L94">        return diffs;</span>
+    }
+
+<span class="fc" id="L97">    public enum DiffType {</span>
+<span class="fc" id="L98">        PAID_BUT_ORDER_PENDING,</span>
+<span class="fc" id="L99">        PAID_BUT_ORDER_CANCELLED,</span>
+<span class="fc" id="L100">        PAID_TWICE,</span>
+<span class="fc" id="L101">        CANCELLED_BUT_RESERVED,</span>
+<span class="fc" id="L102">        CANCELLED_BUT_CONFIRMED,</span>
+<span class="fc" id="L103">        PAID_BUT_RESERVED,</span>
+<span class="fc" id="L104">        RESERVED_MISMATCH</span>
+    }
+
+    /** 自动修复全部复用已有的幂等接口和消息，不写专用的修数据 SQL；修不了的写入差错表。 */
+<span class="fc" id="L108">    public enum Action {</span>
+<span class="fc" id="L109">        REPUBLISH_PAYMENT_SUCCEEDED,</span>
+<span class="fc" id="L110">        REPUBLISH_REFUND_REQUIRED,</span>
+<span class="fc" id="L111">        RELEASE,</span>
+<span class="fc" id="L112">        CONFIRM,</span>
+<span class="fc" id="L113">        MANUAL</span>
+    }
+
+<span class="fc" id="L116">    public record Diff(DiffType type, String bizKey, Action action, Object detail) {}</span>
+
+    /** paymentNo：把订单付成功的那张支付单，未支付为 null。 */
+<span class="fc" id="L119">    public record OrderRow(String orderNo, int status, String paymentNo) {</span>
+
+        public OrderRow(String orderNo, int status) {
+<span class="fc" id="L122">            this(orderNo, status, null);</span>
+<span class="fc" id="L123">        }</span>
+    }
+
+<span class="fc" id="L126">    public record PaymentRow(</span>
+            String orderNo, String paymentNo, long userId, BigDecimal amount, int status, LocalDateTime paidAt) {}
+
+<span class="fc" id="L129">    public record ReservationRow(String orderNo, long skuId, int quantity, int status) {}</span>
+
+    /** reserved 与 activeReserved（仍为 RESERVED 的预占之和）取自同一个快照。 */
+<span class="fc" id="L132">    public record InventoryRow(long skuId, int reserved, int activeReserved) {}</span>
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.13.202504020838</span></div></body></html>

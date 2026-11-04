@@ -1,0 +1,76 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>OutboxRecord.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">mall-common</a> &gt; <a href="index.source.html" class="el_package">com.qingyou.common.outbox</a> &gt; <span class="el_source">OutboxRecord.java</span></div><h1>OutboxRecord.java</h1><pre class="source lang-java linenums">package com.qingyou.common.outbox;
+
+import com.qingyou.common.id.Ids;
+import java.time.LocalDateTime;
+
+/** t_outbox 的一行。访问方法沿用 record 风格（{@code r.topic()}），MyBatis 直接读写字段。 */
+<span class="fc" id="L7">public class OutboxRecord {</span>
+
+    public static final int PENDING = 0;
+    public static final int SENT = 1;
+    public static final int FAILED = 2;
+
+    private long id;
+    private String topic;
+    private String msgKey;
+    private String payload;
+    private LocalDateTime deliverAt;
+    private int status;
+    private int retryCount;
+    private LocalDateTime nextRetryAt;
+    /** W3C traceparent：写 outbox 时存下当前 Trace，中继在另一个线程投递时恢复，消费者那一段才能挂回下单请求。 */
+    private String traceParent;
+
+    public static OutboxRecord of(String topic, String msgKey, String payload, LocalDateTime deliverAt) {
+<span class="fc" id="L25">        OutboxRecord r = new OutboxRecord();</span>
+<span class="fc" id="L26">        r.id = Ids.next();</span>
+<span class="fc" id="L27">        r.topic = topic;</span>
+<span class="fc" id="L28">        r.msgKey = msgKey;</span>
+<span class="fc" id="L29">        r.payload = payload;</span>
+<span class="fc" id="L30">        r.deliverAt = deliverAt;</span>
+<span class="fc" id="L31">        r.status = PENDING;</span>
+<span class="fc" id="L32">        r.nextRetryAt = LocalDateTime.now().plusSeconds(3); // 提交后立即由 afterCommit 发送，扫表 3 秒后才兜底</span>
+<span class="fc" id="L33">        return r;</span>
+    }
+
+    public long id() {
+<span class="fc" id="L37">        return id;</span>
+    }
+
+    public String topic() {
+<span class="fc" id="L41">        return topic;</span>
+    }
+
+    public String msgKey() {
+<span class="fc" id="L45">        return msgKey;</span>
+    }
+
+    public String payload() {
+<span class="fc" id="L49">        return payload;</span>
+    }
+
+    public LocalDateTime deliverAt() {
+<span class="fc" id="L53">        return deliverAt;</span>
+    }
+
+    public int status() {
+<span class="fc" id="L57">        return status;</span>
+    }
+
+    public int retryCount() {
+<span class="nc" id="L61">        return retryCount;</span>
+    }
+
+    public LocalDateTime nextRetryAt() {
+<span class="fc" id="L65">        return nextRetryAt;</span>
+    }
+
+    public String traceParent() {
+<span class="fc" id="L69">        return traceParent;</span>
+    }
+
+    public void setTraceParent(String traceParent) {
+<span class="fc" id="L73">        this.traceParent = traceParent;</span>
+<span class="fc" id="L74">    }</span>
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.13.202504020838</span></div></body></html>

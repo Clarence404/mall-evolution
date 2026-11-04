@@ -1,0 +1,33 @@
+GROUP,PACKAGE,CLASS,INSTRUCTION_MISSED,INSTRUCTION_COVERED,BRANCH_MISSED,BRANCH_COVERED,LINE_MISSED,LINE_COVERED,COMPLEXITY_MISSED,COMPLEXITY_COVERED,METHOD_MISSED,METHOD_COVERED
+mall-common,com.qingyou.common.degrade,DegradeProperties,12,0,0,0,4,0,1,0,1,0
+mall-common,com.qingyou.common.outbox,OutboxRelayJob,9,0,2,0,3,0,2,0,1,0
+mall-common,com.qingyou.common.outbox,OutboxConfig,34,0,0,0,11,0,2,0,2,0
+mall-common,com.qingyou.common.outbox,OutboxWriter.new TransactionSynchronization() {...},0,31,0,0,0,3,0,4,0,4
+mall-common,com.qingyou.common.outbox,OutboxRelay.new TextMapGetter() {...},3,14,1,3,1,2,2,3,1,2
+mall-common,com.qingyou.common.outbox,OutboxWriter,0,36,0,2,0,8,0,2,0,1
+mall-common,com.qingyou.common.outbox,OutboxJobs,91,0,4,0,28,0,6,0,4,0
+mall-common,com.qingyou.common.outbox,OutboxRecord,3,60,0,0,1,20,1,11,1,11
+mall-common,com.qingyou.common.outbox,OutboxRelay,22,226,5,13,6,57,5,12,0,8
+mall-common,com.qingyou.common.web,CursorResult,12,0,0,0,1,0,1,0,1,0
+mall-common,com.qingyou.common.mq,ConsumerFactory,22,0,0,0,6,0,1,0,1,0
+mall-common,com.qingyou.common.mq,RocketMqConfig,36,0,2,0,11,0,5,0,4,0
+mall-common,com.qingyou.common.mq,ConsumeRecordCleanupJob,29,0,2,0,8,0,3,0,2,0
+mall-common,com.qingyou.common.mq,RocketMqProperties,23,0,2,0,4,0,2,0,1,0
+mall-common,com.qingyou.common.security,JwtProperties,55,0,10,0,12,0,7,0,2,0
+mall-common,com.qingyou.common.security,LoginUserAuthentication,59,0,2,0,17,0,8,0,7,0
+mall-common,com.qingyou.common.security,LoginUser,10,0,0,0,2,0,2,0,2,0
+mall-common,com.qingyou.common.security,SecurityConfig,197,0,0,0,39,0,13,0,13,0
+mall-common,com.qingyou.common.lifecycle,RegisterWhenReady,0,44,2,4,0,13,2,4,0,3
+mall-common,com.qingyou.common.lifecycle,OfflineController,41,0,4,0,11,0,5,0,3,0
+mall-common,com.qingyou.common.error,GlobalExceptionHandler,228,45,22,2,50,9,22,4,11,3
+mall-common,com.qingyou.common.error,CommonErrorCode,0,63,0,0,0,13,0,5,0,5
+mall-common,com.qingyou.common.error,BizException,18,0,0,0,7,0,3,0,3,0
+mall-common,com.qingyou.common.remote,RemoteBizException,7,37,4,4,1,9,4,4,0,4
+mall-common,com.qingyou.common.remote,RemoteErrorConfig,16,28,0,0,2,7,4,2,4,2
+mall-common,com.qingyou.common.remote,RemoteFailurePredicate,0,23,1,5,0,4,1,4,0,2
+mall-common,com.qingyou.common.json,Json,25,16,0,0,5,4,2,2,2,2
+mall-common,com.qingyou.common.id,IdConfig,13,67,5,7,4,18,4,6,0,4
+mall-common,com.qingyou.common.id,SnowflakeIdGenerator,27,97,5,9,7,20,5,7,1,4
+mall-common,com.qingyou.common.id,LeasedIdGenerator,0,25,0,2,0,7,0,3,0,2
+mall-common,com.qingyou.common.id,WorkerIdLease,15,290,5,15,3,52,5,16,0,11
+mall-common,com.qingyou.common.id,Ids,0,12,0,0,0,4,0,3,0,3
