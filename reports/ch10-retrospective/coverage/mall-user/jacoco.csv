@@ -2,8 +2,8 @@ GROUP,PACKAGE,CLASS,INSTRUCTION_MISSED,INSTRUCTION_COVERED,BRANCH_MISSED,BRANCH_
 mall-user,io.github.clarence404.mall.user.domain,UserQueryService,18,0,0,0,2,0,2,0,2,0
 mall-user,io.github.clarence404.mall.user.domain,User,3,0,0,0,1,0,1,0,1,0
 mall-user,io.github.clarence404.mall.user.config,UserModuleConfig,14,0,0,0,3,0,3,0,3,0
-mall-user,io.github.clarence404.mall.user.auth,AuthController,22,0,0,0,4,0,3,0,3,0
 mall-user,io.github.clarence404.mall.user.auth,AuthController.LoginRequest,9,0,0,0,1,0,1,0,1,0
+mall-user,io.github.clarence404.mall.user.auth,AuthController,22,0,0,0,4,0,3,0,3,0
 mall-user,io.github.clarence404.mall.user.auth,AuthController.RefreshRequest,6,0,0,0,1,0,1,0,1,0
 mall-user,io.github.clarence404.mall.user.auth,AuthService.TokenPair,12,0,0,0,1,0,1,0,1,0
 mall-user,io.github.clarence404.mall.user.auth,AuthService,184,0,16,0,42,0,16,0,8,0
