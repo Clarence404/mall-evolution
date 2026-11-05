@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../../jacoco-resources/report.gif" type="image/gif"/><title>PricingService.java</title><link rel="stylesheet" href="../../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../../index.html" class="el_report">mall-app</a> &gt; <a href="../index.html" class="el_bundle">mall-order</a> &gt; <a href="index.source.html" class="el_package">io.github.clarence404.mall.order.place</a> &gt; <span class="el_source">PricingService.java</span></div><h1>PricingService.java</h1><pre class="source lang-java linenums">package io.github.clarence404.mall.order.place;
+
+import io.github.clarence404.mall.common.error.BizException;
+import io.github.clarence404.mall.order.api.OrderErrorCode;
+import io.github.clarence404.mall.product.api.ProductApi;
+import io.github.clarence404.mall.product.api.ProductDTO;
+import io.github.clarence404.mall.product.api.ProductErrorCode;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.function.Function;
+import java.util.stream.Collectors;
+import lombok.RequiredArgsConstructor;
+import org.springframework.stereotype.Service;
+
+/**
+ * 计价：请求里不传价格，按当前价格在服务端计算；通过 ProductApi 读商品，不 JOIN t_product。
+ */
+@Service
+@RequiredArgsConstructor
+public class PricingService {
+
+    private final ProductApi productApi;
+
+    public List&lt;PricedItem&gt; price(PlaceOrderRequest req) {
+        // 同一 SKU 出现在多行时合并数量
+<span class="fc" id="L27">        Map&lt;Long, Integer&gt; quantities = new LinkedHashMap&lt;&gt;();</span>
+<span class="fc" id="L28">        req.lines().forEach(l -&gt; quantities.merge(l.skuId(), l.quantity(), Integer::sum));</span>
+
+<span class="fc" id="L30">        Map&lt;Long, ProductDTO&gt; products = productApi.listByIds(quantities.keySet()).stream()</span>
+<span class="fc" id="L31">                .collect(Collectors.toMap(ProductDTO::id, Function.identity()));</span>
+<span class="fc" id="L32">        return quantities.entrySet().stream()</span>
+<span class="fc" id="L33">                .map(e -&gt; {</span>
+<span class="fc" id="L34">                    ProductDTO p = products.get(e.getKey());</span>
+<span class="pc bpc" id="L35" title="1 of 2 branches missed.">                    if (p == null) {</span>
+<span class="nc" id="L36">                        throw new BizException(ProductErrorCode.PRODUCT_NOT_FOUND, &quot;商品 &quot; + e.getKey() + &quot; 不存在&quot;);</span>
+                    }
+<span class="pc bpc" id="L38" title="1 of 2 branches missed.">                    if (!p.onShelf()) {</span>
+<span class="nc" id="L39">                        throw new BizException(OrderErrorCode.ORDER_SKU_OFF_SHELF, &quot;商品 &quot; + p.name() + &quot; 已下架&quot;);</span>
+                    }
+<span class="fc" id="L41">                    return new PricedItem(p.id(), p.name(), p.image(), p.price(), e.getValue());</span>
+                })
+<span class="fc" id="L43">                .toList();</span>
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.13.202504020838</span></div></body></html>

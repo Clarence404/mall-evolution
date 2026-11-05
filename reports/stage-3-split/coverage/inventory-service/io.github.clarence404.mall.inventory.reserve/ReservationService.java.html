@@ -1,0 +1,108 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>ReservationService.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">inventory-service</a> &gt; <a href="index.source.html" class="el_package">io.github.clarence404.mall.inventory.reserve</a> &gt; <span class="el_source">ReservationService.java</span></div><h1>ReservationService.java</h1><pre class="source lang-java linenums">package io.github.clarence404.mall.inventory.reserve;
+
+import static io.github.clarence404.mall.inventory.reserve.Reservation.CONFIRMED;
+import static io.github.clarence404.mall.inventory.reserve.Reservation.RELEASED;
+import static io.github.clarence404.mall.inventory.reserve.Reservation.RESERVED;
+import static java.util.Comparator.comparing;
+
+import io.github.clarence404.mall.common.error.BizException;
+import io.github.clarence404.mall.inventory.api.InventoryErrorCode;
+import io.github.clarence404.mall.inventory.api.ReserveLine;
+import io.github.clarence404.mall.inventory.api.ReserveResult;
+import io.github.clarence404.mall.inventory.stock.InventoryMapper;
+import java.time.Duration;
+import java.time.LocalDateTime;
+import java.util.List;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+
+/**
+ * 库存预占的三个接口。没有独立的事务协调者：订单服务自己就是协调者，订单状态就是全局事务状态。
+ *
+ * &lt;ul&gt;
+ *   &lt;li&gt;空回滚：release 先到、库里没有预占记录时写一行 RELEASED 占位，挡住迟到的 reserve
+ *   &lt;li&gt;悬挂：迟到的 reserve 查到 RELEASED 占位，返回 REJECTED，不扣库存；两者并发时由 uk_order_sku 决定先后
+ * &lt;/ul&gt;
+ */
+<span class="fc" id="L29">@Slf4j</span>
+@Service
+public class ReservationService {
+
+    private final ReservationMapper reservationMapper;
+    private final InventoryMapper inventoryMapper;
+    private final Duration reservationTtl;
+
+    public ReservationService(
+            ReservationMapper reservationMapper,
+            InventoryMapper inventoryMapper,
+<span class="fc" id="L40">            @Value(&quot;${mall.inventory.reservation-ttl:30m}&quot;) Duration reservationTtl) {</span>
+<span class="fc" id="L41">        this.reservationMapper = reservationMapper;</span>
+<span class="fc" id="L42">        this.inventoryMapper = inventoryMapper;</span>
+<span class="fc" id="L43">        this.reservationTtl = reservationTtl;</span>
+<span class="fc" id="L44">    }</span>
+
+    @Transactional(rollbackFor = Exception.class)
+    public ReserveResult reserve(String orderNo, List&lt;ReserveLine&gt; lines) {
+<span class="fc" id="L48">        List&lt;Reservation&gt; existing = reservationMapper.selectByOrderNo(orderNo);</span>
+<span class="fc bfc" id="L49" title="All 2 branches covered.">        if (!existing.isEmpty()) { // 重复请求，或 release 先到留下的空回滚占位</span>
+<span class="fc bfc" id="L50" title="All 2 branches covered.">            return existing.getFirst().isReleased() ? ReserveResult.REJECTED : ReserveResult.OK;</span>
+        }
+<span class="fc" id="L52">        LocalDateTime expireAt = LocalDateTime.now().plus(reservationTtl);</span>
+        for (ReserveLine l :
+<span class="fc bfc" id="L54" title="All 2 branches covered.">                lines.stream().sorted(comparing(ReserveLine::skuId)).toList()) {</span>
+<span class="fc" id="L55">            reservationMapper.insert(Reservation.reserved(orderNo, l, expireAt)); // 并发时撞 uk_order_sku，整体回滚</span>
+<span class="fc bfc" id="L56" title="All 2 branches covered.">            if (inventoryMapper.reserve(l.skuId(), l.quantity()) == 0) { // stock &gt;= n 条件更新</span>
+<span class="fc" id="L57">                throw new BizException(</span>
+<span class="fc" id="L58">                        InventoryErrorCode.STOCK_INSUFFICIENT, &quot;SKU &quot; + l.skuId() + &quot; 库存不足，订单 &quot; + orderNo);</span>
+            }
+<span class="fc" id="L60">        }</span>
+<span class="fc" id="L61">        return ReserveResult.OK;</span>
+    }
+
+    @Transactional(rollbackFor = Exception.class)
+    public void release(String orderNo, List&lt;ReserveLine&gt; lines) {
+        for (ReserveLine l :
+<span class="fc bfc" id="L67" title="All 2 branches covered.">                lines.stream().sorted(comparing(ReserveLine::skuId)).toList()) {</span>
+            // INSERT IGNORE ... status = 3：返回 1 说明从没预占过，返回 0 说明记录已存在
+            // 不用 ON DUPLICATE KEY UPDATE id = id：Connector/J 默认返回 found rows，已存在也返回 1
+<span class="fc bfc" id="L70" title="All 2 branches covered.">            if (reservationMapper.insertReleasedIfAbsent(orderNo, l) == 1) {</span>
+<span class="fc" id="L71">                continue; // 空回滚：不动库存，只留下占位，挡住迟到的 reserve</span>
+            }
+<span class="fc bfc" id="L73" title="All 2 branches covered.">            if (reservationMapper.transit(orderNo, l.skuId(), RESERVED, RELEASED) == 1) {</span>
+<span class="fc" id="L74">                inventoryMapper.unreserve(l.skuId(), l.quantity()); // stock +n, reserved -n</span>
+<span class="pc bpc" id="L75" title="1 of 2 branches missed.">            } else if (isConfirmed(orderNo, l.skuId())) {</span>
+<span class="nc" id="L76">                log.error(&quot;预占已确认却收到释放，转人工核对，orderNo={}, skuId={}&quot;, orderNo, l.skuId());</span>
+            } // 其余 0 行：已释放（重复请求）
+<span class="fc" id="L78">        }</span>
+<span class="fc" id="L79">    }</span>
+
+    /** confirm 只有一条条件更新 RESERVED → CONFIRMED，再把对应数量从 reserved 中减掉。 */
+    @Transactional(rollbackFor = Exception.class)
+    public void confirm(String orderNo) {
+<span class="fc bfc" id="L84" title="All 2 branches covered.">        for (Reservation r : reservationMapper.selectByOrderNo(orderNo)) {</span>
+<span class="fc bfc" id="L85" title="All 2 branches covered.">            if (reservationMapper.transit(orderNo, r.getSkuId(), RESERVED, CONFIRMED) == 1) {</span>
+<span class="fc" id="L86">                inventoryMapper.confirm(r.getSkuId(), r.getQuantity());</span>
+            }
+<span class="fc" id="L88">        }</span>
+<span class="fc" id="L89">    }</span>
+
+    /** 过期回查用：按库里的预占记录释放（订单不存在或已取消）。 */
+    @Transactional(rollbackFor = Exception.class)
+    public void releaseByOrderNo(String orderNo) {
+<span class="nc" id="L94">        List&lt;ReserveLine&gt; lines = reservationMapper.selectByOrderNo(orderNo).stream()</span>
+<span class="nc bnc" id="L95" title="All 2 branches missed.">                .filter(r -&gt; r.getStatus() == RESERVED)</span>
+<span class="nc" id="L96">                .map(r -&gt; new ReserveLine(r.getSkuId(), r.getQuantity()))</span>
+<span class="nc" id="L97">                .toList();</span>
+<span class="nc bnc" id="L98" title="All 2 branches missed.">        if (!lines.isEmpty()) {</span>
+<span class="nc" id="L99">            release(orderNo, lines);</span>
+        }
+<span class="nc" id="L101">    }</span>
+
+    private boolean isConfirmed(String orderNo, long skuId) {
+<span class="fc" id="L104">        return reservationMapper.selectByOrderNo(orderNo).stream()</span>
+<span class="pc bpc" id="L105" title="2 of 4 branches missed.">                .anyMatch(r -&gt; r.getSkuId() == skuId &amp;&amp; r.getStatus() == CONFIRMED);</span>
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.13.202504020838</span></div></body></html>

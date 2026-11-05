@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>OrderQueryService.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">mall-order</a> &gt; <a href="index.source.html" class="el_package">io.github.clarence404.mall.order.query</a> &gt; <span class="el_source">OrderQueryService.java</span></div><h1>OrderQueryService.java</h1><pre class="source lang-java linenums">package io.github.clarence404.mall.order.query;
+
+import io.github.clarence404.mall.common.error.BizException;
+import io.github.clarence404.mall.common.web.CursorResult;
+import io.github.clarence404.mall.order.api.OrderErrorCode;
+import io.github.clarence404.mall.order.domain.Order;
+import io.github.clarence404.mall.order.domain.OrderItemMapper;
+import io.github.clarence404.mall.order.domain.OrderMapper;
+import io.github.clarence404.mall.order.domain.OrderStatus;
+import java.util.List;
+import lombok.RequiredArgsConstructor;
+import org.springframework.stereotype.Service;
+
+@Service
+@RequiredArgsConstructor
+public class OrderQueryService {
+
+    static final int MAX_PAGE_SIZE = 50;
+
+    private final OrderMapper orderMapper;
+    private final OrderItemMapper orderItemMapper;
+
+    /** 只看自己的订单：查到别人的订单和查不到一样返回 404，不让人借 403/404 的差别探测订单号。 */
+    public Order getOwn(long userId, String orderNo) {
+<span class="nc" id="L25">        Order order = orderMapper.selectByOrderNo(orderNo);</span>
+<span class="nc bnc" id="L26" title="All 4 branches missed.">        if (order == null || order.getUserId() != userId) {</span>
+<span class="nc" id="L27">            throw new BizException(OrderErrorCode.ORDER_NOT_FOUND, &quot;订单 &quot; + orderNo + &quot; 不存在&quot;);</span>
+        }
+<span class="nc" id="L29">        order.setItems(orderItemMapper.selectByOrderId(order.getId()));</span>
+<span class="nc" id="L30">        return order;</span>
+    }
+
+    public CursorResult&lt;OrderListItemView&gt; list(long userId, OrderStatus status, String cursor, int size) {
+<span class="nc" id="L34">        int pageSize = Math.clamp(size, 1, MAX_PAGE_SIZE);</span>
+<span class="nc" id="L35">        List&lt;Order&gt; rows = orderMapper.listByUser(userId, status, OrderCursor.decode(cursor), pageSize + 1);</span>
+<span class="nc bnc" id="L36" title="All 2 branches missed.">        boolean hasMore = rows.size() &gt; pageSize;</span>
+<span class="nc bnc" id="L37" title="All 2 branches missed.">        List&lt;Order&gt; page = hasMore ? rows.subList(0, pageSize) : rows;</span>
+<span class="nc bnc" id="L38" title="All 2 branches missed.">        String next = hasMore ? OrderCursor.encode(page.getLast().getId()) : null;</span>
+<span class="nc" id="L39">        return new CursorResult&lt;&gt;(page.stream().map(OrderListItemView::of).toList(), next, hasMore);</span>
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.13.202504020838</span></div></body></html>

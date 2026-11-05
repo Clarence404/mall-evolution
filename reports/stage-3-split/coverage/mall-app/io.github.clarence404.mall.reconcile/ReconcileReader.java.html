@@ -1,0 +1,106 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>ReconcileReader.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">mall-app</a> &gt; <a href="index.source.html" class="el_package">io.github.clarence404.mall.reconcile</a> &gt; <span class="el_source">ReconcileReader.java</span></div><h1>ReconcileReader.java</h1><pre class="source lang-java linenums">package io.github.clarence404.mall.reconcile;
+
+import io.github.clarence404.mall.reconcile.ReconcileChecker.InventoryRow;
+import io.github.clarence404.mall.reconcile.ReconcileChecker.OrderRow;
+import io.github.clarence404.mall.reconcile.ReconcileChecker.PaymentRow;
+import io.github.clarence404.mall.reconcile.ReconcileChecker.ReservationRow;
+import java.sql.Timestamp;
+import java.time.LocalDateTime;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Map;
+import java.util.TreeSet;
+import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
+
+/**
+ * 对账取数：先取对账日内三个库任一表有变动的 order_no 集合，再按这些 order_no 去三个库取全量记录比对。
+ *
+ * &lt;p&gt;只按各表自己的 updated_at 取数会漏掉跨零点的单：23:59 下单、00:01 支付成功，订单表落在前一天、支付表落在后一天，
+ * 两天对账都只看到一半。按订单号取全量后，任一侧当天有变动，三边的数据就都在。
+ *
+ * &lt;p&gt;预占总量用库存库里的一条语句同时读 t_inventory.reserved 与仍为 RESERVED 的预占之和：同一条语句是同一个一致性快照，
+ * 不会因为两次查询之间又有新预占而每晚误报；也不再只看当天变动的预占，几天前的活跃预占同样算进去。
+ */
+class ReconcileReader {
+
+    private static final int CHUNK = 500;
+
+    private final JdbcTemplate mall;
+    private final JdbcTemplate inventory;
+    private final JdbcTemplate payment;
+
+<span class="fc" id="L33">    ReconcileReader(JdbcTemplate mall, JdbcTemplate inventory, JdbcTemplate payment) {</span>
+<span class="fc" id="L34">        this.mall = mall;</span>
+<span class="fc" id="L35">        this.inventory = inventory;</span>
+<span class="fc" id="L36">        this.payment = payment;</span>
+<span class="fc" id="L37">    }</span>
+
+<span class="fc" id="L39">    record Snapshot(</span>
+            List&lt;OrderRow&gt; orders,
+            List&lt;PaymentRow&gt; payments,
+            List&lt;ReservationRow&gt; reservations,
+            List&lt;InventoryRow&gt; inventories) {}
+
+    Snapshot read(LocalDateTime from, LocalDateTime to) {
+<span class="fc" id="L46">        Timestamp f = Timestamp.valueOf(from);</span>
+<span class="fc" id="L47">        Timestamp t = Timestamp.valueOf(to);</span>
+<span class="fc" id="L48">        TreeSet&lt;String&gt; orderNos = new TreeSet&lt;&gt;();</span>
+<span class="fc" id="L49">        orderNos.addAll(mall.queryForList(</span>
+                &quot;SELECT order_no FROM t_order WHERE updated_at &gt;= ? AND updated_at &lt; ?&quot;, String.class, f, t));
+<span class="fc" id="L51">        orderNos.addAll(payment.queryForList(</span>
+                &quot;SELECT DISTINCT order_no FROM t_payment WHERE updated_at &gt;= ? AND updated_at &lt; ?&quot;,
+                String.class,
+                f,
+                t));
+<span class="fc" id="L56">        orderNos.addAll(inventory.queryForList(</span>
+                &quot;SELECT DISTINCT order_no FROM t_inventory_reservation WHERE updated_at &gt;= ? AND updated_at &lt; ?&quot;,
+                String.class,
+                f,
+                t));
+
+<span class="fc" id="L62">        List&lt;OrderRow&gt; orders = new ArrayList&lt;&gt;();</span>
+<span class="fc" id="L63">        List&lt;PaymentRow&gt; payments = new ArrayList&lt;&gt;();</span>
+<span class="fc" id="L64">        List&lt;ReservationRow&gt; reservations = new ArrayList&lt;&gt;();</span>
+<span class="fc" id="L65">        List&lt;String&gt; all = new ArrayList&lt;&gt;(orderNos);</span>
+<span class="fc bfc" id="L66" title="All 2 branches covered.">        for (int i = 0; i &lt; all.size(); i += CHUNK) {</span>
+<span class="fc" id="L67">            Map&lt;String, Object&gt; in = Map.of(&quot;orderNos&quot;, all.subList(i, Math.min(i + CHUNK, all.size())));</span>
+<span class="fc" id="L68">            orders.addAll(new NamedParameterJdbcTemplate(mall)</span>
+<span class="fc" id="L69">                    .query(</span>
+                            &quot;SELECT order_no, status, payment_no FROM t_order WHERE order_no IN (:orderNos)&quot;,
+                            in,
+<span class="fc" id="L72">                            (rs, n) -&gt; new OrderRow(rs.getString(1), rs.getInt(2), rs.getString(3))));</span>
+<span class="fc" id="L73">            payments.addAll(new NamedParameterJdbcTemplate(payment)</span>
+<span class="fc" id="L74">                    .query(</span>
+                            &quot;SELECT order_no, payment_no, user_id, amount, status, paid_at FROM t_payment&quot;
+                                    + &quot; WHERE order_no IN (:orderNos)&quot;,
+                            in,
+<span class="fc" id="L78">                            (rs, n) -&gt; new PaymentRow(</span>
+<span class="fc" id="L79">                                    rs.getString(1),</span>
+<span class="fc" id="L80">                                    rs.getString(2),</span>
+<span class="fc" id="L81">                                    rs.getLong(3),</span>
+<span class="fc" id="L82">                                    rs.getBigDecimal(4),</span>
+<span class="fc" id="L83">                                    rs.getInt(5),</span>
+<span class="pc bpc" id="L84" title="1 of 2 branches missed.">                                    rs.getTimestamp(6) == null</span>
+<span class="nc" id="L85">                                            ? null</span>
+<span class="fc" id="L86">                                            : rs.getTimestamp(6).toLocalDateTime())));</span>
+<span class="fc" id="L87">            reservations.addAll(new NamedParameterJdbcTemplate(inventory)</span>
+<span class="fc" id="L88">                    .query(</span>
+                            &quot;SELECT order_no, sku_id, quantity, status FROM t_inventory_reservation&quot;
+                                    + &quot; WHERE order_no IN (:orderNos)&quot;,
+                            in,
+<span class="fc" id="L92">                            (rs, n) -&gt; new ReservationRow(rs.getString(1), rs.getLong(2), rs.getInt(3), rs.getInt(4))));</span>
+        }
+
+<span class="fc" id="L95">        List&lt;InventoryRow&gt; inventories =</span>
+<span class="fc" id="L96">                inventory.query(&quot;&quot;&quot;</span>
+                SELECT i.sku_id, i.reserved, COALESCE(SUM(r.quantity), 0)
+                FROM t_inventory i
+                LEFT JOIN t_inventory_reservation r ON r.sku_id = i.sku_id AND r.status = 1
+                GROUP BY i.sku_id, i.reserved
+                HAVING i.reserved &lt;&gt; COALESCE(SUM(r.quantity), 0)
+<span class="fc" id="L102">                &quot;&quot;&quot;, (rs, n) -&gt; new InventoryRow(rs.getLong(1), rs.getInt(2), rs.getInt(3)));</span>
+<span class="fc" id="L103">        return new Snapshot(orders, payments, reservations, inventories);</span>
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.13.202504020838</span></div></body></html>
