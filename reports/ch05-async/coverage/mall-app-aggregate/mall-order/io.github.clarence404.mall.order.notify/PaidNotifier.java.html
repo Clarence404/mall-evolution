@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../../jacoco-resources/report.gif" type="image/gif"/><title>PaidNotifier.java</title><link rel="stylesheet" href="../../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../../index.html" class="el_report">mall-app</a> &gt; <a href="../index.html" class="el_bundle">mall-order</a> &gt; <a href="index.source.html" class="el_package">io.github.clarence404.mall.order.notify</a> &gt; <span class="el_source">PaidNotifier.java</span></div><h1>PaidNotifier.java</h1><pre class="source lang-java linenums">package io.github.clarence404.mall.order.notify;
+
+import io.github.clarence404.mall.common.mq.ConsumeRecordMapper;
+import io.github.clarence404.mall.order.api.OrderPaidEvent;
+import io.github.clarence404.mall.user.api.UserApi;
+import java.time.Duration;
+import java.time.LocalDateTime;
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.stereotype.Component;
+
+/**
+ * notify-consumer：支付成功短信与 App 推送。外部调用没法和去重记录放进一个事务，所以「先发后记」：
+ * 先查记录，没有才发，发成功再插记录；发完、插记录前宕机会多发一条，可以接受。
+ */
+<span class="fc" id="L16">@Slf4j</span>
+@Component
+@RequiredArgsConstructor
+public class PaidNotifier {
+
+    static final String GROUP = &quot;notify-consumer&quot;;
+<span class="fc" id="L22">    private static final Duration STALE_AFTER = Duration.ofMinutes(30);</span>
+
+    private final ConsumeRecordMapper consumeRecordMapper;
+    private final UserApi userApi;
+    private final SmsClient smsClient;
+    private final PushClient pushClient;
+
+    public void onPaid(OrderPaidEvent e) {
+<span class="fc bfc" id="L30" title="All 2 branches covered.">        if (consumeRecordMapper.exists(GROUP, e.orderNo())) {</span>
+<span class="fc" id="L31">            return; // 重复投递</span>
+        }
+<span class="pc bpc" id="L33" title="1 of 4 branches missed.">        if (e.paidAt() != null &amp;&amp; e.paidAt().isBefore(LocalDateTime.now().minus(STALE_AFTER))) {</span>
+            // 迟到的「支付成功」短信只会让用户困惑：直接确认不发
+<span class="fc" id="L35">            log.info(&quot;支付已超过 30 分钟，不再通知，orderNo={}&quot;, e.orderNo());</span>
+<span class="fc" id="L36">            consumeRecordMapper.insertIgnore(GROUP, e.orderNo());</span>
+<span class="fc" id="L37">            return;</span>
+        }
+<span class="fc" id="L39">        userApi.findById(e.userId()).ifPresent(u -&gt; {</span>
+<span class="fc" id="L40">            smsClient.send(u.phone(), &quot;您的订单 &quot; + e.orderNo() + &quot; 已支付成功，我们会尽快为您发货。&quot;);</span>
+<span class="fc" id="L41">            pushClient.push(u.id(), &quot;支付成功&quot;, &quot;订单 &quot; + e.orderNo() + &quot; 已支付成功&quot;);</span>
+<span class="fc" id="L42">        });</span>
+<span class="fc" id="L43">        consumeRecordMapper.insertIgnore(GROUP, e.orderNo());</span>
+<span class="fc" id="L44">    }</span>
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.13.202504020838</span></div></body></html>
