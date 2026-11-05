@@ -1,0 +1,99 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>PaymentController.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">payment-service</a> &gt; <a href="index.source.html" class="el_package">io.github.clarence404.mall.payment.pay</a> &gt; <span class="el_source">PaymentController.java</span></div><h1>PaymentController.java</h1><pre class="source lang-java linenums">package io.github.clarence404.mall.payment.pay;
+
+import io.github.clarence404.mall.common.error.BizException;
+import io.github.clarence404.mall.common.security.LoginUser;
+import io.swagger.v3.oas.annotations.Operation;
+import jakarta.validation.Valid;
+import jakarta.validation.constraints.NotBlank;
+import java.math.RoundingMode;
+import java.time.LocalDateTime;
+import lombok.RequiredArgsConstructor;
+import org.springframework.http.HttpStatus;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.ResponseStatus;
+import org.springframework.web.bind.annotation.RestController;
+
+@RestController
+@RequiredArgsConstructor
+class PaymentController {
+
+    private final PaymentService paymentService;
+    private final PaymentMapper paymentMapper;
+    private final PayCallbackService payCallbackService;
+    private final MockChannelSigner signer;
+    private final io.micrometer.core.instrument.MeterRegistry meterRegistry;
+
+    /** 已接入的渠道；新渠道上线时加在这里。 */
+<span class="fc" id="L30">    static final java.util.Set&lt;String&gt; KNOWN_CHANNELS = java.util.Set.of(PaymentService.MOCK_CHANNEL);</span>
+
+    @Operation(operationId = &quot;createPayment&quot;)
+    @PostMapping(&quot;/api/payments&quot;)
+    @ResponseStatus(HttpStatus.CREATED)
+    PaymentView create(@AuthenticationPrincipal LoginUser user, @RequestBody @Valid CreatePaymentRequest req) {
+<span class="fc" id="L36">        Payment p = paymentService.create(user.id(), req.orderNo());</span>
+<span class="fc" id="L37">        return new PaymentView(p.getPaymentNo(), p.getOrderNo(), amount(p), p.getChannel());</span>
+    }
+
+    /** 渠道回调：免 JWT，改验渠道签名；按支付单号幂等，渠道重发直接返回成功。 */
+    @Operation(operationId = &quot;mockChannelNotify&quot;)
+    @PostMapping(&quot;/api/payments/notify/{channel}&quot;)
+    String notify(@PathVariable String channel, @RequestBody @Valid ChannelNotify req) {
+        try {
+<span class="fc" id="L45">            String result = handleNotify(channel, req);</span>
+<span class="fc" id="L46">            meterRegistry</span>
+<span class="fc" id="L47">                    .counter(&quot;pay.callback&quot;, &quot;channel&quot;, channelTag(channel), &quot;result&quot;, &quot;success&quot;)</span>
+<span class="fc" id="L48">                    .increment();</span>
+<span class="fc" id="L49">            return result;</span>
+<span class="fc" id="L50">        } catch (RuntimeException e) { // 业务大盘「支付成功率（按渠道）」</span>
+<span class="fc" id="L51">            meterRegistry</span>
+<span class="fc" id="L52">                    .counter(&quot;pay.callback&quot;, &quot;channel&quot;, channelTag(channel), &quot;result&quot;, &quot;failure&quot;)</span>
+<span class="fc" id="L53">                    .increment();</span>
+<span class="fc" id="L54">            throw e;</span>
+        }
+    }
+
+    /** 渠道标签只取已知渠道：路径参数谁都能填，原样做标签会被随意的值撑爆时序数量。 */
+    static String channelTag(String channel) {
+<span class="fc bfc" id="L60" title="All 2 branches covered.">        return KNOWN_CHANNELS.contains(channel) ? channel : &quot;unknown&quot;;</span>
+    }
+
+    private String handleNotify(String channel, ChannelNotify req) {
+<span class="fc bfc" id="L64" title="All 2 branches covered.">        if (!PaymentService.MOCK_CHANNEL.equals(channel)</span>
+<span class="fc bfc" id="L65" title="All 2 branches covered.">                || !signer.verify(req.paymentNo(), req.channelTradeNo(), req.amount(), req.sign())) {</span>
+<span class="fc" id="L66">            throw new BizException(PayErrorCode.PAY_SIGNATURE_INVALID);</span>
+        }
+<span class="fc" id="L68">        Payment p = paymentMapper.selectByPaymentNo(req.paymentNo());</span>
+<span class="pc bpc" id="L69" title="1 of 2 branches missed.">        if (p == null) {</span>
+<span class="nc" id="L70">            throw new BizException(PayErrorCode.PAY_PAYMENT_NOT_FOUND);</span>
+        }
+<span class="pc bpc" id="L72" title="1 of 2 branches missed.">        if (!amount(p).equals(req.amount())) {</span>
+<span class="nc" id="L73">            throw new BizException(PayErrorCode.PAY_AMOUNT_MISMATCH, &quot;支付单 &quot; + p.getPaymentNo() + &quot; 金额不一致&quot;);</span>
+        }
+<span class="fc" id="L75">        payCallbackService.onPaid(new PayNotify(</span>
+<span class="fc" id="L76">                p.getPaymentNo(),</span>
+<span class="fc" id="L77">                req.channelTradeNo(),</span>
+<span class="fc" id="L78">                p.getOrderNo(),</span>
+<span class="fc" id="L79">                p.getUserId(),</span>
+<span class="fc" id="L80">                p.getAmount(),</span>
+<span class="fc" id="L81">                LocalDateTime.now()));</span>
+<span class="fc" id="L82">        return &quot;success&quot;;</span>
+    }
+
+    private static String amount(Payment p) {
+<span class="fc" id="L86">        return p.getAmount().setScale(2, RoundingMode.HALF_UP).toPlainString();</span>
+    }
+
+<span class="fc" id="L89">    record CreatePaymentRequest(@NotBlank String orderNo) {}</span>
+
+<span class="fc" id="L91">    record PaymentView(String paymentNo, String orderNo, String amount, String channel) {}</span>
+
+<span class="fc" id="L93">    record ChannelNotify(</span>
+            @NotBlank String paymentNo,
+            @NotBlank String channelTradeNo,
+            @NotBlank String amount,
+            @NotBlank String sign) {}
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.13.202504020838</span></div></body></html>

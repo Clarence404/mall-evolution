@@ -1,0 +1,45 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>OrderTimeoutScanJob.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">mall-order</a> &gt; <a href="index.source.html" class="el_package">io.github.clarence404.mall.order.cancel</a> &gt; <span class="el_source">OrderTimeoutScanJob.java</span></div><h1>OrderTimeoutScanJob.java</h1><pre class="source lang-java linenums">package io.github.clarence404.mall.order.cancel;
+
+import io.github.clarence404.mall.order.domain.OrderMapper;
+import java.time.Duration;
+import java.time.LocalDateTime;
+import java.util.List;
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.scheduling.annotation.Scheduled;
+import org.springframework.stereotype.Component;
+
+/**
+ * 超时关单的兜底扫描：主路径已改为 15 分钟定时消息，这里降级为每 10 分钟一次，
+ * 只处理创建超过 20 分钟仍待支付的订单，防止 MQ 或中继故障时订单永远不关。
+ */
+<span class="nc" id="L17">@Slf4j</span>
+@Component
+@RequiredArgsConstructor
+class OrderTimeoutScanJob {
+
+    private final OrderMapper orderMapper;
+    private final OrderCloseService orderCloseService;
+
+    @Value(&quot;${mall.order.timeout-scan-after:20m}&quot;)
+    private Duration scanAfter;
+
+    @Scheduled(fixedDelayString = &quot;${mall.order.timeout-scan-interval:10m}&quot;, initialDelayString = &quot;60s&quot;)
+    void closeTimeoutOrders() {
+<span class="nc" id="L30">        List&lt;String&gt; orderNos =</span>
+<span class="nc" id="L31">                orderMapper.selectUnpaidOrderNosBefore(LocalDateTime.now().minus(scanAfter), 500);</span>
+<span class="nc" id="L32">        int closed = 0;</span>
+<span class="nc bnc" id="L33" title="All 2 branches missed.">        for (String orderNo : orderNos) {</span>
+            try {
+<span class="nc bnc" id="L35" title="All 2 branches missed.">                closed += orderCloseService.closeIfUnpaid(orderNo) ? 1 : 0;</span>
+<span class="nc" id="L36">            } catch (RuntimeException e) {</span>
+<span class="nc" id="L37">                log.warn(&quot;兜底关单失败，下一轮重试，orderNo={}&quot;, orderNo, e);</span>
+<span class="nc" id="L38">            }</span>
+<span class="nc" id="L39">        }</span>
+<span class="nc bnc" id="L40" title="All 2 branches missed.">        if (closed &gt; 0) {</span>
+<span class="nc" id="L41">            log.warn(&quot;兜底扫描关掉 {} 笔超时订单，检查定时消息链路（中继、Broker、order-timeout-consumer）&quot;, closed);</span>
+        }
+<span class="nc" id="L43">    }</span>
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.13.202504020838</span></div></body></html>
