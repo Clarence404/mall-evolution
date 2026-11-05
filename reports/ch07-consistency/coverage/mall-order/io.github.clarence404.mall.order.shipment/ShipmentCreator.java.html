@@ -1,0 +1,53 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>ShipmentCreator.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">mall-order</a> &gt; <a href="index.source.html" class="el_package">io.github.clarence404.mall.order.shipment</a> &gt; <span class="el_source">ShipmentCreator.java</span></div><h1>ShipmentCreator.java</h1><pre class="source lang-java linenums">package io.github.clarence404.mall.order.shipment;
+
+import io.github.clarence404.mall.common.mq.ConsumeRecordMapper;
+import io.github.clarence404.mall.order.paid.OrderPaidEvent;
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.stereotype.Component;
+
+/**
+ * shipment-consumer：依赖 WMS 按外部单号幂等；成功后插去重记录，下次重投在本地就被挡住。
+ *
+ * &lt;p&gt;瞬时失败（如 WMS 偶发超时）先在方法内短间隔重试 2 次，仍失败再交给 Broker 按退避重投，避免一次抖动就等上 10 秒。
+ */
+<span class="fc" id="L14">@Slf4j</span>
+@Component
+@RequiredArgsConstructor
+public class ShipmentCreator {
+
+    static final String GROUP = &quot;shipment-consumer&quot;;
+    private static final int LOCAL_RETRIES = 2;
+
+    private final ConsumeRecordMapper consumeRecordMapper;
+    private final WmsClient wmsClient;
+
+    public void onPaid(OrderPaidEvent e) {
+<span class="pc bpc" id="L26" title="1 of 2 branches missed.">        if (consumeRecordMapper.exists(GROUP, e.orderNo())) {</span>
+<span class="nc" id="L27">            return;</span>
+        }
+<span class="fc" id="L29">        for (int attempt = 0; ; attempt++) {</span>
+            try {
+<span class="fc" id="L31">                wmsClient.createShipment(e.orderNo());</span>
+<span class="fc" id="L32">                break;</span>
+<span class="fc" id="L33">            } catch (RuntimeException ex) {</span>
+<span class="fc bfc" id="L34" title="All 2 branches covered.">                if (attempt &gt;= LOCAL_RETRIES) {</span>
+<span class="fc" id="L35">                    throw ex;</span>
+                }
+<span class="fc" id="L37">                log.warn(&quot;调用 WMS 失败，{}ms 后重试，orderNo={}&quot;, 200L * (attempt + 1), e.orderNo());</span>
+<span class="fc" id="L38">                sleep(200L * (attempt + 1));</span>
+            }
+        }
+<span class="fc" id="L41">        consumeRecordMapper.insertIgnore(GROUP, e.orderNo());</span>
+<span class="fc" id="L42">    }</span>
+
+    private static void sleep(long millis) {
+        try {
+<span class="fc" id="L46">            Thread.sleep(millis);</span>
+<span class="nc" id="L47">        } catch (InterruptedException ie) {</span>
+<span class="nc" id="L48">            Thread.currentThread().interrupt();</span>
+<span class="nc" id="L49">            throw new IllegalStateException(ie);</span>
+<span class="fc" id="L50">        }</span>
+<span class="fc" id="L51">    }</span>
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.13.202504020838</span></div></body></html>

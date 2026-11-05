@@ -1,0 +1,70 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>SnowflakeIdGenerator.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">mall-common</a> &gt; <a href="index.source.html" class="el_package">io.github.clarence404.mall.common.id</a> &gt; <span class="el_source">SnowflakeIdGenerator.java</span></div><h1>SnowflakeIdGenerator.java</h1><pre class="source lang-java linenums">package io.github.clarence404.mall.common.id;
+
+/**
+ * 雪花 ID：41 位毫秒时间戳 + 10 位机器号 + 12 位序列号，8 字节 BIGINT、趋势递增。
+ *
+ * &lt;p&gt;阶段一只有两台应用机，机器号直接写在配置里（1 和 2）。时钟回拨 5ms 以内等待追平，超过直接拒绝发号。
+ */
+public class SnowflakeIdGenerator implements IdGenerator {
+
+    /** 2010-11-04T01:42:54.657Z，与 Twitter 原始实现一致，当前时间生成的 ID 为 19 位十进制。 */
+    static final long EPOCH = 1288834974657L;
+
+    private static final long WORKER_BITS = 10L;
+    private static final long SEQUENCE_BITS = 12L;
+    static final long MAX_WORKER_ID = ~(-1L &lt;&lt; WORKER_BITS);
+    private static final long SEQUENCE_MASK = ~(-1L &lt;&lt; SEQUENCE_BITS);
+    private static final long MAX_BACKWARD_MS = 5L;
+
+    private final long workerId;
+<span class="fc" id="L20">    private long lastTimestamp = -1L;</span>
+<span class="fc" id="L21">    private long sequence = 0L;</span>
+
+<span class="fc" id="L23">    public SnowflakeIdGenerator(long workerId) {</span>
+<span class="pc bpc" id="L24" title="1 of 4 branches missed.">        if (workerId &lt; 0 || workerId &gt; MAX_WORKER_ID) {</span>
+<span class="fc" id="L25">            throw new IllegalArgumentException(&quot;workerId 必须在 0-&quot; + MAX_WORKER_ID + &quot; 之间: &quot; + workerId);</span>
+        }
+<span class="fc" id="L27">        this.workerId = workerId;</span>
+<span class="fc" id="L28">    }</span>
+
+    @Override
+    public synchronized long nextId() {
+<span class="fc" id="L32">        long now = currentTimeMillis();</span>
+<span class="fc bfc" id="L33" title="All 2 branches covered.">        if (now &lt; lastTimestamp) {</span>
+<span class="fc" id="L34">            long backward = lastTimestamp - now;</span>
+<span class="pc bpc" id="L35" title="1 of 2 branches missed.">            if (backward &gt; MAX_BACKWARD_MS) {</span>
+<span class="fc" id="L36">                throw new IllegalStateException(&quot;时钟回拨 &quot; + backward + &quot;ms，拒绝发号&quot;);</span>
+            }
+<span class="nc" id="L38">            now = waitUntil(lastTimestamp);</span>
+        }
+<span class="fc bfc" id="L40" title="All 2 branches covered.">        if (now == lastTimestamp) {</span>
+<span class="fc" id="L41">            sequence = (sequence + 1) &amp; SEQUENCE_MASK;</span>
+<span class="pc bpc" id="L42" title="1 of 2 branches missed.">            if (sequence == 0) {</span>
+<span class="nc" id="L43">                now = waitUntil(lastTimestamp + 1);</span>
+            }
+        } else {
+<span class="fc" id="L46">            sequence = 0L;</span>
+        }
+<span class="fc" id="L48">        lastTimestamp = now;</span>
+<span class="fc" id="L49">        return ((now - EPOCH) &lt;&lt; (WORKER_BITS + SEQUENCE_BITS)) | (workerId &lt;&lt; SEQUENCE_BITS) | sequence;</span>
+    }
+
+    /** 由时间戳反推该毫秒最小的 ID，用于「只查近 N 个月 / 近 30 分钟」时给 id 加下界。 */
+    public static long minIdAt(long epochMillis) {
+<span class="fc" id="L54">        return Math.max(0L, epochMillis - EPOCH) &lt;&lt; (WORKER_BITS + SEQUENCE_BITS);</span>
+    }
+
+    private long waitUntil(long target) {
+<span class="nc" id="L58">        long now = currentTimeMillis();</span>
+<span class="nc bnc" id="L59" title="All 2 branches missed.">        while (now &lt; target) {</span>
+<span class="nc" id="L60">            Thread.onSpinWait();</span>
+<span class="nc" id="L61">            now = currentTimeMillis();</span>
+        }
+<span class="nc" id="L63">        return now;</span>
+    }
+
+    long currentTimeMillis() {
+<span class="fc" id="L67">        return System.currentTimeMillis();</span>
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.13.202504020838</span></div></body></html>

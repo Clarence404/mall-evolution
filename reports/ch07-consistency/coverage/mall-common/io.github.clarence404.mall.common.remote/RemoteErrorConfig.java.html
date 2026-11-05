@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>RemoteErrorConfig.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">mall-common</a> &gt; <a href="index.source.html" class="el_package">io.github.clarence404.mall.common.remote</a> &gt; <span class="el_source">RemoteErrorConfig.java</span></div><h1>RemoteErrorConfig.java</h1><pre class="source lang-java linenums">package io.github.clarence404.mall.common.remote;
+
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+import org.springframework.http.HttpStatusCode;
+import org.springframework.http.ProblemDetail;
+import org.springframework.http.converter.json.ProblemDetailJacksonMixin;
+import org.springframework.web.client.RestClient;
+import org.springframework.web.client.support.RestClientHttpServiceGroupConfigurer;
+import tools.jackson.databind.json.JsonMapper;
+
+/**
+ * 所有 HTTP 接口客户端组共用：下游返回 4xx 时把响应体解析成 ProblemDetail，抛 {@link RemoteBizException}，表示下游明确拒绝
+ * （如 STOCK_INSUFFICIENT），调用方可以放心按失败处理。
+ *
+ * &lt;p&gt;5xx 不转：下游可能已经执行了一半（比如预占写进去了、响应时才出错），结果未知，交给默认处理器抛
+ * {@code HttpServerErrorException}，调用方按「结果未知」处理（下单时立即释放预占），熔断器把它记为失败。
+ *
+ * &lt;p&gt;写接口（deduct、restore、markPaid 等）不开自动重试，超时按失败处理；超时值按组在配置里显式写。
+ */
+@Configuration(proxyBeanMethods = false)
+<span class="nc" id="L22">public class RemoteErrorConfig {</span>
+
+    @Bean
+    RestClientHttpServiceGroupConfigurer remoteErrorConfigurer(JsonMapper jsonMapper) {
+<span class="nc" id="L26">        return groups -&gt; groups.forEachClient((group, builder) -&gt; applyTo(builder, jsonMapper));</span>
+    }
+
+    static RestClient.Builder applyTo(RestClient.Builder builder, JsonMapper jsonMapper) {
+        // ProblemDetail 的扩展字段（code、traceId）靠 @JsonAnySetter 落进 properties，要挂上 Spring 提供的 mixin，
+        // 否则反序列化时 code 被丢掉，前端就收不到 STOCK_INSUFFICIENT
+<span class="fc" id="L32">        JsonMapper problemMapper = jsonMapper</span>
+<span class="fc" id="L33">                .rebuild()</span>
+<span class="fc" id="L34">                .addMixIn(ProblemDetail.class, ProblemDetailJacksonMixin.class)</span>
+<span class="fc" id="L35">                .build();</span>
+<span class="fc" id="L36">        return builder.defaultStatusHandler(HttpStatusCode::is4xxClientError, (request, response) -&gt; {</span>
+<span class="fc" id="L37">            ProblemDetail pd = problemMapper.readValue(response.getBody(), ProblemDetail.class);</span>
+<span class="fc" id="L38">            throw new RemoteBizException(response.getStatusCode(), pd); // 全局异常处理器按 code 透传</span>
+        });
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.13.202504020838</span></div></body></html>
