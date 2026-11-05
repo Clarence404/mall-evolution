@@ -68,6 +68,19 @@ curl -i localhost:9000/api/orders -H "Authorization: Bearer $TOKEN" \
 
 接口文档：<http://localhost:8080/swagger-ui.html>（仅 dev / test 环境开启）。看早期阶段时 `git checkout stage-1-monolith`，那时只有 `mall-app` 一个进程，`docker compose up -d mysql` 即可。
 
+### 在 IntelliJ IDEA 里运行
+
+仓库自带共享运行配置（`.run/` 目录），用 IDEA 打开项目、等 Maven 导入完成后，右上角运行下拉框里就能看到：
+
+| 运行配置 | 作用 |
+|----------|------|
+| 0. 中间件（docker compose，需 Docker） | 起 MySQL、Redis、RocketMQ、Nacos，等同 `docker compose up -d` |
+| 1. 库存服务 / 2. 支付服务 / 3. 订单与商品 / 4. 网关 | 分别启动四个服务，`dev` profile |
+| 全部服务（先起中间件） | 按 1→4 一次启动四个服务 |
+| 测试：mvn verify | 跑全部检查与测试（没有 Docker 时集成测试自动跳过） |
+
+前提：项目 SDK 设为 JDK 21；本机需要 Docker（Docker Desktop 即可）来跑中间件。没有 Docker 时，可以把中间件放在另一台机器上，在运行配置的环境变量里覆盖地址，例如 `SPRING_DATASOURCE_URL`、`SPRING_DATA_REDIS_HOST`、`NACOS_ADDR`、`ROCKETMQ_ENDPOINTS`。运行配置只在 `main` 上；切到早期章节（如 `git checkout ch03-api-design`）后 `.run/` 会随之消失，这时在 IDEA 里对 `MallApplication` 右键运行即可，那时只有这一个进程，也只需要 MySQL。
+
 ## 构建与测试
 
 ```bash

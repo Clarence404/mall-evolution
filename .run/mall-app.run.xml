@@ -1,0 +1,13 @@
+<component name="ProjectRunConfigurationManager">
+  <configuration default="false" name="3. 订单与商品 mall-app（8080）" type="Application" factoryName="Application">
+    <option name="MAIN_CLASS_NAME" value="io.github.clarence404.mall.MallApplication" />
+    <module name="mall-app" />
+    <option name="WORKING_DIRECTORY" value="$PROJECT_DIR$" />
+    <envs>
+      <env name="SPRING_PROFILES_ACTIVE" value="dev" />
+    </envs>
+    <method v="2">
+      <option name="Make" enabled="true" />
+    </method>
+  </configuration>
+</component>

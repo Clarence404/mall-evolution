@@ -1,0 +1,13 @@
+<component name="ProjectRunConfigurationManager">
+  <configuration default="false" name="4. 网关 mall-gateway（9000）" type="Application" factoryName="Application">
+    <option name="MAIN_CLASS_NAME" value="io.github.clarence404.mall.gateway.MallGatewayApplication" />
+    <module name="mall-gateway" />
+    <option name="WORKING_DIRECTORY" value="$PROJECT_DIR$" />
+    <envs>
+      <env name="SPRING_PROFILES_ACTIVE" value="dev" />
+    </envs>
+    <method v="2">
+      <option name="Make" enabled="true" />
+    </method>
+  </configuration>
+</component>
