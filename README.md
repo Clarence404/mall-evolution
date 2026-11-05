@@ -79,6 +79,8 @@ curl -i localhost:9000/api/orders -H "Authorization: Bearer $TOKEN" \
 | 全部服务（先起中间件） | 按 1→4 一次启动四个服务 |
 | 测试：mvn verify | 跑全部检查与测试（没有 Docker 时集成测试自动跳过） |
 
+四个服务用的是 Spring Boot 类型的运行配置（需 IDEA Ultimate），profile 在「Active profiles」里设为 `dev,local`；用 Community 版时，对各服务的启动类右键运行，并在运行配置里加环境变量 `SPRING_PROFILES_ACTIVE=dev,local`、工作目录设为仓库根目录。IDEA 自动识别出的同名 Spring Boot 配置不带 `local` profile，用仓库里这几个即可。
+
 前提：项目 SDK 设为 JDK 21；中间件默认连本机 `docker compose` 起的那套（Docker Desktop 即可）。
 
 本机没有 Docker 时，可以连另一台机器（比如共享的开发虚拟机）上的中间件：

@@ -1,11 +1,9 @@
 <component name="ProjectRunConfigurationManager">
-  <configuration default="false" name="2. 支付服务 payment-service（8083）" type="Application" factoryName="Application">
-    <option name="MAIN_CLASS_NAME" value="io.github.clarence404.mall.payment.PaymentServiceApplication" />
+  <configuration default="false" name="2. 支付服务 payment-service（8083）" type="SpringBootApplicationConfigurationType" factoryName="Spring Boot">
+    <option name="ACTIVE_PROFILES" value="dev,local" />
     <module name="payment-service" />
+    <option name="SPRING_BOOT_MAIN_CLASS" value="io.github.clarence404.mall.payment.PaymentServiceApplication" />
     <option name="WORKING_DIRECTORY" value="$PROJECT_DIR$" />
-    <envs>
-      <env name="SPRING_PROFILES_ACTIVE" value="dev,local" />
-    </envs>
     <method v="2">
       <option name="Make" enabled="true" />
     </method>

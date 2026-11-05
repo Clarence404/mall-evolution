@@ -1,9 +1,9 @@
 <component name="ProjectRunConfigurationManager">
   <configuration default="false" name="全部服务（先起中间件）" type="CompoundRunConfigurationType">
-    <toRun name="1. 库存服务 inventory-service（8082）" type="Application" />
-    <toRun name="2. 支付服务 payment-service（8083）" type="Application" />
-    <toRun name="3. 订单与商品 mall-app（8080）" type="Application" />
-    <toRun name="4. 网关 mall-gateway（9000）" type="Application" />
+    <toRun name="1. 库存服务 inventory-service（8082）" type="SpringBootApplicationConfigurationType" />
+    <toRun name="2. 支付服务 payment-service（8083）" type="SpringBootApplicationConfigurationType" />
+    <toRun name="3. 订单与商品 mall-app（8080）" type="SpringBootApplicationConfigurationType" />
+    <toRun name="4. 网关 mall-gateway（9000）" type="SpringBootApplicationConfigurationType" />
     <method v="2" />
   </configuration>
 </component>
