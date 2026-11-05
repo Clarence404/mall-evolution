@@ -1,0 +1,81 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>InventoryBucketService.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">inventory-service</a> &gt; <a href="index.source.html" class="el_package">io.github.clarence404.mall.inventory.bucket</a> &gt; <span class="el_source">InventoryBucketService.java</span></div><h1>InventoryBucketService.java</h1><pre class="source lang-java linenums">package io.github.clarence404.mall.inventory.bucket;
+
+import io.github.clarence404.mall.inventory.bucket.InventoryBucketMapper.Bucket;
+import io.github.clarence404.mall.inventory.stock.InventoryMapper;
+import java.util.Comparator;
+import java.util.List;
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+
+/**
+ * 热点库存分桶：大促前一天对活动白名单 SKU 执行 split，大促结束低峰时 merge。
+ *
+ * &lt;p&gt;为什么默认 10 桶：单行约 600 TPS；最热的 SKU 预计约 2000 TPS，按 1.5 倍余量要 3000 TPS，10 个桶的上限约 6000 TPS。
+ */
+<span class="fc" id="L17">@Slf4j</span>
+@Service
+@RequiredArgsConstructor
+public class InventoryBucketService {
+
+    public static final int DEFAULT_BUCKETS = 10;
+
+    private final InventoryMapper inventoryMapper;
+    private final InventoryBucketMapper bucketMapper;
+
+    /** 在一个事务里锁住 t_inventory 这一行，把 stock 平均分到 n 个桶，再把 bucket_count 置为 n。 */
+    @Transactional(rollbackFor = Exception.class)
+    public void split(long skuId, int bucketCount) {
+<span class="pc bpc" id="L30" title="2 of 4 branches missed.">        if (bucketCount &lt; 2 || bucketCount &gt; 100) {</span>
+<span class="nc" id="L31">            throw new IllegalArgumentException(&quot;桶数应在 2-100 之间&quot;);</span>
+        }
+<span class="fc" id="L33">        InventoryMapper.StockRow row = inventoryMapper.selectForUpdate(skuId);</span>
+<span class="pc bpc" id="L34" title="2 of 4 branches missed.">        if (row == null || row.bucketCount() &gt; 0) {</span>
+<span class="nc" id="L35">            throw new IllegalStateException(&quot;SKU &quot; + skuId + &quot; 不存在或已分桶&quot;);</span>
+        }
+<span class="fc" id="L37">        int stock = row.stock();</span>
+<span class="fc bfc" id="L38" title="All 2 branches covered.">        for (int b = 0; b &lt; bucketCount; b++) {</span>
+<span class="fc bfc" id="L39" title="All 2 branches covered.">            bucketMapper.insert(skuId, b, stock / bucketCount + (b &lt; stock % bucketCount ? 1 : 0));</span>
+        }
+<span class="fc" id="L41">        inventoryMapper.markBucketed(skuId, bucketCount);</span>
+<span class="fc" id="L42">        log.info(&quot;SKU {} 拆成 {} 个桶，库存 {}&quot;, skuId, bucketCount, stock);</span>
+<span class="fc" id="L43">    }</span>
+
+    /** 等各桶的预占都确认或释放后，把余量并回 t_inventory，bucket_count 置回 0。 */
+    @Transactional(rollbackFor = Exception.class)
+    public void merge(long skuId) {
+<span class="fc" id="L48">        InventoryMapper.StockRow row = inventoryMapper.selectForUpdate(skuId);</span>
+<span class="pc bpc" id="L49" title="2 of 4 branches missed.">        if (row == null || row.bucketCount() == 0) {</span>
+<span class="nc" id="L50">            return;</span>
+        }
+<span class="fc" id="L52">        List&lt;Bucket&gt; buckets = bucketMapper.selectBySku(skuId);</span>
+<span class="fc bfc" id="L53" title="All 4 branches covered.">        if (buckets.stream().anyMatch(b -&gt; b.reserved() != 0)) {</span>
+<span class="fc" id="L54">            throw new IllegalStateException(&quot;SKU &quot; + skuId + &quot; 仍有未确认的分桶预占，稍后再合并&quot;);</span>
+        }
+<span class="fc" id="L56">        int remaining = buckets.stream().mapToInt(Bucket::stock).sum();</span>
+<span class="fc" id="L57">        bucketMapper.deleteBySku(skuId);</span>
+<span class="fc" id="L58">        inventoryMapper.unmarkBucketed(skuId, remaining);</span>
+<span class="fc" id="L59">        log.info(&quot;SKU {} 合并分桶，余量 {}&quot;, skuId, remaining);</span>
+<span class="fc" id="L60">    }</span>
+
+    /** 把余量最多的桶匀一半给已空的桶，避免「总数还有、每个桶都不够」。 */
+    @Transactional(rollbackFor = Exception.class)
+    public void rebalance(long skuId) {
+<span class="fc" id="L65">        List&lt;Bucket&gt; buckets = bucketMapper.selectBySku(skuId);</span>
+<span class="fc" id="L66">        Bucket richest =</span>
+<span class="fc" id="L67">                buckets.stream().max(Comparator.comparingInt(Bucket::stock)).orElse(null);</span>
+<span class="pc bpc" id="L68" title="2 of 4 branches missed.">        if (richest == null || richest.stock() &lt; 2) {</span>
+<span class="nc" id="L69">            return;</span>
+        }
+<span class="fc bfc" id="L71" title="All 4 branches covered.">        for (Bucket empty : buckets.stream().filter(b -&gt; b.stock() == 0).toList()) {</span>
+<span class="fc" id="L72">            int n = richest.stock() / 2;</span>
+<span class="pc bpc" id="L73" title="2 of 4 branches missed.">            if (n == 0 || bucketMapper.take(skuId, richest.bucketNo(), n) == 0) {</span>
+<span class="nc" id="L74">                return;</span>
+            }
+<span class="fc" id="L76">            bucketMapper.give(skuId, empty.bucketNo(), n);</span>
+<span class="fc" id="L77">            richest = new Bucket(skuId, richest.bucketNo(), richest.stock() - n, richest.reserved());</span>
+<span class="fc" id="L78">        }</span>
+<span class="fc" id="L79">    }</span>
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.13.202504020838</span></div></body></html>

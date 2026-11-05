@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../../jacoco-resources/report.gif" type="image/gif"/><title>ProductCacheSubscriber.java</title><link rel="stylesheet" href="../../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../../index.html" class="el_report">mall-app</a> &gt; <a href="../index.html" class="el_bundle">mall-product</a> &gt; <a href="index.source.html" class="el_package">io.github.clarence404.mall.product.detail</a> &gt; <span class="el_source">ProductCacheSubscriber.java</span></div><h1>ProductCacheSubscriber.java</h1><pre class="source lang-java linenums">package io.github.clarence404.mall.product.detail;
+
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+import org.springframework.data.redis.connection.RedisConnectionFactory;
+import org.springframework.data.redis.listener.ChannelTopic;
+import org.springframework.data.redis.listener.RedisMessageListenerContainer;
+
+/**
+ * 每个实例都订阅失效频道，收到后删自己的 L1；自己发的广播自己也会收到，所以 evict 里不单独删本地。
+ *
+ * &lt;p&gt;Pub/Sub 不保证送达，断连期间的广播会丢，L1 的 30 秒 TTL 就是旧数据的上限。
+ */
+<span class="fc" id="L16">@Slf4j</span>
+@Configuration(proxyBeanMethods = false)
+@ConditionalOnProperty(prefix = &quot;mall.cache&quot;, name = &quot;l1-invalidation-enabled&quot;, matchIfMissing = true)
+<span class="fc" id="L19">class ProductCacheSubscriber {</span>
+
+    @Bean
+    RedisMessageListenerContainer productCacheListenerContainer(
+            RedisConnectionFactory connectionFactory, ProductDetailService detailService) {
+<span class="fc" id="L24">        RedisMessageListenerContainer container = new RedisMessageListenerContainer();</span>
+<span class="fc" id="L25">        container.setConnectionFactory(connectionFactory);</span>
+<span class="fc" id="L26">        container.addMessageListener(</span>
+                (message, pattern) -&gt; {
+<span class="fc" id="L28">                    long skuId = Long.parseLong(new String(message.getBody(), java.nio.charset.StandardCharsets.UTF_8));</span>
+<span class="fc" id="L29">                    detailService.evictLocal(skuId);</span>
+<span class="fc" id="L30">                    log.debug(&quot;收到失效广播，删除 L1，skuId={}&quot;, skuId);</span>
+<span class="fc" id="L31">                },</span>
+                new ChannelTopic(ProductCacheInvalidator.CHANNEL));
+<span class="fc" id="L33">        return container;</span>
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.13.202504020838</span></div></body></html>
