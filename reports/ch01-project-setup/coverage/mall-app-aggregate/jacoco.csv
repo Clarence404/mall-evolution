@@ -1,5 +1,5 @@
 GROUP,PACKAGE,CLASS,INSTRUCTION_MISSED,INSTRUCTION_COVERED,BRANCH_MISSED,BRANCH_COVERED,LINE_MISSED,LINE_COVERED,COMPLEXITY_MISSED,COMPLEXITY_COVERED,METHOD_MISSED,METHOD_COVERED
-mall-app/mall-app,com.qingyou,MallApplication,8,0,0,0,3,0,2,0,2,0
-mall-app/mall-user,com.qingyou.user.api,UserDTO,12,0,0,0,1,0,1,0,1,0
-mall-app/mall-product,com.qingyou.product.api,ProductDTO,18,0,0,0,1,0,1,0,1,0
-mall-app/mall-order,com.qingyou.order.api,OrderSummaryDTO,15,0,0,0,1,0,1,0,1,0
+mall-app/mall-app,io.github.clarence404.mall,MallApplication,8,0,0,0,3,0,2,0,2,0
+mall-app/mall-user,io.github.clarence404.mall.user.api,UserDTO,12,0,0,0,1,0,1,0,1,0
+mall-app/mall-product,io.github.clarence404.mall.product.api,ProductDTO,18,0,0,0,1,0,1,0,1,0
+mall-app/mall-order,io.github.clarence404.mall.order.api,OrderSummaryDTO,15,0,0,0,1,0,1,0,1,0
