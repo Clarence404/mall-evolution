@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>RegisterWhenReady.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">mall-common</a> &gt; <a href="index.source.html" class="el_package">io.github.clarence404.mall.common.lifecycle</a> &gt; <span class="el_source">RegisterWhenReady.java</span></div><h1>RegisterWhenReady.java</h1><pre class="source lang-java linenums">package io.github.clarence404.mall.common.lifecycle;
+
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.boot.availability.AvailabilityChangeEvent;
+import org.springframework.boot.availability.ReadinessState;
+import org.springframework.cloud.client.serviceregistry.Registration;
+import org.springframework.cloud.client.serviceregistry.ServiceRegistry;
+import org.springframework.context.event.EventListener;
+import org.springframework.stereotype.Component;
+
+/**
+ * 预热完成再注册：关掉 Nacos 的自动注册（spring.cloud.nacos.discovery.register-enabled: false），
+ * 在就绪状态变为 ACCEPTING_TRAFFIC 时再注册。预热放在 ApplicationRunner 里，readiness 和 Nacos 注册都在预热之后。
+ */
+<span class="fc" id="L16">@Slf4j</span>
+@Component
+class RegisterWhenReady {
+
+    private final ObjectProvider&lt;ServiceRegistry&lt;Registration&gt;&gt; serviceRegistry;
+    private final ObjectProvider&lt;Registration&gt; registration;
+
+    RegisterWhenReady(
+<span class="fc" id="L24">            ObjectProvider&lt;ServiceRegistry&lt;Registration&gt;&gt; serviceRegistry, ObjectProvider&lt;Registration&gt; registration) {</span>
+<span class="fc" id="L25">        this.serviceRegistry = serviceRegistry;</span>
+<span class="fc" id="L26">        this.registration = registration;</span>
+<span class="fc" id="L27">    }</span>
+
+    @EventListener
+    void onReadiness(AvailabilityChangeEvent&lt;ReadinessState&gt; event) {
+<span class="fc bfc" id="L31" title="All 2 branches covered.">        if (event.getState() != ReadinessState.ACCEPTING_TRAFFIC) {</span>
+<span class="fc" id="L32">            return;</span>
+        }
+<span class="fc" id="L34">        ServiceRegistry&lt;Registration&gt; registry = serviceRegistry.getIfAvailable();</span>
+<span class="fc" id="L35">        Registration self = registration.getIfAvailable();</span>
+<span class="pc bpc" id="L36" title="2 of 4 branches missed.">        if (registry != null &amp;&amp; self != null) {</span>
+<span class="fc" id="L37">            registry.register(self); // 预热完成才进入 Nacos，网关才会把流量发过来</span>
+<span class="fc" id="L38">            log.info(&quot;预热完成，注册到注册中心 {}:{}&quot;, self.getHost(), self.getPort());</span>
+        }
+<span class="fc" id="L40">    }</span>
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.13.202504020838</span></div></body></html>

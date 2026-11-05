@@ -1,0 +1,144 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>GlobalExceptionHandler.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">mall-common</a> &gt; <a href="index.source.html" class="el_package">io.github.clarence404.mall.common.error</a> &gt; <span class="el_source">GlobalExceptionHandler.java</span></div><h1>GlobalExceptionHandler.java</h1><pre class="source lang-java linenums">package io.github.clarence404.mall.common.error;
+
+import io.github.clarence404.mall.common.remote.RemoteBizException;
+import io.opentelemetry.api.trace.Span;
+import io.opentelemetry.api.trace.SpanContext;
+import jakarta.servlet.http.HttpServletResponse;
+import java.net.URI;
+import java.util.List;
+import java.util.Map;
+import lombok.extern.slf4j.Slf4j;
+import org.jspecify.annotations.Nullable;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpStatusCode;
+import org.springframework.http.ProblemDetail;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.MethodArgumentNotValidException;
+import org.springframework.web.bind.annotation.ExceptionHandler;
+import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.context.request.WebRequest;
+import org.springframework.web.method.annotation.HandlerMethodValidationException;
+import org.springframework.web.servlet.mvc.method.annotation.ResponseEntityExceptionHandler;
+
+/**
+ * 失败统一返回 RFC 9457 的 ProblemDetail，扩展 code（稳定的业务码）与 traceId。
+ *
+ * &lt;p&gt;Spring MVC 自身的异常（缺请求头、请求体解析失败、校验失败）由父类转成 4xx，这里只额外处理业务异常和兜底异常。
+ */
+<span class="fc" id="L28">@Slf4j</span>
+@RestControllerAdvice
+<span class="nc" id="L30">public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {</span>
+
+    private static final String PROBLEM_BASE = &quot;https://api.mall.example/problems/&quot;;
+
+    @ExceptionHandler(BizException.class)
+    public ProblemDetail handleBiz(BizException ex, HttpServletResponse response) {
+<span class="nc" id="L36">        ErrorCode ec = ex.getErrorCode();</span>
+<span class="nc bnc" id="L37" title="All 2 branches missed.">        if (ec == CommonErrorCode.SYSTEM_BUSY) {</span>
+<span class="nc" id="L38">            response.setHeader(HttpHeaders.RETRY_AFTER, &quot;2&quot;); // App 按 Retry-After 等待后再让用户重试</span>
+<span class="nc" id="L39">            log.warn(&quot;系统繁忙，快速失败：{}&quot;, ex.getMessage());</span>
+<span class="nc" id="L40">            return problem(ec, ec.title());</span>
+        }
+<span class="nc bnc" id="L42" title="All 2 branches missed.">        if (ec.status().is5xxServerError()) {</span>
+<span class="nc" id="L43">            log.error(&quot;业务处理失败，code={}&quot;, ec.code(), ex);</span>
+<span class="nc" id="L44">            return problem(ec, ec.title()); // 5xx 不把内部信息给客户端</span>
+        }
+<span class="nc" id="L46">        log.warn(&quot;业务异常，code={}, message={}&quot;, ec.code(), ex.getMessage());</span>
+<span class="nc" id="L47">        return problem(ec, ex.getMessage());</span>
+    }
+
+    /** 下游返回的业务错误：4xx 按 code 原样透传（如 STOCK_INSUFFICIENT），5xx 统一转成 SYSTEM_ERROR。 */
+    @ExceptionHandler(RemoteBizException.class)
+    public ProblemDetail handleRemote(RemoteBizException ex) {
+<span class="nc" id="L53">        ProblemDetail remote = ex.getProblem();</span>
+<span class="nc bnc" id="L54" title="All 6 branches missed.">        if (ex.getStatus().is5xxServerError() || remote == null || ex.code() == null) {</span>
+<span class="nc" id="L55">            log.error(&quot;下游服务调用失败，status={}&quot;, ex.getStatus(), ex);</span>
+<span class="nc" id="L56">            return problem(CommonErrorCode.SYSTEM_ERROR, CommonErrorCode.SYSTEM_ERROR.title());</span>
+        }
+<span class="nc" id="L58">        log.warn(&quot;下游业务异常，code={}, detail={}&quot;, ex.code(), remote.getDetail());</span>
+<span class="nc" id="L59">        ProblemDetail pd = ProblemDetail.forStatusAndDetail(ex.getStatus(), remote.getDetail());</span>
+<span class="nc" id="L60">        pd.setType(remote.getType());</span>
+<span class="nc" id="L61">        pd.setTitle(remote.getTitle());</span>
+<span class="nc" id="L62">        pd.setProperty(&quot;code&quot;, ex.code());</span>
+<span class="nc" id="L63">        pd.setProperty(&quot;traceId&quot;, currentTraceId());</span>
+<span class="nc" id="L64">        return pd;</span>
+    }
+
+    @ExceptionHandler(Exception.class)
+    public ProblemDetail handleUnknown(Exception ex) {
+<span class="nc" id="L69">        log.error(&quot;未处理的异常&quot;, ex);</span>
+<span class="nc" id="L70">        return problem(CommonErrorCode.SYSTEM_ERROR, CommonErrorCode.SYSTEM_ERROR.title());</span>
+    }
+
+    /** 请求体校验失败：字段错误放进 errors 扩展字段。 */
+    @Override
+    protected @Nullable ResponseEntity&lt;Object&gt; handleMethodArgumentNotValid(
+            MethodArgumentNotValidException ex, HttpHeaders headers, HttpStatusCode status, WebRequest request) {
+<span class="nc" id="L77">        ProblemDetail pd = problem(CommonErrorCode.VALIDATION_FAILED, &quot;请求参数校验失败&quot;);</span>
+<span class="nc" id="L78">        pd.setProperty(</span>
+                &quot;errors&quot;,
+<span class="nc" id="L80">                ex.getBindingResult().getFieldErrors().stream()</span>
+<span class="nc" id="L81">                        .map(fe -&gt; Map.of(</span>
+<span class="nc" id="L82">                                &quot;field&quot;, fe.getField(),</span>
+<span class="nc" id="L83">                                &quot;message&quot;, String.valueOf(fe.getDefaultMessage())))</span>
+<span class="nc" id="L84">                        .toList());</span>
+<span class="nc" id="L85">        return ResponseEntity.badRequest().body(pd);</span>
+    }
+
+    /** 方法参数校验失败（如 Idempotency-Key 的长度、请求体的分组约束）。 */
+    @Override
+    protected @Nullable ResponseEntity&lt;Object&gt; handleHandlerMethodValidationException(
+            HandlerMethodValidationException ex, HttpHeaders headers, HttpStatusCode status, WebRequest request) {
+<span class="nc" id="L92">        ProblemDetail pd = problem(CommonErrorCode.VALIDATION_FAILED, &quot;请求参数校验失败&quot;);</span>
+<span class="nc" id="L93">        List&lt;Map&lt;String, String&gt;&gt; errors = ex.getParameterValidationResults().stream()</span>
+<span class="nc" id="L94">                .flatMap(r -&gt; r.getResolvableErrors().stream()</span>
+<span class="nc" id="L95">                        .map(e -&gt; Map.of(</span>
+                                &quot;field&quot;,
+<span class="nc" id="L97">                                errorField(r.getMethodParameter().getParameterName(), e),</span>
+                                &quot;message&quot;,
+<span class="nc" id="L99">                                String.valueOf(e.getDefaultMessage()))))</span>
+<span class="nc" id="L100">                .toList();</span>
+<span class="nc" id="L101">        pd.setProperty(&quot;errors&quot;, errors);</span>
+<span class="nc" id="L102">        return ResponseEntity.badRequest().body(pd);</span>
+    }
+
+    /** 父类生成的 ProblemDetail（缺请求头、JSON 解析失败等）也补上 traceId，400 统一给 VALIDATION_FAILED。 */
+    @Override
+    protected ResponseEntity&lt;Object&gt; createResponseEntity(
+            @Nullable Object body, HttpHeaders headers, HttpStatusCode statusCode, WebRequest request) {
+<span class="nc bnc" id="L109" title="All 2 branches missed.">        if (body instanceof ProblemDetail pd) {</span>
+<span class="nc bnc" id="L110" title="All 2 branches missed.">            if (statusCode.value() == 400</span>
+<span class="nc bnc" id="L111" title="All 4 branches missed.">                    &amp;&amp; (pd.getProperties() == null || !pd.getProperties().containsKey(&quot;code&quot;))) {</span>
+<span class="nc" id="L112">                pd.setProperty(&quot;code&quot;, CommonErrorCode.VALIDATION_FAILED.code());</span>
+            }
+<span class="nc" id="L114">            pd.setProperty(&quot;traceId&quot;, currentTraceId());</span>
+        }
+<span class="nc" id="L116">        return super.createResponseEntity(body, headers, statusCode, request);</span>
+    }
+
+    public static ProblemDetail problem(ErrorCode ec, String detail) {
+<span class="fc" id="L120">        ProblemDetail pd = ProblemDetail.forStatusAndDetail(ec.status(), detail);</span>
+<span class="fc" id="L121">        pd.setType(URI.create(PROBLEM_BASE + ec.code().toLowerCase().replace('_', '-')));</span>
+<span class="fc" id="L122">        pd.setTitle(ec.title());</span>
+<span class="fc" id="L123">        pd.setProperty(&quot;code&quot;, ec.code());</span>
+<span class="fc" id="L124">        pd.setProperty(&quot;traceId&quot;, currentTraceId());</span>
+<span class="fc" id="L125">        return pd;</span>
+    }
+
+    /**
+     * traceId 改从 OpenTelemetry 的当前 Span 取（Java Agent 在入口生成），阶段一的 TraceIdFilter 下线，字段名不变，客户端无感。
+     * 没挂 agent 时（本地、测试）当前 Span 无效，返回 null。
+     */
+    static String currentTraceId() {
+<span class="fc" id="L133">        SpanContext ctx = Span.current().getSpanContext();</span>
+<span class="fc bfc" id="L134" title="All 2 branches covered.">        return ctx.isValid() ? ctx.getTraceId() : null;</span>
+    }
+
+    private static String errorField(@Nullable String parameterName, Object error) {
+<span class="nc bnc" id="L138" title="All 2 branches missed.">        if (error instanceof org.springframework.validation.FieldError fe) {</span>
+<span class="nc" id="L139">            return fe.getField();</span>
+        }
+<span class="nc bnc" id="L141" title="All 2 branches missed.">        return parameterName == null ? &quot;&quot; : parameterName;</span>
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.13.202504020838</span></div></body></html>

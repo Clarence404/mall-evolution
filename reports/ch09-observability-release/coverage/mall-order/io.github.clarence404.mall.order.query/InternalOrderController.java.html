@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>InternalOrderController.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">mall-order</a> &gt; <a href="index.source.html" class="el_package">io.github.clarence404.mall.order.query</a> &gt; <span class="el_source">InternalOrderController.java</span></div><h1>InternalOrderController.java</h1><pre class="source lang-java linenums">package io.github.clarence404.mall.order.query;
+
+import io.github.clarence404.mall.common.error.BizException;
+import io.github.clarence404.mall.order.api.OrderErrorCode;
+import io.github.clarence404.mall.order.api.OrderQueryApi;
+import io.github.clarence404.mall.order.api.OrderSummaryDTO;
+import io.github.clarence404.mall.order.domain.Order;
+import io.github.clarence404.mall.order.domain.OrderMapper;
+import lombok.RequiredArgsConstructor;
+import org.springframework.web.bind.annotation.RestController;
+
+/** 集群内的订单查询（/internal/orders/{orderNo}），供支付服务等调用。 */
+@RestController
+@RequiredArgsConstructor
+class InternalOrderController implements OrderQueryApi {
+
+    private final OrderMapper orderMapper;
+
+    @Override
+    public OrderSummaryDTO getByOrderNo(String orderNo) {
+<span class="nc" id="L21">        Order o = orderMapper.selectByOrderNo(orderNo);</span>
+<span class="nc bnc" id="L22" title="All 2 branches missed.">        if (o == null) {</span>
+<span class="nc" id="L23">            throw new BizException(OrderErrorCode.ORDER_NOT_FOUND, &quot;订单 &quot; + orderNo + &quot; 不存在&quot;);</span>
+        }
+<span class="nc" id="L25">        return new OrderSummaryDTO(o.getOrderNo(), o.getUserId(), o.getStatus().getCode(), o.getPayAmount());</span>
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.13.202504020838</span></div></body></html>

@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../../jacoco-resources/report.gif" type="image/gif"/><title>RecommendController.java</title><link rel="stylesheet" href="../../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../../index.html" class="el_report">mall-app</a> &gt; <a href="../index.html" class="el_bundle">mall-product</a> &gt; <a href="index.source.html" class="el_package">io.github.clarence404.mall.product.recommend</a> &gt; <span class="el_source">RecommendController.java</span></div><h1>RecommendController.java</h1><pre class="source lang-java linenums">package io.github.clarence404.mall.product.recommend;
+
+import io.github.clarence404.mall.common.degrade.DegradeProperties;
+import io.github.clarence404.mall.product.detail.ProductDetailService;
+import io.github.clarence404.mall.product.detail.ProductDetailView;
+import io.github.clarence404.mall.product.domain.ProductMapper;
+import io.swagger.v3.oas.annotations.Operation;
+import java.util.List;
+import java.util.Optional;
+import lombok.RequiredArgsConstructor;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.RestController;
+
+/**
+ * 商品详情页的「猜你喜欢」。降级开关 mall.degrade.recommend-enabled 关闭后，返回运营配置的固定列表，不再查库。
+ */
+@RestController
+@RequiredArgsConstructor
+class RecommendController {
+
+    private final DegradeProperties degrade;
+    private final ProductMapper productMapper;
+    private final ProductDetailService productDetailService;
+
+    @Value(&quot;${mall.recommend.fallback-sku-ids:}&quot;)
+    private List&lt;Long&gt; fallbackSkuIds;
+
+    @Operation(operationId = &quot;listRecommendations&quot;)
+    @GetMapping(&quot;/api/products/{skuId}/recommendations&quot;)
+    List&lt;ProductDetailView&gt; recommend(@PathVariable long skuId) {
+<span class="nc bnc" id="L33" title="All 2 branches missed.">        List&lt;Long&gt; ids = degrade.isRecommendEnabled() ? productMapper.selectSimilarSkuIds(skuId, 4) : fallbackSkuIds;</span>
+<span class="nc" id="L34">        return ids.stream()</span>
+<span class="nc" id="L35">                .map(productDetailService::get) // 走两级缓存</span>
+<span class="nc" id="L36">                .flatMap(Optional::stream)</span>
+<span class="nc" id="L37">                .toList();</span>
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.13.202504020838</span></div></body></html>
