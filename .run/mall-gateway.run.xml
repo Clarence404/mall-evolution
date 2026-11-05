@@ -4,7 +4,7 @@
     <module name="mall-gateway" />
     <option name="WORKING_DIRECTORY" value="$PROJECT_DIR$" />
     <envs>
-      <env name="SPRING_PROFILES_ACTIVE" value="dev" />
+      <env name="SPRING_PROFILES_ACTIVE" value="dev,local" />
     </envs>
     <method v="2">
       <option name="Make" enabled="true" />

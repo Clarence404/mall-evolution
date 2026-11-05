@@ -1,8 +1,8 @@
 spring:
   data:
     redis:
-      host: localhost
-      port: 6379
+      host: ${MALL_REDIS_HOST:localhost}
+      port: ${MALL_REDIS_PORT:6379}
       password: mall_dev
   config:
     import:

@@ -75,11 +75,19 @@ curl -i localhost:9000/api/orders -H "Authorization: Bearer $TOKEN" \
 | 运行配置 | 作用 |
 |----------|------|
 | 0. 中间件（docker compose，需 Docker） | 起 MySQL、Redis、RocketMQ、Nacos，等同 `docker compose up -d` |
-| 1. 库存服务 / 2. 支付服务 / 3. 订单与商品 / 4. 网关 | 分别启动四个服务，`dev` profile |
+| 1. 库存服务 / 2. 支付服务 / 3. 订单与商品 / 4. 网关 | 分别启动四个服务，`dev,local` 两个 profile |
 | 全部服务（先起中间件） | 按 1→4 一次启动四个服务 |
 | 测试：mvn verify | 跑全部检查与测试（没有 Docker 时集成测试自动跳过） |
 
-前提：项目 SDK 设为 JDK 21；本机需要 Docker（Docker Desktop 即可）来跑中间件。没有 Docker 时，可以把中间件放在另一台机器上，在运行配置的环境变量里覆盖地址，例如 `SPRING_DATASOURCE_URL`、`SPRING_DATA_REDIS_HOST`、`NACOS_ADDR`、`ROCKETMQ_ENDPOINTS`。运行配置只在 `main` 上；切到早期章节（如 `git checkout ch03-api-design`）后 `.run/` 会随之消失，这时在 IDEA 里对 `MallApplication` 右键运行即可，那时只有这一个进程，也只需要 MySQL。
+前提：项目 SDK 设为 JDK 21；中间件默认连本机 `docker compose` 起的那套（Docker Desktop 即可）。
+
+本机没有 Docker 时，可以连另一台机器（比如共享的开发虚拟机）上的中间件：
+
+1. 在那台机器上用仓库的 `docker-compose.yml` 只起中间件（`docker compose up -d`），端口冲突时改映射端口；
+2. 把仓库根目录的 `application-local.example.yml` 复制为 `application-local.yml`（已加入 `.gitignore`，不会提交），填上那台机器的地址与端口（`MALL_DB_HOST` / `MALL_DB_PORT`、`MALL_REDIS_HOST` / `MALL_REDIS_PORT`、`NACOS_ADDR`、`ROCKETMQ_ENDPOINTS`）；
+3. 直接点上面的运行配置。它们启用 `dev,local` 两个 profile、工作目录是仓库根目录，Spring Boot 会自动读 `./application-local.yml`，没有这个文件时照常连 localhost。
+
+示例里的 `spring.cloud.nacos.discovery.ip: 127.0.0.1` 让四个服务以 127.0.0.1 注册到 Nacos，本机互相调用（网关转发、服务间 HTTP 调用）都能连上；有服务跑在别的机器上时改成本机局域网 IP。几个人共用同一个 Nacos 时，各自设不同的 `NACOS_NAMESPACE`（先在 Nacos 控制台建好命名空间），免得互相调到对方的实例。运行配置只在 `main` 上；切到早期章节（如 `git checkout ch03-api-design`）后 `.run/` 会随之消失，这时在 IDEA 里对 `MallApplication` 右键运行即可，那时只有这一个进程，也只需要 MySQL。
 
 ## 构建与测试
 

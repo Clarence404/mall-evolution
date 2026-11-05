@@ -2,11 +2,11 @@
 spring:
   data:
     redis:                      # docker compose 起的单机 Redis；本地显式配了机器号，用不到租约
-      host: localhost
-      port: 6379
+      host: ${MALL_REDIS_HOST:localhost}
+      port: ${MALL_REDIS_PORT:6379}
       password: mall_dev
   datasource:
-    url: jdbc:mysql://localhost:3306/mall_payment?serverTimezone=Asia/Shanghai
+    url: jdbc:mysql://${MALL_DB_HOST:localhost}:${MALL_DB_PORT:3306}/mall_payment?serverTimezone=Asia/Shanghai
     username: mall
     password: mall_dev
   config:

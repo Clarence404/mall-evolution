@@ -1,0 +1,22 @@
+# 个人覆盖项示例：复制为仓库根目录的 application-local.yml（已加入 .gitignore）再改，不要把真实地址提交进仓库
+# IDEA 运行配置启用 dev,local 两个 profile、工作目录为仓库根目录，Spring Boot 会自动读到 ./application-local.yml；
+# 没有这个文件时按 dev 的默认值连 localhost（docker compose 起的中间件）
+#
+# 用法：中间件跑在另一台机器（比如共享的开发虚拟机）上，本机没有 Docker 时，把下面的地址和端口改成那台机器的
+
+# MySQL（mall、mall_inventory、mall_payment 三个库在同一个实例里）
+MALL_DB_HOST: 192.168.x.x
+MALL_DB_PORT: 3306
+# Redis
+MALL_REDIS_HOST: 192.168.x.x
+MALL_REDIS_PORT: 6379
+# Nacos（客户端还会连「端口 + 1000」的 gRPC 端口，即 9848）
+NACOS_ADDR: 192.168.x.x:8848
+# RocketMQ Proxy 的 gRPC 接入点
+ROCKETMQ_ENDPOINTS: 192.168.x.x:8081
+
+spring:
+  cloud:
+    nacos:
+      discovery:
+        ip: 127.0.0.1   # 四个服务都在本机跑时用；混部（有服务跑在别的机器上）时改成本机局域网 IP
