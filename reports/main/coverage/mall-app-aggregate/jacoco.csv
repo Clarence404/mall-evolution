@@ -35,13 +35,16 @@ mall-app/mall-product,io.github.clarence404.mall.product.stock,StockDisplayServi
 mall-app/mall-product,io.github.clarence404.mall.product.config,ProductModuleConfig,0,3,0,0,0,1,0,1,0,1
 mall-app/mall-product,io.github.clarence404.mall.product.domain,Product,0,3,0,0,0,1,0,1,0,1
 mall-app/mall-product,io.github.clarence404.mall.product.query,ProductQueryService,3,30,2,2,1,5,2,2,0,2
-mall-app/mall-product,io.github.clarence404.mall.product.detail,ProductDetailService,0,211,0,6,0,48,0,8,0,5
+mall-app/mall-product,io.github.clarence404.mall.product.detail,ProductDetailService,0,253,0,6,0,57,0,10,0,7
 mall-app/mall-product,io.github.clarence404.mall.product.detail,ProductDetailController.ProductDetailPage,0,9,0,0,0,1,0,1,0,1
 mall-app/mall-product,io.github.clarence404.mall.product.detail,ProductChangedEvent,0,6,0,0,0,1,0,1,0,1
+mall-app/mall-product,io.github.clarence404.mall.product.detail,DetailSourceListener,0,4,0,0,0,1,0,2,0,2
 mall-app/mall-product,io.github.clarence404.mall.product.detail,ProductCacheSubscriber,0,41,0,0,0,10,0,4,0,4
+mall-app/mall-product,io.github.clarence404.mall.product.detail,DetailSource,0,21,0,0,0,4,0,1,0,1
 mall-app/mall-product,io.github.clarence404.mall.product.detail,ProductDetailView,0,18,0,0,0,1,0,1,0,1
 mall-app/mall-product,io.github.clarence404.mall.product.detail,ProductWarmupRunner,0,29,0,2,0,7,0,3,0,2
 mall-app/mall-product,io.github.clarence404.mall.product.detail,ProductCacheInvalidator,0,58,0,0,0,17,0,6,0,6
+mall-app/mall-product,io.github.clarence404.mall.product.detail,DemoCacheSourceHeader,0,25,3,3,0,6,3,2,0,2
 mall-app/mall-product,io.github.clarence404.mall.product.detail,ProductDetailController,0,25,0,0,0,4,0,2,0,2
 mall-app/mall-product,io.github.clarence404.mall.product.admin,ProductAdminController.UpdateProductRequest,0,12,0,0,0,1,0,1,0,1
 mall-app/mall-product,io.github.clarence404.mall.product.admin,ProductAdminController,7,13,0,0,2,2,1,1,1,1

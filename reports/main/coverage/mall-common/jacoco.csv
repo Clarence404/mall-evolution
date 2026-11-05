@@ -9,7 +9,7 @@ mall-common,io.github.clarence404.mall.common.security,LoginUserAuthentication,5
 mall-common,io.github.clarence404.mall.common.web,CursorResult,12,0,0,0,1,0,1,0,1,0
 mall-common,io.github.clarence404.mall.common.id,WorkerIdLease,15,290,5,15,3,52,5,16,0,11
 mall-common,io.github.clarence404.mall.common.id,Ids,0,12,0,0,0,4,0,3,0,3
-mall-common,io.github.clarence404.mall.common.id,SnowflakeIdGenerator,5,119,2,12,1,26,2,10,0,5
+mall-common,io.github.clarence404.mall.common.id,SnowflakeIdGenerator,27,97,5,9,7,20,5,7,1,4
 mall-common,io.github.clarence404.mall.common.id,IdConfig,13,67,5,7,4,18,4,6,0,4
 mall-common,io.github.clarence404.mall.common.id,LeasedIdGenerator,0,25,0,2,0,7,0,3,0,2
 mall-common,io.github.clarence404.mall.common.error,GlobalExceptionHandler,228,45,22,2,50,9,22,4,11,3
@@ -31,3 +31,4 @@ mall-common,io.github.clarence404.mall.common.outbox,OutboxRecord,3,60,0,0,1,20,
 mall-common,io.github.clarence404.mall.common.outbox,OutboxWriter.new TransactionSynchronization() {...},0,31,0,0,0,3,0,4,0,4
 mall-common,io.github.clarence404.mall.common.outbox,OutboxConfig,34,0,0,0,11,0,2,0,2,0
 mall-common,io.github.clarence404.mall.common.outbox,OutboxRelay.new TextMapGetter() {...},3,14,1,3,1,2,2,3,1,2
+mall-common,io.github.clarence404.mall.common.demo,DemoTraceIdHeaderFilter,0,19,0,2,0,6,0,3,0,2

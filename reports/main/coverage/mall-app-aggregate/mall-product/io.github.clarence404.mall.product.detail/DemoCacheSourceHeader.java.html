@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../../jacoco-resources/report.gif" type="image/gif"/><title>DemoCacheSourceHeader.java</title><link rel="stylesheet" href="../../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../../index.html" class="el_report">mall-app</a> &gt; <a href="../index.html" class="el_bundle">mall-product</a> &gt; <a href="index.source.html" class="el_package">io.github.clarence404.mall.product.detail</a> &gt; <span class="el_source">DemoCacheSourceHeader.java</span></div><h1>DemoCacheSourceHeader.java</h1><pre class="source lang-java linenums">package io.github.clarence404.mall.product.detail;
+
+import jakarta.servlet.http.HttpServletResponse;
+import org.springframework.context.annotation.Profile;
+import org.springframework.stereotype.Component;
+import org.springframework.web.context.request.RequestContextHolder;
+import org.springframework.web.context.request.ServletRequestAttributes;
+
+/**
+ * 仅演示环境：把商品详情命中的缓存层写进响应头 {@code X-Cache: L1|L2|DB}，演示控制台据此展示两级缓存的效果。
+ *
+ * &lt;p&gt;只在 demo profile 下注册；生产与本地开发的响应里没有这个头。
+ */
+@Component
+@Profile(&quot;demo&quot;)
+<span class="fc" id="L16">class DemoCacheSourceHeader implements DetailSourceListener {</span>
+
+    static final String HEADER = &quot;X-Cache&quot;;
+
+    @Override
+    public void onLookup(long skuId, DetailSource source) {
+<span class="pc bpc" id="L22" title="1 of 2 branches missed.">        if (RequestContextHolder.getRequestAttributes() instanceof ServletRequestAttributes attrs) {</span>
+<span class="fc" id="L23">            HttpServletResponse response = attrs.getResponse();</span>
+<span class="pc bpc" id="L24" title="2 of 4 branches missed.">            if (response != null &amp;&amp; !response.isCommitted()) {</span>
+<span class="fc" id="L25">                response.setHeader(HEADER, source.name());</span>
+            }
+        }
+<span class="fc" id="L28">    }</span>
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.13.202504020838</span></div></body></html>

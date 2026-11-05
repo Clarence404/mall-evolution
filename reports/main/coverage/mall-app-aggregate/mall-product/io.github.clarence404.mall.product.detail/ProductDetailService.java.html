@@ -10,6 +10,7 @@ import java.time.Duration;
 import java.util.Optional;
 import java.util.concurrent.ThreadLocalRandom;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.dao.DataAccessException;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.serializer.SerializationException;
@@ -22,18 +23,18 @@ import tools.jackson.databind.json.JsonMapper;
  *
  * &lt;p&gt;Cache Aside 的读路径；写路径的失效见 {@link ProductCacheInvalidator}。下单计价不经过这里，直接查 t_product。
  */
-<span class="fc" id="L25">@Slf4j</span>
+<span class="fc" id="L26">@Slf4j</span>
 @Service
 public class ProductDetailService {
 
     static final String KEY_PREFIX = &quot;product:detail:&quot;;
     private static final String NULL_JSON = &quot;{}&quot;; // 空值占位，防穿透
 
-<span class="fc" id="L32">    private final Cache&lt;Long, Optional&lt;ProductDetailView&gt;&gt; local = Caffeine.newBuilder()</span>
-<span class="fc" id="L33">            .maximumSize(10_000)</span>
-<span class="fc" id="L34">            .expireAfterWrite(Duration.ofSeconds(30)) // 兜底丢失的失效广播</span>
-<span class="fc" id="L35">            .recordStats()</span>
-<span class="fc" id="L36">            .build();</span>
+<span class="fc" id="L33">    private final Cache&lt;Long, Optional&lt;ProductDetailView&gt;&gt; local = Caffeine.newBuilder()</span>
+<span class="fc" id="L34">            .maximumSize(10_000)</span>
+<span class="fc" id="L35">            .expireAfterWrite(Duration.ofSeconds(30)) // 兜底丢失的失效广播</span>
+<span class="fc" id="L36">            .recordStats()</span>
+<span class="fc" id="L37">            .build();</span>
 
     private final StringRedisTemplate redis;
     private final JsonMapper jsonMapper;
@@ -42,69 +43,82 @@ public class ProductDetailService {
     private final Counter l2Miss;
     private final Counter l2Null;
     private final Counter dbLoad;
+<span class="fc" id="L46">    private DetailSourceListener sourceListener = DetailSourceListener.NONE;</span>
 
     public ProductDetailService(
-<span class="fc" id="L47">            StringRedisTemplate redis, JsonMapper jsonMapper, ProductMapper productMapper, MeterRegistry registry) {</span>
-<span class="fc" id="L48">        this.redis = redis;</span>
-<span class="fc" id="L49">        this.jsonMapper = jsonMapper;</span>
-<span class="fc" id="L50">        this.productMapper = productMapper;</span>
-<span class="fc" id="L51">        CaffeineCacheMetrics.monitor(registry, local, &quot;product_detail&quot;); // cache.gets{result=hit|miss}</span>
-<span class="fc" id="L52">        this.l2Hit = registry.counter(&quot;product.detail.l2&quot;, &quot;result&quot;, &quot;hit&quot;);</span>
-<span class="fc" id="L53">        this.l2Miss = registry.counter(&quot;product.detail.l2&quot;, &quot;result&quot;, &quot;miss&quot;);</span>
-<span class="fc" id="L54">        this.l2Null = registry.counter(&quot;product.detail.l2&quot;, &quot;result&quot;, &quot;null&quot;);</span>
-<span class="fc" id="L55">        this.dbLoad = registry.counter(&quot;product.detail.db.load&quot;); // 回源次数，超过 100 QPS 告警</span>
-<span class="fc" id="L56">    }</span>
+<span class="fc" id="L49">            StringRedisTemplate redis, JsonMapper jsonMapper, ProductMapper productMapper, MeterRegistry registry) {</span>
+<span class="fc" id="L50">        this.redis = redis;</span>
+<span class="fc" id="L51">        this.jsonMapper = jsonMapper;</span>
+<span class="fc" id="L52">        this.productMapper = productMapper;</span>
+<span class="fc" id="L53">        CaffeineCacheMetrics.monitor(registry, local, &quot;product_detail&quot;); // cache.gets{result=hit|miss}</span>
+<span class="fc" id="L54">        this.l2Hit = registry.counter(&quot;product.detail.l2&quot;, &quot;result&quot;, &quot;hit&quot;);</span>
+<span class="fc" id="L55">        this.l2Miss = registry.counter(&quot;product.detail.l2&quot;, &quot;result&quot;, &quot;miss&quot;);</span>
+<span class="fc" id="L56">        this.l2Null = registry.counter(&quot;product.detail.l2&quot;, &quot;result&quot;, &quot;null&quot;);</span>
+<span class="fc" id="L57">        this.dbLoad = registry.counter(&quot;product.detail.db.load&quot;); // 回源次数，超过 100 QPS 告警</span>
+<span class="fc" id="L58">    }</span>
+
+    /** 只有演示环境（demo profile）注册了监听器，用来在响应头里标出这次命中的是哪一层。 */
+    @Autowired(required = false)
+    void setSourceListener(DetailSourceListener sourceListener) {
+<span class="fc" id="L63">        this.sourceListener = sourceListener;</span>
+<span class="fc" id="L64">    }</span>
 
     public Optional&lt;ProductDetailView&gt; get(long skuId) {
+<span class="fc" id="L67">        DetailSource[] source = {DetailSource.L1}; // 加载函数没被调用，就是 L1 命中</span>
         // 同一 skuId 并发未命中时，本 JVM 只有一个线程去查 Redis / 数据库
-<span class="fc" id="L60">        return local.get(skuId, this::loadFromRemote);</span>
+<span class="fc" id="L69">        Optional&lt;ProductDetailView&gt; view = local.get(skuId, id -&gt; loadFromRemote(id, source));</span>
+<span class="fc" id="L70">        sourceListener.onLookup(skuId, source[0]);</span>
+<span class="fc" id="L71">        return view;</span>
     }
 
-    private Optional&lt;ProductDetailView&gt; loadFromRemote(long skuId) {
-<span class="fc" id="L64">        String key = KEY_PREFIX + skuId;</span>
+    private Optional&lt;ProductDetailView&gt; loadFromRemote(long skuId, DetailSource[] source) {
+<span class="fc" id="L75">        source[0] = DetailSource.DB;</span>
+<span class="fc" id="L76">        String key = KEY_PREFIX + skuId;</span>
         String json;
         try {
-<span class="fc" id="L67">            json = redis.opsForValue().get(key);</span>
-<span class="fc" id="L68">        } catch (DataAccessException | SerializationException e) {</span>
+<span class="fc" id="L79">            json = redis.opsForValue().get(key);</span>
+<span class="fc" id="L80">        } catch (DataAccessException | SerializationException e) {</span>
             // 缓存出问题宁可回源：连不上、超时（QueryTimeoutException）、命令报错（RedisSystemException）都是
             // DataAccessException，一律直接查库并跳过回写，不把 Redis 故障变成接口 500
-<span class="fc" id="L71">            log.warn(&quot;读取 Redis 失败，直接回源，skuId={}&quot;, skuId, e);</span>
-<span class="fc" id="L72">            dbLoad.increment();</span>
-<span class="fc" id="L73">            return Optional.ofNullable(productMapper.selectDetail(skuId));</span>
-<span class="fc" id="L74">        }</span>
-<span class="fc bfc" id="L75" title="All 2 branches covered.">        if (json != null) {</span>
-<span class="fc bfc" id="L76" title="All 2 branches covered.">            if (NULL_JSON.equals(json)) {</span>
-<span class="fc" id="L77">                l2Null.increment();</span>
-<span class="fc" id="L78">                return Optional.empty();</span>
+<span class="fc" id="L83">            log.warn(&quot;读取 Redis 失败，直接回源，skuId={}&quot;, skuId, e);</span>
+<span class="fc" id="L84">            dbLoad.increment();</span>
+<span class="fc" id="L85">            return Optional.ofNullable(productMapper.selectDetail(skuId));</span>
+<span class="fc" id="L86">        }</span>
+<span class="fc bfc" id="L87" title="All 2 branches covered.">        if (json != null) {</span>
+<span class="fc bfc" id="L88" title="All 2 branches covered.">            if (NULL_JSON.equals(json)) {</span>
+<span class="fc" id="L89">                l2Null.increment();</span>
+<span class="fc" id="L90">                source[0] = DetailSource.L2;</span>
+<span class="fc" id="L91">                return Optional.empty();</span>
             }
             try {
-<span class="fc" id="L81">                ProductDetailView cached = jsonMapper.readValue(json, ProductDetailView.class);</span>
-<span class="fc" id="L82">                l2Hit.increment();</span>
-<span class="fc" id="L83">                return Optional.of(cached);</span>
-<span class="fc" id="L84">            } catch (JacksonException e) {</span>
+<span class="fc" id="L94">                ProductDetailView cached = jsonMapper.readValue(json, ProductDetailView.class);</span>
+<span class="fc" id="L95">                l2Hit.increment();</span>
+<span class="fc" id="L96">                source[0] = DetailSource.L2;</span>
+<span class="fc" id="L97">                return Optional.of(cached);</span>
+<span class="fc" id="L98">            } catch (JacksonException e) {</span>
                 // 缓存里的值读不出来（多半是 ProductDetailView 改过结构）：按未命中回源，下面会用新结构覆盖
-<span class="fc" id="L86">                log.warn(&quot;商品详情缓存反序列化失败，按未命中回源，skuId={}&quot;, skuId, e);</span>
+<span class="fc" id="L100">                log.warn(&quot;商品详情缓存反序列化失败，按未命中回源，skuId={}&quot;, skuId, e);</span>
             }
         }
-<span class="fc" id="L89">        l2Miss.increment();</span>
-<span class="fc" id="L90">        dbLoad.increment();</span>
-<span class="fc" id="L91">        ProductDetailView view = productMapper.selectDetail(skuId); // 回源只查 t_product</span>
+<span class="fc" id="L103">        l2Miss.increment();</span>
+<span class="fc" id="L104">        dbLoad.increment();</span>
+<span class="fc" id="L105">        ProductDetailView view = productMapper.selectDetail(skuId); // 回源只查 t_product</span>
         try {
-<span class="fc bfc" id="L93" title="All 2 branches covered.">            if (view == null) {</span>
-<span class="fc" id="L94">                redis.opsForValue().set(key, NULL_JSON, Duration.ofSeconds(60));</span>
-<span class="fc" id="L95">                return Optional.empty();</span>
+<span class="fc bfc" id="L107" title="All 2 branches covered.">            if (view == null) {</span>
+<span class="fc" id="L108">                redis.opsForValue().set(key, NULL_JSON, Duration.ofSeconds(60));</span>
+<span class="fc" id="L109">                return Optional.empty();</span>
             }
-<span class="fc" id="L97">            Duration ttl = Duration.ofMinutes(30)</span>
-<span class="fc" id="L98">                    .plusSeconds(ThreadLocalRandom.current().nextInt(300));</span>
-<span class="fc" id="L99">            redis.opsForValue().set(key, jsonMapper.writeValueAsString(view), ttl);</span>
-<span class="fc" id="L100">        } catch (DataAccessException | SerializationException | JacksonException e) {</span>
-<span class="fc" id="L101">            log.warn(&quot;回写 Redis 失败，跳过，skuId={}&quot;, skuId, e);</span>
-<span class="fc" id="L102">        }</span>
-<span class="fc" id="L103">        return Optional.ofNullable(view);</span>
+<span class="fc" id="L111">            Duration ttl = Duration.ofMinutes(30)</span>
+<span class="fc" id="L112">                    .plusSeconds(ThreadLocalRandom.current().nextInt(300));</span>
+<span class="fc" id="L113">            redis.opsForValue().set(key, jsonMapper.writeValueAsString(view), ttl);</span>
+<span class="fc" id="L114">        } catch (DataAccessException | SerializationException | JacksonException e) {</span>
+<span class="fc" id="L115">            log.warn(&quot;回写 Redis 失败，跳过，skuId={}&quot;, skuId, e);</span>
+<span class="fc" id="L116">        }</span>
+<span class="fc" id="L117">        return Optional.ofNullable(view);</span>
     }
 
     void evictLocal(long skuId) {
-<span class="fc" id="L107">        local.invalidate(skuId);</span>
-<span class="fc" id="L108">    }</span>
+<span class="fc" id="L121">        local.invalidate(skuId);</span>
+<span class="fc" id="L122">    }</span>
 }
 </pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.13.202504020838</span></div></body></html>

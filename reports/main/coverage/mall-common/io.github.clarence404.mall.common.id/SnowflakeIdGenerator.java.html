@@ -39,8 +39,8 @@ public class SnowflakeIdGenerator implements IdGenerator {
         }
 <span class="fc bfc" id="L40" title="All 2 branches covered.">        if (now == lastTimestamp) {</span>
 <span class="fc" id="L41">            sequence = (sequence + 1) &amp; SEQUENCE_MASK;</span>
-<span class="fc bfc" id="L42" title="All 2 branches covered.">            if (sequence == 0) {</span>
-<span class="fc" id="L43">                now = waitUntil(lastTimestamp + 1);</span>
+<span class="pc bpc" id="L42" title="1 of 2 branches missed.">            if (sequence == 0) {</span>
+<span class="nc" id="L43">                now = waitUntil(lastTimestamp + 1);</span>
             }
         } else {
 <span class="fc" id="L46">            sequence = 0L;</span>
@@ -55,12 +55,12 @@ public class SnowflakeIdGenerator implements IdGenerator {
     }
 
     private long waitUntil(long target) {
-<span class="fc" id="L58">        long now = currentTimeMillis();</span>
-<span class="fc bfc" id="L59" title="All 2 branches covered.">        while (now &lt; target) {</span>
-<span class="fc" id="L60">            Thread.onSpinWait();</span>
-<span class="fc" id="L61">            now = currentTimeMillis();</span>
+<span class="nc" id="L58">        long now = currentTimeMillis();</span>
+<span class="nc bnc" id="L59" title="All 2 branches missed.">        while (now &lt; target) {</span>
+<span class="nc" id="L60">            Thread.onSpinWait();</span>
+<span class="nc" id="L61">            now = currentTimeMillis();</span>
         }
-<span class="fc" id="L63">        return now;</span>
+<span class="nc" id="L63">        return now;</span>
     }
 
     long currentTimeMillis() {

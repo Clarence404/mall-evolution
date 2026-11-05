@@ -1,0 +1,65 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>DemoConsoleConfig.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">mall-gateway</a> &gt; <a href="index.source.html" class="el_package">io.github.clarence404.mall.gateway</a> &gt; <span class="el_source">DemoConsoleConfig.java</span></div><h1>DemoConsoleConfig.java</h1><pre class="source lang-java linenums">package io.github.clarence404.mall.gateway;
+
+import static org.springframework.web.reactive.function.server.RequestPredicates.GET;
+
+import org.springframework.cloud.gateway.route.RouteLocator;
+import org.springframework.cloud.gateway.route.builder.RouteLocatorBuilder;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+import org.springframework.context.annotation.Profile;
+import org.springframework.core.Ordered;
+import org.springframework.core.annotation.Order;
+import org.springframework.core.io.ClassPathResource;
+import org.springframework.core.io.Resource;
+import org.springframework.http.HttpMethod;
+import org.springframework.http.MediaType;
+import org.springframework.security.config.web.server.ServerHttpSecurity;
+import org.springframework.security.web.server.SecurityWebFilterChain;
+import org.springframework.security.web.server.util.matcher.ServerWebExchangeMatchers;
+import org.springframework.web.reactive.function.server.RouterFunction;
+import org.springframework.web.reactive.function.server.RouterFunctions;
+import org.springframework.web.reactive.function.server.ServerResponse;
+
+/**
+ * 仅演示环境（demo profile）：网关在 {@code /} 托管演示控制台（一个静态页面），并多一条路由把
+ * {@code /api/demo/inventory/**} 转到库存服务的 {@code /internal/demo/**}（故障注入开关、库存查看）。
+ *
+ * &lt;p&gt;生产不启用：没有这个页面，也没有这条路由，网关仍然只路由 {@code /api/**} 的业务接口、拒绝 {@code /internal/**}。
+ */
+@Configuration(proxyBeanMethods = false)
+@Profile(&quot;demo&quot;)
+<span class="fc" id="L31">class DemoConsoleConfig {</span>
+
+<span class="fc" id="L33">    static final Resource CONSOLE = new ClassPathResource(&quot;demo/index.html&quot;);</span>
+
+    @Bean
+    RouterFunction&lt;ServerResponse&gt; demoConsolePage() {
+<span class="fc" id="L37">        return RouterFunctions.route(</span>
+<span class="fc" id="L38">                GET(&quot;/&quot;).or(GET(&quot;/index.html&quot;)),</span>
+<span class="fc" id="L39">                req -&gt; ServerResponse.ok().contentType(MediaType.TEXT_HTML).bodyValue(CONSOLE));</span>
+    }
+
+    /** 走到这条路由的请求仍要带合法 JWT（由主过滤链校验）。 */
+    @Bean
+    RouteLocator demoInventoryRoute(RouteLocatorBuilder builder) {
+<span class="fc" id="L45">        return builder.routes()</span>
+<span class="fc" id="L46">                .route(</span>
+                        &quot;demo-inventory&quot;,
+<span class="fc" id="L48">                        r -&gt; r.order(1)</span>
+<span class="fc" id="L49">                                .path(&quot;/api/demo/inventory/**&quot;)</span>
+<span class="fc" id="L50">                                .filters(</span>
+<span class="fc" id="L51">                                        f -&gt; f.rewritePath(&quot;/api/demo/inventory/(?&lt;rest&gt;.*)&quot;, &quot;/internal/demo/${rest}&quot;))</span>
+<span class="fc" id="L52">                                .uri(&quot;lb://inventory-service&quot;))</span>
+<span class="fc" id="L53">                .build();</span>
+    }
+
+    /** 控制台页面本身匿名可访问；排在主过滤链前面，只匹配这两个路径。 */
+    @Bean
+    @Order(Ordered.HIGHEST_PRECEDENCE)
+    SecurityWebFilterChain demoConsoleSecurity(ServerHttpSecurity http) {
+<span class="fc" id="L60">        return http.securityMatcher(ServerWebExchangeMatchers.pathMatchers(HttpMethod.GET, &quot;/&quot;, &quot;/index.html&quot;))</span>
+<span class="fc" id="L61">                .authorizeExchange(a -&gt; a.anyExchange().permitAll())</span>
+<span class="fc" id="L62">                .build();</span>
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.13.202504020838</span></div></body></html>

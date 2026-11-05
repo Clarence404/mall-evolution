@@ -10,6 +10,10 @@ inventory-service,io.github.clarence404.mall.inventory.reserve,ReservationServic
 inventory-service,io.github.clarence404.mall.inventory.reserve,InventoryConsumersConfig.OrderCancelledMessage,9,0,0,0,1,0,1,0,1,0
 inventory-service,io.github.clarence404.mall.inventory.reserve,Reservation,0,38,0,2,0,10,0,4,0,3
 inventory-service,io.github.clarence404.mall.inventory,InventoryServiceApplication,5,3,0,0,2,1,1,1,1,1
+inventory-service,io.github.clarence404.mall.inventory.demo,DemoReserveDelayFilter,3,29,2,4,2,7,2,3,0,2
+inventory-service,io.github.clarence404.mall.inventory.demo,DemoFaultController,0,33,0,0,0,7,0,5,0,5
+inventory-service,io.github.clarence404.mall.inventory.demo,DemoFaults,0,10,0,0,0,4,0,3,0,3
+inventory-service,io.github.clarence404.mall.inventory.demo,DemoFaultController.FaultView,0,6,0,0,0,1,0,1,0,1
 inventory-service,io.github.clarence404.mall.inventory.config,InventoryModuleConfig,0,3,0,0,0,1,0,1,0,1
 inventory-service,io.github.clarence404.mall.inventory.bucket,InventoryBucketService,14,212,10,22,5,31,10,12,0,6
 inventory-service,io.github.clarence404.mall.inventory.bucket,InventoryBucketMapper.Bucket,0,15,0,0,0,1,0,1,0,1
