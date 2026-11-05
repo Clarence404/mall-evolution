@@ -1,0 +1,21 @@
+# 演示环境（docker compose --profile demo）：叠加在 dev 之上，只调节奏，让演示控制台几分钟内能看到效果。生产不启用
+# 连接地址（MySQL、Redis、Nacos、RocketMQ）由 docker-compose.yml 的环境变量覆盖，不写在这里
+mall:
+  order:
+    pay-timeout: 1m
+    timeout-scan-interval: 20s   # 兜底扫描也跟着加快
+    timeout-scan-after: 90s
+  promo:
+    normal-pay-timeout: 1m       # 下单 1 分钟未支付即关单（默认 15 分钟）
+    activity-pay-timeout: 1m
+
+# 熔断：按次数统计、3 次起算，几次慢调用就能看到熔断打开；打开 15 秒后半开，放 2 个探测请求
+resilience4j:
+  circuitbreaker:
+    instances:
+      inventory-reserve:
+        sliding-window-type: COUNT_BASED
+        sliding-window-size: 6
+        minimum-number-of-calls: 3
+        wait-duration-in-open-state: 15s
+        permitted-number-of-calls-in-half-open-state: 2

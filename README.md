@@ -26,6 +26,23 @@ Java Doc「项目演进」模块的配套代码：示例商城订单服务，从
 
 ## 本地运行（最终形态）
 
+### 一条命令体验
+
+只需要 Docker（Compose v2.24+），不用装 JDK 和 Maven：
+
+```bash
+docker compose --profile demo up -d --build   # 首次要在容器里跑一遍 Maven 构建，几分钟（取决于下载依赖的速度）
+```
+
+等 `mall-gateway` 变为 healthy（`docker compose ps`）后打开 <http://localhost:9000/> 即是演示控制台，用演示账号 `13800000000` / `mall123` 登录，按卡片依次体验：登录、商品详情两级缓存（响应头 `X-Cache`）、幂等下单重放、模拟支付回调（订单变待发货、积分到账）、1 分钟超时关单与库存归还、注入延迟后熔断打开返回 503 与 `Retry-After`、每个请求的 traceId。每张卡片显示原始请求与响应，并链接到对应文章的小节。
+
+- 整套约占 4.5 GB 内存（Nacos 约 1 GB、RocketMQ Broker 堆压到 512 MB，4 个 Java 服务各 400–650 MB）；四个服务共用一个镜像，只对外开放网关的 9000 端口，依赖的端口与下面「逐个启动」相同
+- 服务以 `dev,demo` 两个 profile 运行：demo 只用于演示，把支付超时缩到 1 分钟、熔断改为按次数统计，并打开控制台页面、`X-Cache` / `X-Trace-Id` 响应头和库存服务的故障注入开关；这些在生产（prod）都不存在
+- Maven Central 访问慢时可以指定镜像仓库：`MAVEN_MIRROR=https://maven.aliyun.com/repository/public docker compose --profile demo up -d --build`
+- 停止并清理（含数据卷）：`docker compose --profile demo down -v`
+
+### 逐个启动
+
 需要 JDK 21；依赖用 Docker 起（也只有集成测试需要 Docker）。所有密码都是本地开发用的占位值 `mall_dev`。
 
 ```bash
@@ -90,12 +107,13 @@ mall-evolution/
 ├── mall-app/             订单、商品、用户的启动模块：配置、Flyway、每日对账、ArchUnit / H2 / 集成测试
 ├── inventory-service/    库存服务：预占、过期回查、热点分桶，独享 mall_inventory
 ├── payment-service/      支付服务：渠道回调、payment-succeeded、关单与退款，独享 mall_payment
-├── mall-gateway/         入口网关：路由 /api/**、JWT 校验、按「用户 + 路由」限流
+├── mall-gateway/         入口网关：路由 /api/**、JWT 校验、按「用户 + 路由」限流；demo profile 下托管演示控制台
 ├── perf/                 Gatling 压测脚本
 ├── api/openapi.json      对外接口契约基线
 ├── deploy/
 │   ├── k8s/              Deployment / Rollout + AnalysisTemplate、Service、Ingress、HPA、Flyway PreSync Job、Secret 模板
 │   ├── argocd/           Argo CD Application
+│   ├── demo/             一条命令体验的镜像构建（容器里跑 Maven，四个服务共用）
 │   ├── observability/    OTel Collector（两层）、Prometheus SLO 与组件告警、PodMonitor、Alertmanager、Grafana 业务大盘
 │   ├── nacos/            Nacos 配置样例（熔断舱壁、降级开关、活动白名单、限流路由、结构化日志）
 │   ├── redis/ rocketmq/ mysql/   本地与自建环境的 Redis Sentinel、Broker、建库建 Topic 脚本

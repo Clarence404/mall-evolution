@@ -75,6 +75,17 @@ class GatewaySecurityTest {
                 .isForbidden();
     }
 
+    @Test
+    void demoConsoleIsNotServedWithoutDemoProfile() {
+        client.get().uri("/").exchange().expectStatus().isUnauthorized();
+        client.get()
+                .uri("/api/demo/inventory/fault")
+                .header(HttpHeaders.AUTHORIZATION, bearer())
+                .exchange()
+                .expectStatus()
+                .value(s -> assertThat(s).isNotEqualTo(200)); // 没有演示路由，落到兜底的 mall-app 路由
+    }
+
     private static String bearer() {
         NimbusJwtEncoder encoder = new NimbusJwtEncoder(new ImmutableSecret<>(new SecretKeySpec(
                 "test-only-jwt-secret-0123456789abcdef".getBytes(StandardCharsets.UTF_8), "HmacSHA256")));

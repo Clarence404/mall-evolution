@@ -100,6 +100,11 @@ class InventoryApiH2Test {
                 .andExpect(jsonPath("$.length()").value(2));
     }
 
+    @Test
+    void demoFaultEndpointsDoNotExistWithoutDemoProfile() throws Exception {
+        mvc.perform(get("/internal/demo/fault")).andExpect(status().isNotFound());
+    }
+
     private org.springframework.test.web.servlet.ResultActions post(String uri, String body) throws Exception {
         return mvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post(uri)
                 .contentType(MediaType.APPLICATION_JSON)

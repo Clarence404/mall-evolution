@@ -1,4 +1,40 @@
 # 本地开发依赖。只用本地开发的占位密码 mall_dev，不要在这里写任何真实凭据
+#   docker compose up -d                          只起依赖（MySQL、Redis、RocketMQ、Nacos），服务在本机用 java -jar 跑
+#   docker compose --profile demo up -d --build   一条命令体验：依赖 + 四个服务 + 演示控制台 http://localhost:9000/
+
+# ---------- demo profile 的公共片段 ----------
+x-demo-service: &demo-service
+  profiles: ["demo"]
+  image: mall-evolution/demo:latest   # 四个服务同一个镜像（由 mall-app 的 build 构建一次），MODULE 决定启动哪个 jar
+  pull_policy: never
+  restart: on-failure            # Broker 的 Proxy 比 NameServer 注册晚几秒就绪，首次连不上时重启重试
+  depends_on:
+    mysql: {condition: service_healthy}
+    redis: {condition: service_healthy}
+    nacos: {condition: service_healthy}
+    rmq-init: {condition: service_completed_successfully}
+x-demo-env: &demo-env
+  SPRING_PROFILES_ACTIVE: dev,demo
+  TZ: Asia/Shanghai
+  NACOS_ADDR: nacos:8848
+  ROCKETMQ_ENDPOINTS: rmq-broker:8081
+  SPRING_DATA_REDIS_HOST: redis
+  JAVA_OPTS: -Xms64m -Xmx320m -XX:+UseSerialGC -XX:+ExitOnOutOfMemoryError
+  JAVA_TOOL_OPTIONS: -javaagent:/opt/otel/opentelemetry-javaagent.jar
+  OTEL_TRACES_EXPORTER: none
+  OTEL_METRICS_EXPORTER: none
+  OTEL_LOGS_EXPORTER: none
+x-demo-health: &demo-health
+  interval: 5s
+  timeout: 3s
+  retries: 60
+  start_period: 30s
+# 镜像里没有 curl：用 bash 的 /dev/tcp 请求就绪探针
+x-health-8080: &health-8080 "exec 3<>/dev/tcp/127.0.0.1/8080 && printf 'GET /actuator/health/readiness HTTP/1.0\r\n\r\n' >&3 && grep -q UP <&3"
+x-health-8082: &health-8082 "exec 3<>/dev/tcp/127.0.0.1/8082 && printf 'GET /actuator/health/readiness HTTP/1.0\r\n\r\n' >&3 && grep -q UP <&3"
+x-health-8083: &health-8083 "exec 3<>/dev/tcp/127.0.0.1/8083 && printf 'GET /actuator/health/readiness HTTP/1.0\r\n\r\n' >&3 && grep -q UP <&3"
+x-health-9000: &health-9000 "exec 3<>/dev/tcp/127.0.0.1/9000 && printf 'GET /actuator/health/readiness HTTP/1.0\r\n\r\n' >&3 && grep -q UP <&3"
+
 services:
   mysql:
     image: mysql:8.4
@@ -49,6 +85,8 @@ services:
       - rmq-namesrv
     environment:
       NAMESRV_ADDR: rmq-namesrv:9876
+      # 镜像默认堆 2g，本地（含 demo）压到 512m 足够；要恢复镜像默认值，设 ROCKETMQ_BROKER_JAVA_OPT_EXT= （空）
+      JAVA_OPT_EXT: "${ROCKETMQ_BROKER_JAVA_OPT_EXT--Xms512m -Xmx512m -Xmn256m}"
     command: sh mqbroker --enable-proxy -c /home/rocketmq/conf/broker.conf
     volumes:
       - ./deploy/rocketmq/broker.conf:/home/rocketmq/conf/broker.conf:ro
@@ -81,6 +119,74 @@ services:
       - "8848:8848"
       - "9848:9848"
       - "18080:8080"     # 3.x 控制台端口，避免和 mall-app 的 8080 冲突
+    healthcheck:         # 注册与配置接口可用后才算就绪（demo 里的服务依赖它）
+      test: ["CMD-SHELL", "curl -sf 'http://localhost:8848/nacos/v3/admin/core/state' >/dev/null"]
+      interval: 5s
+      timeout: 3s
+      retries: 60
+
+  # ---------- 以下只在 --profile demo 时启动：一条命令体验（仅用于演示，不是部署方式） ----------
+  # 镜像用 deploy/demo/Dockerfile 在容器里构建一次；SPRING_PROFILES_ACTIVE=dev,demo，连接地址用环境变量指向本文件里的服务名；
+  # 机器号显式给（mall.id.worker-id），不向 Redis 租；挂 OpenTelemetry agent 但不导出，只为了有 traceId
+  mall-app:
+    <<: *demo-service
+    build:
+      context: .
+      dockerfile: deploy/demo/Dockerfile
+      args: {MAVEN_MIRROR: "${MAVEN_MIRROR:-}"}   # Maven Central 慢时给镜像仓库地址
+    environment:
+      <<: *demo-env
+      MODULE: mall-app
+      OTEL_SERVICE_NAME: mall-app
+      SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/mall?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai
+      MALL_ID_WORKER_ID: "1"
+      JAVA_OPTS: -Xms128m -Xmx512m -XX:+UseSerialGC -XX:+ExitOnOutOfMemoryError
+    healthcheck:
+      <<: *demo-health
+      test: ["CMD", "bash", "-c", *health-8080]
+
+  inventory-service:
+    <<: *demo-service
+    environment:
+      <<: *demo-env
+      MODULE: inventory-service
+      OTEL_SERVICE_NAME: inventory-service
+      SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/mall_inventory?serverTimezone=Asia/Shanghai
+      MALL_ID_WORKER_ID: "11"
+    healthcheck:
+      <<: *demo-health
+      test: ["CMD", "bash", "-c", *health-8082]
+
+  payment-service:
+    <<: *demo-service
+    environment:
+      <<: *demo-env
+      MODULE: payment-service
+      OTEL_SERVICE_NAME: payment-service
+      SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/mall_payment?serverTimezone=Asia/Shanghai
+      MALL_ID_WORKER_ID: "21"
+    healthcheck:
+      <<: *demo-health
+      test: ["CMD", "bash", "-c", *health-8083]
+
+  mall-gateway:
+    image: mall-evolution/demo:latest
+    pull_policy: never
+    profiles: ["demo"]
+    restart: on-failure
+    depends_on:                  # 三个服务都就绪后再开放入口，打开页面即可用
+      mall-app: {condition: service_healthy}
+      inventory-service: {condition: service_healthy}
+      payment-service: {condition: service_healthy}
+    environment:
+      <<: *demo-env
+      MODULE: mall-gateway
+      OTEL_SERVICE_NAME: mall-gateway
+    ports:
+      - "9000:9000"
+    healthcheck:
+      <<: *demo-health
+      test: ["CMD", "bash", "-c", *health-9000]
 
 volumes:
   mysql-data:

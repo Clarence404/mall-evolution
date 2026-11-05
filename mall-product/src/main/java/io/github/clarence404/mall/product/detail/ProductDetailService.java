@@ -10,6 +10,7 @@ import java.time.Duration;
 import java.util.Optional;
 import java.util.concurrent.ThreadLocalRandom;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.dao.DataAccessException;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.serializer.SerializationException;
@@ -42,6 +43,7 @@ public class ProductDetailService {
     private final Counter l2Miss;
     private final Counter l2Null;
     private final Counter dbLoad;
+    private DetailSourceListener sourceListener = DetailSourceListener.NONE;
 
     public ProductDetailService(
             StringRedisTemplate redis, JsonMapper jsonMapper, ProductMapper productMapper, MeterRegistry registry) {
@@ -55,12 +57,22 @@ public class ProductDetailService {
         this.dbLoad = registry.counter("product.detail.db.load"); // 回源次数，超过 100 QPS 告警
     }
 
-    public Optional<ProductDetailView> get(long skuId) {
-        // 同一 skuId 并发未命中时，本 JVM 只有一个线程去查 Redis / 数据库
-        return local.get(skuId, this::loadFromRemote);
+    /** 只有演示环境（demo profile）注册了监听器，用来在响应头里标出这次命中的是哪一层。 */
+    @Autowired(required = false)
+    void setSourceListener(DetailSourceListener sourceListener) {
+        this.sourceListener = sourceListener;
     }
 
-    private Optional<ProductDetailView> loadFromRemote(long skuId) {
+    public Optional<ProductDetailView> get(long skuId) {
+        DetailSource[] source = {DetailSource.L1}; // 加载函数没被调用，就是 L1 命中
+        // 同一 skuId 并发未命中时，本 JVM 只有一个线程去查 Redis / 数据库
+        Optional<ProductDetailView> view = local.get(skuId, id -> loadFromRemote(id, source));
+        sourceListener.onLookup(skuId, source[0]);
+        return view;
+    }
+
+    private Optional<ProductDetailView> loadFromRemote(long skuId, DetailSource[] source) {
+        source[0] = DetailSource.DB;
         String key = KEY_PREFIX + skuId;
         String json;
         try {
@@ -75,11 +87,13 @@ public class ProductDetailService {
         if (json != null) {
             if (NULL_JSON.equals(json)) {
                 l2Null.increment();
+                source[0] = DetailSource.L2;
                 return Optional.empty();
             }
             try {
                 ProductDetailView cached = jsonMapper.readValue(json, ProductDetailView.class);
                 l2Hit.increment();
+                source[0] = DetailSource.L2;
                 return Optional.of(cached);
             } catch (JacksonException e) {
                 // 缓存里的值读不出来（多半是 ProductDetailView 改过结构）：按未命中回源，下面会用新结构覆盖

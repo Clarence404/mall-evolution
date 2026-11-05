@@ -1,0 +1,474 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>mall-evolution 演示控制台</title>
+<!-- 仅演示环境（demo profile）由网关托管；纯静态页面，不依赖任何框架或外部资源 -->
+<style>
+  :root {
+    --fg: #1a1a2e; --muted: #6b7280; --bg: #f5f6fa; --card: #ffffff; --border: #e2e8f0; --code: #f1f3f8;
+    --p: #4f46e5; --g: #059669; --y: #b45309; --r: #dc2626; --b: #0369a1;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --fg: #e5e7eb; --muted: #9ca3af; --bg: #16162a; --card: #22223a; --border: #3a3a5c; --code: #1b1b30;
+      --p: #818cf8; --g: #34d399; --y: #fbbf24; --r: #f87171; --b: #38bdf8;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--fg);
+    font: 14px/1.6 -apple-system, "PingFang SC", "Microsoft YaHei", "Segoe UI", sans-serif; }
+  header { padding: 20px 16px 8px; max-width: 1280px; margin: 0 auto; }
+  header h1 { margin: 0; font-size: 22px; }
+  header p { margin: 4px 0 0; color: var(--muted); }
+  .bar { display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: center; margin-top: 10px; }
+  .pill { display: inline-block; padding: 1px 8px; border-radius: 999px; font-size: 12px; border: 1px solid var(--border); }
+  .pill.ok { color: var(--g); border-color: var(--g); }
+  .pill.warn { color: var(--y); border-color: var(--y); }
+  .pill.err { color: var(--r); border-color: var(--r); }
+  main { max-width: 1280px; margin: 0 auto; padding: 8px 16px 40px;
+    display: grid; grid-template-columns: repeat(auto-fill, minmax(380px, 1fr)); gap: 16px; }
+  @media (max-width: 440px) { main { grid-template-columns: 1fr; } }
+  .card { background: var(--card); border: 1px solid var(--border); border-radius: 10px; padding: 14px;
+    display: flex; flex-direction: column; min-width: 0; }
+  .card h2 { margin: 0; font-size: 16px; display: flex; gap: 8px; align-items: baseline; }
+  .card h2 .tag { color: var(--p); font-size: 13px; font-weight: 600; }
+  .card .desc { margin: 6px 0 4px; color: var(--muted); font-size: 13px; }
+  .card .ref { font-size: 12px; }
+  a { color: var(--p); }
+  .actions { display: flex; flex-wrap: wrap; gap: 6px; margin: 10px 0 8px; align-items: center; }
+  button { font: inherit; font-size: 13px; padding: 4px 12px; border-radius: 6px; border: 1px solid var(--p);
+    background: var(--p); color: #fff; cursor: pointer; }
+  button.ghost { background: transparent; color: var(--p); }
+  button:disabled { opacity: .5; cursor: default; }
+  select, input { font: inherit; font-size: 13px; padding: 3px 6px; border-radius: 6px; border: 1px solid var(--border);
+    background: var(--card); color: var(--fg); }
+  .result { font-size: 13px; padding: 6px 10px; border-radius: 6px; background: var(--code); margin-bottom: 8px; }
+  .result:empty { display: none; }
+  .big { font-size: 22px; font-weight: 700; }
+  .log { flex: 1; max-height: 340px; overflow: auto; border-top: 1px dashed var(--border); padding-top: 6px; }
+  .log:empty::before { content: "（请求与响应会显示在这里）"; color: var(--muted); font-size: 12px; }
+  details.entry { border: 1px solid var(--border); border-radius: 6px; margin: 0 0 6px; background: var(--code); }
+  details.entry summary { cursor: pointer; padding: 3px 8px; font-family: ui-monospace, Consolas, monospace; font-size: 12px;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  details.entry pre { margin: 0; padding: 4px 8px 8px; font-size: 12px; white-space: pre-wrap; word-break: break-all;
+    font-family: ui-monospace, Consolas, monospace; }
+  .s2 { color: var(--g); font-weight: 700; } .s4 { color: var(--y); font-weight: 700; } .s5 { color: var(--r); font-weight: 700; }
+  .note { font-size: 12px; color: var(--muted); padding: 2px 0 6px; }
+  table { border-collapse: collapse; width: 100%; font-size: 12px; }
+  td, th { border-bottom: 1px solid var(--border); padding: 2px 4px; text-align: left; white-space: nowrap; }
+  .mono { font-family: ui-monospace, Consolas, monospace; font-size: 12px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>mall-evolution 演示控制台</h1>
+  <p>只用于演示：由网关在 demo profile 下托管，生产不启用。所有请求都经网关 <code>/api/**</code> 发出，下面每张卡片展示一个设计点的原始请求与响应。</p>
+  <div class="bar">
+    <span>登录状态：<span id="loginState" class="pill warn">未登录</span></span>
+    <span class="note">接口返回的 <code>X-Trace-Id</code>（成功）或 ProblemDetail 的 <code>traceId</code>（失败）显示在每条记录末尾。</span>
+  </div>
+</header>
+
+<main>
+  <section class="card" id="c-login">
+    <h2><span class="tag">a</span>登录</h2>
+    <div class="desc">演示账号 13800000000 / mall123 换取 JWT 访问令牌，只保存在本页内存里，刷新页面即丢失；网关和下游服务各自校验同一个令牌。</div>
+    <div class="ref">对应文章：<a target="_blank" href="https://clarence404.github.io/java-doc/project/3_api_design.html#九、鉴权">接口设计 · 鉴权</a></div>
+    <div class="actions">
+      <input id="phone" value="13800000000" size="12"> <input id="password" value="mall123" size="8" type="password">
+      <button data-run="login">登录</button>
+      <button class="ghost" data-run="me">查看我的信息</button>
+    </div>
+    <div class="result"></div>
+    <div class="log"></div>
+  </section>
+
+  <section class="card" id="c-cache">
+    <h2><span class="tag">b</span>商品详情两级缓存</h2>
+    <div class="desc">响应头 <code>X-Cache</code> 标出这次命中哪一层：热门商品启动时已预热进 Redis，首查命中 L2；其余商品（如已下架的 20004、不存在的 99999）首查回源 DB 并写入 Redis；30 秒内再查命中本地 L1（Caffeine）。</div>
+    <div class="ref">对应文章：<a target="_blank" href="https://clarence404.github.io/java-doc/project/4_cache.html#四、商品详情两级缓存">引入缓存 · 商品详情两级缓存</a></div>
+    <div class="actions">
+      <select id="sku">
+        <option value="20001">20001 红心柚</option>
+        <option value="20002">20002 有机菠菜</option>
+        <option value="20003">20003 洗衣液</option>
+        <option value="20004">20004 已下架</option>
+        <option value="99999">99999 不存在（缓存空值）</option>
+      </select>
+      <button data-run="detail">查询详情</button>
+      <button class="ghost" data-run="detail3">连查 3 次</button>
+    </div>
+    <div class="result"></div>
+    <div class="log"></div>
+  </section>
+
+  <section class="card" id="c-idem">
+    <h2><span class="tag">c</span>幂等下单</h2>
+    <div class="desc">客户端为每次「提交订单」生成一个 <code>Idempotency-Key</code>；同一个 Key 重放时不会重复下单，返回同一个订单号并带 <code>Idempotent-Replayed: true</code>。</div>
+    <div class="ref">对应文章：<a target="_blank" href="https://clarence404.github.io/java-doc/project/3_api_design.html#五、下单幂等">接口设计 · 下单幂等</a></div>
+    <div class="actions">
+      <button data-run="idemNew">用新 Key 下单</button>
+      <button class="ghost" data-run="idemReplay">用同一个 Key 重放</button>
+    </div>
+    <div class="note">同一商品待支付最多 2 单（下单频控）；演示环境 1 分钟不支付自动关单，稍等即可再下。</div>
+    <div class="result"></div>
+    <div class="log"></div>
+  </section>
+
+  <section class="card" id="c-pay">
+    <h2><span class="tag">d</span>模拟支付回调</h2>
+    <div class="desc">下单 → 创建支付单 → 以「模拟渠道」身份带 HMAC 签名回调；支付服务发 payment-succeeded 消息，订单异步变为待发货，再经 order-paid 消息给用户加积分。</div>
+    <div class="ref">对应文章：<a target="_blank" href="https://clarence404.github.io/java-doc/project/7_consistency.html#_2、支付成功-去重表加条件更新">跨服务一致性 · 支付成功</a></div>
+    <div class="actions">
+      <button data-run="pay">下单并支付</button>
+    </div>
+    <div class="note">签名密钥是本地开发占位值 <code>dev-only-mock-pay-secret</code>，与 dev / demo profile 一致；真实渠道由对方 SDK 验签。</div>
+    <div class="result"></div>
+    <div class="log"></div>
+  </section>
+
+  <section class="card" id="c-timeout">
+    <h2><span class="tag">e</span>超时关单</h2>
+    <div class="desc">下单时写一条 order-timeout 定时消息（演示环境 1 分钟，生产 15 分钟）；到点未支付即关单，并经 order-cancelled 消息把预占的库存还回去。</div>
+    <div class="ref">对应文章：<a target="_blank" href="https://clarence404.github.io/java-doc/project/5_async.html#_5、超时关单">异步化 · 超时关单</a></div>
+    <div class="actions">
+      <button data-run="timeout">下单后等待关单</button>
+    </div>
+    <div class="result"></div>
+    <div class="log"></div>
+  </section>
+
+  <section class="card" id="c-cb">
+    <h2><span class="tag">f</span>熔断</h2>
+    <div class="desc">给库存服务的 reserve 注入 800ms 延迟（超过订单侧 500ms 读超时）：前几单按「结果未知」失败（500），失败率过半后熔断打开，后续请求不再发出，直接返回 503 <code>SYSTEM_BUSY</code> 并带 <code>Retry-After</code>。</div>
+    <div class="ref">对应文章：<a target="_blank" href="https://clarence404.github.io/java-doc/project/8_stability.html#四、超时、熔断与舱壁">稳定性 · 超时、熔断与舱壁</a></div>
+    <div class="actions">
+      <button data-run="faultOn">注入延迟</button>
+      <button data-run="burst">连续下单 5 次</button>
+      <button class="ghost" data-run="faultOff">关闭故障</button>
+      <button class="ghost" data-run="recover">恢复后下单</button>
+    </div>
+    <div class="note">演示环境：最近 6 次调用里 3 次起算、失败率 ≥ 50% 打开，15 秒后半开放 2 个探测请求。下单路由网关限流每用户每秒 1 次，所以间隔 1.2 秒发送。</div>
+    <div class="result"></div>
+    <div class="log"></div>
+  </section>
+
+  <section class="card" id="c-trace">
+    <h2><span class="tag">g</span>链路 ID</h2>
+    <div class="desc">每个服务都挂了 OpenTelemetry Java Agent（演示环境不导出数据），网关生成的 traceId 经 traceparent 传到下游、并穿过本地消息表；同一次请求在各服务日志里用它串起来。</div>
+    <div class="ref">对应文章：<a target="_blank" href="https://clarence404.github.io/java-doc/project/9_observability_release.html#四、三类信号怎么串起来">可观测与发布 · 三类信号怎么串起来</a></div>
+    <div class="actions">
+      <button class="ghost" data-run="clearTrace">清空</button>
+    </div>
+    <div class="result"></div>
+    <div class="log" id="traceLog"></div>
+  </section>
+</main>
+
+<script>
+"use strict";
+const STATUS_ZH = { PENDING_PAYMENT: "待支付", PENDING_SHIPMENT: "待发货", SHIPPED: "已发货",
+  COMPLETED: "已完成", CANCELLED: "已取消", CLOSED: "已关闭" };
+const KEY_HEADERS = ["x-cache", "idempotent-replayed", "retry-after", "location", "x-trace-id", "x-ratelimit-remaining"];
+const ADDRESS = { receiver: "张三", phone: "13800000000", detail: "杭州市西湖区" };
+let token = null;
+const state = { idemKey: null };
+const traces = [];
+
+const $ = (sel, root = document) => root.querySelector(sel);
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+const esc = s => String(s).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
+
+/** 非 https 页面（如 http://IP:端口）没有 crypto.randomUUID，用 getRandomValues 拼 UUID v4。 */
+function uuid() {
+  const b = crypto.getRandomValues(new Uint8Array(16));
+  b[6] = (b[6] & 0x0f) | 0x40; b[8] = (b[8] & 0x3f) | 0x80;
+  const h = [...b].map(x => x.toString(16).padStart(2, "0")).join("");
+  return `${h.slice(0, 8)}-${h.slice(8, 12)}-${h.slice(12, 16)}-${h.slice(16, 20)}-${h.slice(20)}`;
+}
+
+/** 纯 JS 的 SHA-256 / HMAC：非 https 页面拿不到 crypto.subtle。 */
+function sha256(msg) {
+  const K = [], H = [];
+  for (let n = 2, found = 0; found < 64; n++) {
+    let prime = true;
+    for (let d = 2; d * d <= n; d++) if (n % d === 0) { prime = false; break; }
+    if (!prime) continue;
+    if (found < 8) H.push((Math.sqrt(n) % 1) * 2 ** 32 | 0);
+    K.push((Math.cbrt(n) % 1) * 2 ** 32 | 0);
+    found++;
+  }
+  const len = msg.length, bitLen = len * 8;
+  const total = ((len + 9 + 63) >> 6) << 6;
+  const m = new Uint8Array(total);
+  m.set(msg); m[len] = 0x80;
+  const dv = new DataView(m.buffer);
+  dv.setUint32(total - 8, Math.floor(bitLen / 2 ** 32)); dv.setUint32(total - 4, bitLen >>> 0);
+  const w = new Int32Array(64);
+  const rotr = (x, n) => (x >>> n) | (x << (32 - n));
+  for (let off = 0; off < total; off += 64) {
+    for (let i = 0; i < 16; i++) w[i] = dv.getInt32(off + i * 4);
+    for (let i = 16; i < 64; i++) {
+      const s0 = rotr(w[i - 15], 7) ^ rotr(w[i - 15], 18) ^ (w[i - 15] >>> 3);
+      const s1 = rotr(w[i - 2], 17) ^ rotr(w[i - 2], 19) ^ (w[i - 2] >>> 10);
+      w[i] = (w[i - 16] + s0 + w[i - 7] + s1) | 0;
+    }
+    let [a, b, c, d, e, f, g, h] = H;
+    for (let i = 0; i < 64; i++) {
+      const t1 = (h + (rotr(e, 6) ^ rotr(e, 11) ^ rotr(e, 25)) + ((e & f) ^ (~e & g)) + K[i] + w[i]) | 0;
+      const t2 = ((rotr(a, 2) ^ rotr(a, 13) ^ rotr(a, 22)) + ((a & b) ^ (a & c) ^ (b & c))) | 0;
+      h = g; g = f; f = e; e = (d + t1) | 0; d = c; c = b; b = a; a = (t1 + t2) | 0;
+    }
+    [a, b, c, d, e, f, g, h].forEach((v, i) => { H[i] = (H[i] + v) | 0; });
+  }
+  const out = new Uint8Array(32);
+  const odv = new DataView(out.buffer);
+  H.forEach((v, i) => odv.setInt32(i * 4, v));
+  return out;
+}
+function hmacSha256Hex(key, text) {
+  const enc = new TextEncoder();
+  let k = enc.encode(key);
+  if (k.length > 64) k = sha256(k);
+  const block = new Uint8Array(64); block.set(k);
+  const inner = new Uint8Array(64 + enc.encode(text).length);
+  inner.set(block.map(x => x ^ 0x36)); inner.set(enc.encode(text), 64);
+  const innerHash = sha256(inner);
+  const outer = new Uint8Array(96);
+  outer.set(block.map(x => x ^ 0x5c)); outer.set(innerHash, 64);
+  return [...sha256(outer)].map(x => x.toString(16).padStart(2, "0")).join("");
+}
+
+/** 发请求并把原始请求、状态码、关键响应头和 JSON 记到卡片日志里。 */
+async function api(card, method, path, { body, headers = {}, auth = true, quiet = false } = {}) {
+  const h = { ...headers };
+  if (body !== undefined) h["Content-Type"] = "application/json";
+  if (auth && token) h["Authorization"] = "Bearer " + token;
+  const started = performance.now();
+  let res, text = "";
+  try {
+    res = await fetch(path, { method, headers: h, body: body === undefined ? undefined : JSON.stringify(body) });
+    text = await res.text();
+  } catch (e) {
+    log(card, "s5", "ERR", `${method} ${path}`, "网络错误", String(e));
+    throw e;
+  }
+  const ms = Math.round(performance.now() - started);
+  let json = null;
+  try { json = text ? JSON.parse(text) : null; } catch (_) { /* 非 JSON（如 "success"） */ }
+  const keyHeaders = {};
+  KEY_HEADERS.forEach(k => { const v = res.headers.get(k); if (v !== null) keyHeaders[k] = v; });
+  const traceId = res.headers.get("x-trace-id") || (json && json.traceId) || null;
+  const r = { status: res.status, headers: keyHeaders, json, text, ms, traceId };
+  if (!quiet) {
+    const shownReqHeaders = { ...h };
+    if (shownReqHeaders.Authorization) shownReqHeaders.Authorization = "Bearer " + token.slice(0, 16) + "…";
+    const lines = [];
+    lines.push(`→ ${method} ${path}`);
+    Object.entries(shownReqHeaders).forEach(([k, v]) => lines.push(`  ${k}: ${v}`));
+    if (body !== undefined) lines.push("  " + JSON.stringify(body));
+    lines.push(`← ${res.status}（${ms} ms）`);
+    Object.entries(keyHeaders).forEach(([k, v]) => lines.push(`  ${k}: ${v}`));
+    lines.push(json !== null ? JSON.stringify(json, null, 2) : (text || "（空响应体）"));
+    log(card, "s" + String(res.status)[0], res.status, `${method} ${path}`,
+      `${ms} ms${traceId ? " · trace " + traceId.slice(0, 8) : ""}`, lines.join("\n"));
+    if (traceId) addTrace(method, path, res.status, traceId);
+  }
+  return r;
+}
+
+function log(card, cls, status, title, meta, detail) {
+  const box = $(".log", card);
+  const d = document.createElement("details");
+  d.className = "entry";
+  d.innerHTML = `<summary><span class="${cls}">${esc(status)}</span> ${esc(title)} <span style="color:var(--muted)">${esc(meta)}</span></summary><pre>${esc(detail)}</pre>`;
+  box.prepend(d);
+  [...box.children].slice(30).forEach(x => x.remove());
+}
+function result(card, html) { $(".result", card).innerHTML = html; }
+
+function addTrace(method, path, status, traceId) {
+  traces.unshift({ at: new Date().toLocaleTimeString(), method, path, status, traceId });
+  traces.length = Math.min(traces.length, 20);
+  const card = $("#c-trace");
+  result(card, `最近一次：<span class="mono">${esc(traceId)}</span>`);
+  $("#traceLog").innerHTML = "<table><tr><th>时间</th><th>请求</th><th>状态</th><th>traceId</th></tr>" +
+    traces.map(t => `<tr><td>${t.at}</td><td class="mono">${esc(t.method + " " + t.path)}</td><td class="s${String(t.status)[0]}">${t.status}</td><td class="mono">${esc(t.traceId)}</td></tr>`).join("") +
+    "</table>";
+}
+
+function needLogin(card) {
+  if (token) return false;
+  result(card, '<span class="s4">请先在「a 登录」卡片里登录</span>');
+  return true;
+}
+function orderBody(skuId) { return { lines: [{ skuId: String(skuId), quantity: 1 }], address: ADDRESS }; }
+function placeOrder(card, skuId, key) {
+  return api(card, "POST", "/api/orders", { body: orderBody(skuId), headers: { "Idempotency-Key": key } });
+}
+function zh(status) { return STATUS_ZH[status] ? `${STATUS_ZH[status]}（${status}）` : status; }
+function problem(r) { return r.json && r.json.code ? `${r.json.code}：${r.json.detail || r.json.title}` : r.text; }
+
+const scenarios = {
+  async login(card) {
+    const r = await api(card, "POST", "/api/auth/login",
+      { auth: false, body: { phone: $("#phone").value, password: $("#password").value } });
+    if (r.status === 200 && r.json && r.json.accessToken) {
+      token = r.json.accessToken;
+      $("#loginState").className = "pill ok";
+      $("#loginState").textContent = "已登录 " + $("#phone").value;
+      result(card, `拿到访问令牌，${r.json.expiresIn} 秒后过期`);
+    } else {
+      result(card, `<span class="s4">登录失败：${esc(problem(r))}</span>`);
+    }
+  },
+  async me(card) {
+    if (needLogin(card)) return;
+    const r = await api(card, "GET", "/api/users/me");
+    if (r.status === 200) result(card, `用户 ${esc(r.json.userId)}（${esc(r.json.nickname)}），积分 <b>${r.json.points}</b>`);
+  },
+  async detail(card) {
+    const sku = $("#sku").value;
+    const r = await api(card, "GET", "/api/products/" + sku, { auth: false });
+    const src = r.headers["x-cache"] || "—";
+    const what = { L1: "本地缓存 Caffeine", L2: "Redis", DB: "数据库回源" }[src] || "";
+    result(card, `<span class="big">${esc(src)}</span> ${what} · HTTP ${r.status} · ${r.ms} ms` +
+      (r.status === 200 ? ` · ${esc(r.json.product.name)}，${r.json.inStock ? "有货" : "无货"}` : ` · ${esc(problem(r))}`));
+    return src;
+  },
+  async detail3(card) {
+    const seen = [];
+    for (let i = 0; i < 3; i++) { seen.push(await scenarios.detail(card)); await sleep(300); }
+    result(card, $(".result", card).innerHTML + `<div class="note">三次依次：${seen.join(" → ")}</div>`);
+  },
+  async idemNew(card) {
+    if (needLogin(card)) return;
+    state.idemKey = uuid();
+    const r = await placeOrder(card, 20001, state.idemKey);
+    if (r.status === 201) {
+      state.idemOrderNo = r.json.orderNo;
+      result(card, `Key <span class="mono">${state.idemKey}</span><br>首次：订单 <b class="mono">${esc(r.json.orderNo)}</b>，Idempotent-Replayed: <b>${esc(r.headers["idempotent-replayed"])}</b>`);
+    } else {
+      result(card, `<span class="s4">HTTP ${r.status}：${esc(problem(r))}</span>`);
+    }
+  },
+  async idemReplay(card) {
+    if (needLogin(card)) return;
+    if (!state.idemKey) { result(card, '<span class="s4">先点「用新 Key 下单」</span>'); return; }
+    const r = await placeOrder(card, 20001, state.idemKey);
+    const same = r.json && r.json.orderNo === state.idemOrderNo;
+    result(card, `Key <span class="mono">${state.idemKey}</span><br>重放：HTTP ${r.status}，订单 <b class="mono">${esc(r.json && r.json.orderNo)}</b>` +
+      `，Idempotent-Replayed: <b>${esc(r.headers["idempotent-replayed"])}</b> ` +
+      (same ? '<span class="s2">✓ 与首次是同一单</span>' : '<span class="s5">✗ 订单号不同</span>'));
+  },
+  async pay(card) {
+    if (needLogin(card)) return;
+    const before = await api(card, "GET", "/api/users/me");
+    const pointsBefore = before.json && before.json.points;
+    const o = await placeOrder(card, 20002, uuid());
+    if (o.status !== 201) { result(card, `<span class="s4">下单失败 HTTP ${o.status}：${esc(problem(o))}</span>`); return; }
+    const orderNo = o.json.orderNo;
+    const p = await api(card, "POST", "/api/payments", { body: { orderNo } });
+    if (p.status !== 201) { result(card, `<span class="s4">创建支付单失败：${esc(problem(p))}</span>`); return; }
+    const channelTradeNo = "MOCK" + Date.now();
+    const sign = hmacSha256Hex("dev-only-mock-pay-secret", `${p.json.paymentNo}|${channelTradeNo}|${p.json.amount}`);
+    const n = await api(card, "POST", "/api/payments/notify/mock",
+      { auth: false, body: { paymentNo: p.json.paymentNo, channelTradeNo, amount: p.json.amount, sign } });
+    result(card, `订单 <span class="mono">${esc(orderNo)}</span> 回调 HTTP ${n.status}（${esc(n.text)}），等待订单状态与积分异步更新…`);
+    let status = null, points = pointsBefore;
+    for (let i = 0; i < 20; i++) {
+      await sleep(1000);
+      const q = await api(card, "GET", "/api/orders/" + orderNo, { quiet: true }); // 轮询不刷屏，结束后各记一条
+      status = q.json && q.json.status;
+      const me = await api(card, "GET", "/api/users/me", { quiet: true });
+      points = me.json && me.json.points;
+      result(card, `订单 <span class="mono">${esc(orderNo)}</span>：${zh(status)} · 积分 ${pointsBefore} → <b>${points}</b> · 已等 ${i + 1} 秒`);
+      if (status !== "PENDING_PAYMENT" && points !== pointsBefore) break;
+    }
+    await api(card, "GET", "/api/orders/" + orderNo);
+    await api(card, "GET", "/api/users/me");
+    const ok = status === "PENDING_SHIPMENT" && points !== pointsBefore;
+    result(card, $(".result", card).innerHTML + (ok ? ' <span class="s2">✓ 已待发货，积分到账</span>' : ' <span class="s4">还没到，稍后点「查看我的信息」再看</span>'));
+  },
+  async timeout(card) {
+    if (needLogin(card)) return;
+    const sku = 20003;
+    const stock = async quiet => {
+      const s = await api(card, "GET", "/api/demo/inventory/stocks?skuIds=" + sku, { quiet });
+      return s.json && s.json[0] ? s.json[0].stock : "?";
+    };
+    const stockBefore = await stock(false);
+    const o = await placeOrder(card, sku, uuid());
+    if (o.status !== 201) { result(card, `<span class="s4">下单失败 HTTP ${o.status}：${esc(problem(o))}</span>`); return; }
+    const orderNo = o.json.orderNo;
+    const deadline = Date.now() + 60_000; // 演示环境支付超时 1 分钟；用本机时间倒计时，不依赖服务端时区
+    const started = Date.now();
+    let status = o.json.status, now = await stock(false), lastPoll = Date.now();
+    while (Date.now() - started < 240_000) {
+      if (Date.now() - lastPoll >= 5000) { // 每 5 秒轮询一次订单状态与库存（不记日志，结束后各记一条）
+        lastPoll = Date.now();
+        const q = await api(card, "GET", "/api/orders/" + orderNo, { quiet: true });
+        status = q.json && q.json.status;
+        now = await stock(true);
+      }
+      const left = Math.max(0, Math.round((deadline - Date.now()) / 1000));
+      result(card, `订单 <span class="mono">${esc(orderNo)}</span>：${zh(status)}<br>` +
+        `<span class="big">${status !== "PENDING_PAYMENT" ? "已关单" : left > 0 ? left + " 秒" : "已到期，等待关单消息"}</span>` +
+        `<br>库存 ${sku}：下单前 ${stockBefore} → 现在 <b>${now}</b>`);
+      if (status !== "PENDING_PAYMENT" && now === stockBefore) break;
+      await sleep(1000);
+    }
+    await api(card, "GET", "/api/orders/" + orderNo);
+    await stock(false);
+    const ok = status !== "PENDING_PAYMENT" && now === stockBefore;
+    result(card, $(".result", card).innerHTML + (ok ? '<br><span class="s2">✓ 已关单，预占库存已归还</span>' : '<br><span class="s4">还没关单，等一会再看</span>'));
+  },
+  async faultOn(card) {
+    if (needLogin(card)) return;
+    const r = await api(card, "PUT", "/api/demo/inventory/fault?reserveDelayMs=800");
+    if (r.status === 200) result(card, `已注入：reserve 延迟 <b>${r.json.reserveDelayMs} ms</b>`);
+  },
+  async faultOff(card) {
+    if (needLogin(card)) return;
+    const r = await api(card, "DELETE", "/api/demo/inventory/fault");
+    if (r.status === 200) result(card, $(".result", card).innerHTML + `<div>已关闭故障（reserve 延迟 ${r.json.reserveDelayMs} ms）。熔断器 15 秒后半开，再点「恢复后下单」</div>`);
+  },
+  async burst(card) {
+    if (needLogin(card)) return;
+    const rows = [];
+    for (let i = 1; i <= 5; i++) {
+      const r = await placeOrder(card, 20001, uuid());
+      rows.push(`<tr><td>${i}</td><td class="s${String(r.status)[0]}">${r.status}</td><td>${esc(r.json && r.json.code || (r.status === 201 ? "下单成功" : ""))}</td><td>${esc(r.headers["retry-after"] || "")}</td><td>${r.ms} ms</td></tr>`);
+      result(card, "<table><tr><th>#</th><th>状态</th><th>code</th><th>Retry-After</th><th>耗时</th></tr>" + rows.join("") + "</table>");
+      await sleep(1200);
+    }
+    result(card, $(".result", card).innerHTML + '<div class="note">500 = 读超时、结果未知（已立即 release）；503 = 熔断打开，请求没发出去、库存没动。</div>');
+  },
+  async recover(card) {
+    if (needLogin(card)) return;
+    const r = await placeOrder(card, 20001, uuid());
+    result(card, r.status === 201 ? `<span class="s2">✓ 下单成功（HTTP 201）</span>，熔断器已恢复` :
+      `HTTP ${r.status}：${esc(problem(r))}` + (r.status === 503 ? "（熔断还开着，过几秒再试）" : ""));
+  },
+  async clearTrace() {
+    traces.length = 0;
+    $("#traceLog").innerHTML = "";
+    result($("#c-trace"), "");
+  }
+};
+
+document.querySelectorAll("button[data-run]").forEach(btn => {
+  btn.addEventListener("click", async () => {
+    const card = btn.closest(".card");
+    const buttons = card.querySelectorAll("button");
+    buttons.forEach(b => { b.disabled = true; });
+    try { await scenarios[btn.dataset.run](card); }
+    catch (e) { result(card, `<span class="s5">出错：${esc(e.message || e)}</span>`); }
+    finally { buttons.forEach(b => { b.disabled = false; }); }
+  });
+});
+</script>
+</body>
+</html>

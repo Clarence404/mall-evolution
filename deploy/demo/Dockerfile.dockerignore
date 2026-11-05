@@ -1,0 +1,9 @@
+# 只对 deploy/demo/Dockerfile 生效（BuildKit 按 <Dockerfile>.dockerignore 查找），不影响根目录 Dockerfile 需要的 target/*.jar
+**/target
+.git
+.idea
+**/*.iml
+perf/*
+!perf/pom.xml
+api
+deploy

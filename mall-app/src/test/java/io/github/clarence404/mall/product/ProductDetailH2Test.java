@@ -1,6 +1,7 @@
 package io.github.clarence404.mall.product;
 
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -24,7 +25,8 @@ class ProductDetailH2Test extends H2TestBase {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.product.skuId").value("20001"))
                 .andExpect(jsonPath("$.product.price").value("39.90"))
-                .andExpect(jsonPath("$.inStock").value(true));
+                .andExpect(jsonPath("$.inStock").value(true))
+                .andExpect(header().doesNotExist("X-Cache")); // 命中层只在 demo profile 下输出
     }
 
     @Test
