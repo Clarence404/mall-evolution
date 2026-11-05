@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../../jacoco-resources/report.gif" type="image/gif"/><title>OrderNoGenerator.java</title><link rel="stylesheet" href="../../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../../index.html" class="el_report">mall-app</a> &gt; <a href="../index.html" class="el_bundle">mall-order</a> &gt; <a href="index.source.html" class="el_package">io.github.clarence404.mall.order.place</a> &gt; <span class="el_source">OrderNoGenerator.java</span></div><h1>OrderNoGenerator.java</h1><pre class="source lang-java linenums">package io.github.clarence404.mall.order.place;
+
+import io.github.clarence404.mall.common.id.Ids;
+import org.springframework.stereotype.Component;
+
+/**
+ * 阶段三的订单号：雪花 ID（19 位）+ 用户 ID 低 10 位（4 位十进制，0000–1023），共 23 位。
+ *
+ * &lt;p&gt;为以后按 user_id 分库分表留路：按订单号查询也能算出分片（最多 1024 个，取 2 的幂）。主键 id 仍是雪花 ID，表结构不动。
+ */
+@Component
+<span class="fc" id="L12">public class OrderNoGenerator {</span>
+
+    static final long USER_GENE_MASK = 1023L;
+
+    public String next(long userId) {
+<span class="fc" id="L17">        return Ids.next() + String.format(&quot;%04d&quot;, userId &amp; USER_GENE_MASK);</span>
+    }
+
+    /** 由订单号还原用户基因，供将来路由分片。阶段一、二的存量 19 位订单号不含基因，返回 -1。 */
+    public static int userGene(String orderNo) {
+<span class="fc bfc" id="L22" title="All 2 branches covered.">        return orderNo.length() == 23 ? Integer.parseInt(orderNo.substring(19)) : -1;</span>
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.13.202504020838</span></div></body></html>

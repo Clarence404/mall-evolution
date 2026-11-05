@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>ConsumerFactory.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">mall-common</a> &gt; <a href="index.source.html" class="el_package">io.github.clarence404.mall.common.mq</a> &gt; <span class="el_source">ConsumerFactory.java</span></div><h1>ConsumerFactory.java</h1><pre class="source lang-java linenums">package io.github.clarence404.mall.common.mq;
+
+import java.util.Map;
+import java.util.function.Function;
+import org.apache.rocketmq.client.apis.ClientConfiguration;
+import org.apache.rocketmq.client.apis.ClientException;
+import org.apache.rocketmq.client.apis.ClientServiceProvider;
+import org.apache.rocketmq.client.apis.consumer.ConsumeResult;
+import org.apache.rocketmq.client.apis.consumer.FilterExpression;
+import org.apache.rocketmq.client.apis.consumer.FilterExpressionType;
+import org.apache.rocketmq.client.apis.consumer.PushConsumer;
+import org.apache.rocketmq.client.apis.message.MessageView;
+
+/**
+ * 注册 PushConsumer 的小工具：返回 SUCCESS 确认，返回 FAILURE 由 Broker 按退避重投，超过次数进 %DLQ%{消费组}。
+ */
+public final class ConsumerFactory {
+
+    private ConsumerFactory() {}
+
+    public static PushConsumer subscribe(
+            ClientServiceProvider provider,
+            ClientConfiguration clientConfig,
+            String consumerGroup,
+            String topic,
+            Function&lt;MessageView, ConsumeResult&gt; listener)
+            throws ClientException {
+<span class="nc" id="L28">        return provider.newPushConsumerBuilder()</span>
+<span class="nc" id="L29">                .setClientConfiguration(clientConfig)</span>
+<span class="nc" id="L30">                .setConsumerGroup(consumerGroup)</span>
+<span class="nc" id="L31">                .setSubscriptionExpressions(Map.of(topic, new FilterExpression(&quot;*&quot;, FilterExpressionType.TAG)))</span>
+<span class="nc" id="L32">                .setMessageListener(listener::apply)</span>
+<span class="nc" id="L33">                .build();</span>
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.13.202504020838</span></div></body></html>

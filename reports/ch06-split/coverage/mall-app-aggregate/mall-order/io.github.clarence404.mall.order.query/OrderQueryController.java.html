@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../../jacoco-resources/report.gif" type="image/gif"/><title>OrderQueryController.java</title><link rel="stylesheet" href="../../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../../index.html" class="el_report">mall-app</a> &gt; <a href="../index.html" class="el_bundle">mall-order</a> &gt; <a href="index.source.html" class="el_package">io.github.clarence404.mall.order.query</a> &gt; <span class="el_source">OrderQueryController.java</span></div><h1>OrderQueryController.java</h1><pre class="source lang-java linenums">package io.github.clarence404.mall.order.query;
+
+import io.github.clarence404.mall.common.security.LoginUser;
+import io.github.clarence404.mall.common.web.CursorResult;
+import io.github.clarence404.mall.order.domain.OrderStatus;
+import io.swagger.v3.oas.annotations.Operation;
+import lombok.RequiredArgsConstructor;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.RestController;
+
+@RestController
+@RequiredArgsConstructor
+class OrderQueryController {
+
+    private final OrderQueryService orderQueryService;
+
+    @Operation(operationId = &quot;getOrder&quot;)
+    @GetMapping(&quot;/api/orders/{orderNo}&quot;)
+    OrderView detail(@AuthenticationPrincipal LoginUser user, @PathVariable String orderNo) {
+<span class="nc" id="L23">        return OrderView.of(orderQueryService.getOwn(user.id(), orderNo));</span>
+    }
+
+    /** 用户 ID 从登录态取，不接受参数传入。 */
+    @Operation(operationId = &quot;listMyOrders&quot;)
+    @GetMapping(&quot;/api/orders&quot;)
+    CursorResult&lt;OrderListItemView&gt; list(
+            @AuthenticationPrincipal LoginUser user,
+            @RequestParam(required = false) OrderStatus status,
+            @RequestParam(required = false) String cursor,
+            @RequestParam(defaultValue = &quot;20&quot;) int size) {
+<span class="fc" id="L34">        return orderQueryService.list(user.id(), status, cursor, size);</span>
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.13.202504020838</span></div></body></html>
