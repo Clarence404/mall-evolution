@@ -68,6 +68,16 @@ curl -i localhost:9000/api/orders -H "Authorization: Bearer $TOKEN" \
 
 接口文档：<http://localhost:8080/swagger-ui.html>（仅 dev / test 环境开启）。看早期阶段时 `git checkout stage-1-monolith`，那时只有 `mall-app` 一个进程，`docker compose up -d mysql` 即可。
 
+### 端口规划
+
+| 服务 | 端口 |
+|------|------|
+| 订单与商品 mall-app | 8080 |
+| 库存服务 inventory-service | 8082 |
+| 支付服务 payment-service | 8083 |
+| 网关 mall-gateway（对外入口） | 9000 |
+| 配套的智能客服 [mall-assistant](https://github.com/Clarence404/mall-assistant) | 8088（与本仓库错开，可同时运行） |
+
 ### 在 IntelliJ IDEA 里运行
 
 仓库自带共享运行配置（`.run/` 目录），用 IDEA 打开项目、等 Maven 导入完成后，右上角运行下拉框里就能看到：
