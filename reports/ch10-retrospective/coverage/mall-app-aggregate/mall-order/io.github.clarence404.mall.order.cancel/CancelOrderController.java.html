@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../../jacoco-resources/report.gif" type="image/gif"/><title>CancelOrderController.java</title><link rel="stylesheet" href="../../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../../index.html" class="el_report">mall-app</a> &gt; <a href="../index.html" class="el_bundle">mall-order</a> &gt; <a href="index.source.html" class="el_package">io.github.clarence404.mall.order.cancel</a> &gt; <span class="el_source">CancelOrderController.java</span></div><h1>CancelOrderController.java</h1><pre class="source lang-java linenums">package io.github.clarence404.mall.order.cancel;
+
+import io.github.clarence404.mall.common.security.LoginUser;
+import io.github.clarence404.mall.order.query.OrderView;
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.media.Content;
+import io.swagger.v3.oas.annotations.media.Schema;
+import io.swagger.v3.oas.annotations.responses.ApiResponse;
+import lombok.RequiredArgsConstructor;
+import org.springframework.http.ProblemDetail;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RestController;
+
+/** 状态流转用动作子资源：每种流转有独立的校验和审计，客户端不能直接改 status 字段。 */
+@RestController
+@RequiredArgsConstructor
+class CancelOrderController {
+
+    private final OrderCancelService orderCancelService;
+
+    @Operation(operationId = &quot;cancelOrder&quot;)
+    @ApiResponse(responseCode = &quot;200&quot;, description = &quot;已取消&quot;)
+    @ApiResponse(
+            responseCode = &quot;409&quot;,
+            description = &quot;当前状态不能取消（ORDER_STATUS_CONFLICT）&quot;,
+            content = @Content(schema = @Schema(implementation = ProblemDetail.class)))
+    @PostMapping(&quot;/api/orders/{orderNo}/cancel&quot;)
+    OrderView cancel(@AuthenticationPrincipal LoginUser user, @PathVariable String orderNo) {
+<span class="fc" id="L31">        return OrderView.of(orderCancelService.cancel(user.id(), orderNo));</span>
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.13.202504020838</span></div></body></html>

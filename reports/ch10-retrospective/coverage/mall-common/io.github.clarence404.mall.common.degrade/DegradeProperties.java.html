@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>DegradeProperties.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">mall-common</a> &gt; <a href="index.source.html" class="el_package">io.github.clarence404.mall.common.degrade</a> &gt; <span class="el_source">DegradeProperties.java</span></div><h1>DegradeProperties.java</h1><pre class="source lang-java linenums">package io.github.clarence404.mall.common.degrade;
+
+import lombok.Getter;
+import lombok.Setter;
+import org.springframework.boot.context.properties.ConfigurationProperties;
+import org.springframework.stereotype.Component;
+
+/**
+ * 降级开关：统一放在 Nacos（mall-app.yaml），推送后由 Spring Cloud 重新绑定，实时生效。
+ *
+ * &lt;p&gt;下单、支付、库存三条核心链路不设降级开关，只靠限流和熔断保护。
+ */
+@Getter
+@Setter
+@Component
+@ConfigurationProperties(prefix = &quot;mall.degrade&quot;)
+<span class="nc" id="L17">public class DegradeProperties {</span>
+
+    /** 商品详情、购物车的「猜你喜欢」；关闭后返回运营配置的固定列表。 */
+<span class="nc" id="L20">    private boolean recommendEnabled = true;</span>
+
+    /** 订单详情、我的页面实时查积分；关闭后不再查。 */
+<span class="nc" id="L23">    private boolean pointsDisplayEnabled = true;</span>
+
+    /** 订单列表只查近 N 个月；0 表示不限制。 */
+<span class="nc" id="L26">    private int orderListMonths = 0;</span>
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.13.202504020838</span></div></body></html>
