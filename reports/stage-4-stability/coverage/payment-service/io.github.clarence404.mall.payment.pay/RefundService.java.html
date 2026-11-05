@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>RefundService.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">payment-service</a> &gt; <a href="index.source.html" class="el_package">io.github.clarence404.mall.payment.pay</a> &gt; <span class="el_source">RefundService.java</span></div><h1>RefundService.java</h1><pre class="source lang-java linenums">package io.github.clarence404.mall.payment.pay;
+
+import io.github.clarence404.mall.common.mq.ConsumeRecordMapper;
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+
+/**
+ * order-refund-required：关闭支付单与用户付款的竞态（每天个位数），以及同一订单付了两次款，支付服务把消息里那一张
+ * 支付单原路退款并通知用户。按支付单号去重，去重记录与支付单状态变更在同一个本地事务里。
+ */
+<span class="fc" id="L13">@Slf4j</span>
+@Service
+@RequiredArgsConstructor
+public class RefundService {
+
+    static final String GROUP = &quot;payment-refund-consumer&quot;;
+
+    private final ConsumeRecordMapper consumeRecordMapper;
+    private final PaymentMapper paymentMapper;
+
+    @Transactional
+    public void refund(String orderNo, String paymentNo) {
+<span class="fc bfc" id="L25" title="All 2 branches covered.">        if (consumeRecordMapper.insertIgnore(GROUP, paymentNo) == 0) {</span>
+<span class="fc" id="L26">            return;</span>
+        }
+<span class="fc" id="L28">        int n = paymentMapper.markRefundPending(paymentNo);</span>
+        // 演示用模拟渠道：真实实现在这里调用渠道的退款接口，渠道退款回调后再置为已退款（4）并通知用户
+<span class="fc" id="L30">        log.info(&quot;发起原路退款，orderNo={}，paymentNo={}，影响 {} 笔&quot;, orderNo, paymentNo, n);</span>
+<span class="fc" id="L31">    }</span>
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.13.202504020838</span></div></body></html>

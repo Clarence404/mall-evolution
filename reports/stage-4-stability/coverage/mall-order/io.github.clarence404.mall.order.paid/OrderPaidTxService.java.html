@@ -1,0 +1,66 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>OrderPaidTxService.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">mall-order</a> &gt; <a href="index.source.html" class="el_package">io.github.clarence404.mall.order.paid</a> &gt; <span class="el_source">OrderPaidTxService.java</span></div><h1>OrderPaidTxService.java</h1><pre class="source lang-java linenums">package io.github.clarence404.mall.order.paid;
+
+import static io.github.clarence404.mall.order.domain.OrderStatus.CANCELLED;
+import static io.github.clarence404.mall.order.domain.OrderStatus.PENDING_PAYMENT;
+import static io.github.clarence404.mall.order.domain.OrderStatus.PENDING_SHIPMENT;
+
+import io.github.clarence404.mall.common.mq.ConsumeRecordMapper;
+import io.github.clarence404.mall.common.outbox.OutboxWriter;
+import io.github.clarence404.mall.order.domain.OrderMapper;
+import io.github.clarence404.mall.order.domain.OrderStatus;
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+
+/**
+ * order-payment-consumer：去重表加条件更新。原 pay 包已随支付迁出。
+ *
+ * &lt;p&gt;按支付单号去重（一个订单可能有多张支付单）；去重记录与状态变更在同一个事务里，订单状态 WHERE status = 10 的条件更新
+ * 再兜一层，即使去重记录被清理，重复消息也只影响 0 行，不会重复写 order-paid。
+ *
+ * &lt;p&gt;条件更新没成功时按订单当前状态处理：已取消（关单后才到的支付）或已被另一张支付单付过（重复付款），都写
+ * order-refund-required 退掉这一笔；同一张支付单的重复消息直接确认。
+ */
+<span class="fc" id="L25">@Slf4j</span>
+@Service
+@RequiredArgsConstructor
+public class OrderPaidTxService {
+
+    static final String GROUP = &quot;order-payment-consumer&quot;;
+
+    private final ConsumeRecordMapper consumeRecordMapper;
+    private final OrderMapper orderMapper;
+    private final OutboxWriter outboxWriter;
+
+    @Transactional(rollbackFor = Exception.class)
+    public void markPaid(PaymentSucceeded msg) {
+<span class="fc bfc" id="L38" title="All 2 branches covered.">        if (consumeRecordMapper.insertIgnore(GROUP, msg.paymentNo()) == 0) {</span>
+<span class="fc" id="L39">            return; // t_consume_record 已有：重复消息</span>
+        }
+<span class="fc bfc" id="L41" title="All 2 branches covered.">        if (orderMapper.transit(msg.orderNo(), PENDING_PAYMENT, PENDING_SHIPMENT, msg.paidAt()) == 1) {</span>
+<span class="fc" id="L42">            orderMapper.updatePaymentNo(msg.orderNo(), msg.paymentNo());</span>
+<span class="fc" id="L43">            outboxWriter.append(&quot;order-paid&quot;, msg.orderNo(), OrderPaidEvent.from(msg), null);</span>
+<span class="fc" id="L44">            return;</span>
+        }
+<span class="fc" id="L46">        OrderStatus status = orderMapper.selectStatus(msg.orderNo());</span>
+<span class="fc bfc" id="L47" title="All 2 branches covered.">        if (status == CANCELLED) { // 关单后才到的支付：原路退款</span>
+<span class="fc" id="L48">            requireRefund(msg);</span>
+<span class="fc" id="L49">            return;</span>
+        }
+<span class="pc bpc" id="L51" title="2 of 4 branches missed.">        if (status != null &amp;&amp; status != PENDING_PAYMENT) {</span>
+<span class="fc" id="L52">            String paidBy = orderMapper.selectPaymentNo(msg.orderNo());</span>
+<span class="pc bpc" id="L53" title="1 of 4 branches missed.">            if (paidBy != null &amp;&amp; !paidBy.equals(msg.paymentNo())) { // 订单已被另一张支付单付过：退掉这笔重复付款</span>
+<span class="fc" id="L54">                log.warn(&quot;订单重复付款，退掉后到的一笔，orderNo={}，已入账 {}，退款 {}&quot;, msg.orderNo(), paidBy, msg.paymentNo());</span>
+<span class="fc" id="L55">                requireRefund(msg);</span>
+            }
+            // 同一张支付单的重复消息（去重记录已被清理）：直接确认
+        }
+<span class="fc" id="L59">    }</span>
+
+    /** 消息键是支付单号：同一订单的两笔退款（关单后到账 + 重复付款）互不冲突。 */
+    private void requireRefund(PaymentSucceeded msg) {
+<span class="fc" id="L63">        outboxWriter.append(&quot;order-refund-required&quot;, msg.paymentNo(), msg, null);</span>
+<span class="fc" id="L64">    }</span>
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.13.202504020838</span></div></body></html>
