@@ -1,9 +1,9 @@
 <component name="ProjectRunConfigurationManager">
   <configuration default="false" name="4. 网关 mall-gateway（9000）" type="SpringBootApplicationConfigurationType" factoryName="Spring Boot">
-    <option name="ACTIVE_PROFILES" value="dev,local" />
+    <option name="ACTIVE_PROFILES" value="dev,local,demo" />
     <module name="mall-gateway" />
     <option name="SPRING_BOOT_MAIN_CLASS" value="io.github.clarence404.mall.gateway.MallGatewayApplication" />
-    <option name="WORKING_DIRECTORY" value="$PROJECT_DIR$" />
+    <option name="WORKING_DIRECTORY" value="file://$PROJECT_DIR$" />
     <method v="2">
       <option name="Make" enabled="true" />
     </method>

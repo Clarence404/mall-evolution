@@ -1,9 +1,9 @@
 <component name="ProjectRunConfigurationManager">
   <configuration default="false" name="1. 库存服务 inventory-service（8082）" type="SpringBootApplicationConfigurationType" factoryName="Spring Boot">
-    <option name="ACTIVE_PROFILES" value="dev,local" />
+    <option name="ACTIVE_PROFILES" value="dev,local,demo" />
     <module name="inventory-service" />
     <option name="SPRING_BOOT_MAIN_CLASS" value="io.github.clarence404.mall.inventory.InventoryServiceApplication" />
-    <option name="WORKING_DIRECTORY" value="$PROJECT_DIR$" />
+    <option name="WORKING_DIRECTORY" value="file://$PROJECT_DIR$" />
     <method v="2">
       <option name="Make" enabled="true" />
     </method>

@@ -1,5 +1,5 @@
 <component name="ProjectRunConfigurationManager">
-  <configuration default="false" name="演示 3. 订单与商品（8080）" type="SpringBootApplicationConfigurationType" factoryName="Spring Boot">
+  <configuration default="false" name="3. 订单与商品 mall-app（8080）" type="SpringBootApplicationConfigurationType" factoryName="Spring Boot">
     <option name="ACTIVE_PROFILES" value="dev,local,demo" />
     <module name="mall-app" />
     <option name="SPRING_BOOT_MAIN_CLASS" value="io.github.clarence404.mall.MallApplication" />

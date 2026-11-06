@@ -68,7 +68,7 @@ curl -i localhost:9000/api/orders -H "Authorization: Bearer $TOKEN" \
 
 接口文档：<http://localhost:8080/swagger-ui.html>（仅 dev / test 环境开启）。看早期阶段时 `git checkout stage-1-monolith`，那时只有 `mall-app` 一个进程，`docker compose up -d mysql` 即可。
 
-另有一组「演示」运行配置（profile 为 `dev,local,demo`）：选「全部服务（含演示控制台）」启动后，浏览器打开 <http://localhost:9000/> 就是演示控制台（登录、缓存命中、幂等下单、模拟支付、超时关单、熔断、traceId 七个场景）；`demo` 只调演示参数（支付超时 1 分钟、熔断更易触发、缓存来源响应头、库存故障开关），中间件地址照旧读 `application-local.yml`。两组配置都占 8080 / 8082 / 8083 / 9000，同一时间只能起一组。
+启动后浏览器打开 <http://localhost:9000/> 就是演示控制台（登录、缓存命中、幂等下单、模拟支付、超时关单、熔断、traceId）。本地运行默认带 `demo`：多了控制台、缓存来源响应头和库存故障开关，并且**未支付订单 1 分钟自动关闭**、熔断更易触发；想按正式参数跑，把运行配置里的 `demo` 去掉即可。
 
 ### 端口规划
 
@@ -91,7 +91,7 @@ curl -i localhost:9000/api/orders -H "Authorization: Bearer $TOKEN" \
 | 全部服务（先起中间件） | 按 1→4 一次启动四个服务 |
 | 测试：mvn verify | 跑全部检查与测试（没有 Docker 时集成测试自动跳过） |
 
-四个服务用的是 Spring Boot 类型的运行配置（需 IDEA Ultimate），profile 在「Active profiles」里设为 `dev,local`；用 Community 版时，对各服务的启动类右键运行，并在运行配置里加环境变量 `SPRING_PROFILES_ACTIVE=dev,local`、工作目录设为仓库根目录。IDEA 自动识别出的同名 Spring Boot 配置不带 `local` profile，用仓库里这几个即可。
+四个服务用的是 Spring Boot 类型的运行配置（需 IDEA Ultimate），profile 在「Active profiles」里设为 `dev,local,demo`；用 Community 版时，对各服务的启动类右键运行，并在运行配置里加环境变量 `SPRING_PROFILES_ACTIVE=dev,local`、工作目录设为仓库根目录。IDEA 自动识别出的同名 Spring Boot 配置不带 `local` profile，用仓库里这几个即可。
 
 前提：项目 SDK 设为 JDK 21；中间件默认连本机 `docker compose` 起的那套（Docker Desktop 即可）。
 

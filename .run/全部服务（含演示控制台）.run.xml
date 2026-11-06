@@ -1,9 +1,0 @@
-<component name="ProjectRunConfigurationManager">
-  <configuration default="false" name="全部服务（含演示控制台）" type="CompoundRunConfigurationType">
-    <toRun name="演示 1. 库存服务（8082）" type="SpringBootApplicationConfigurationType" />
-    <toRun name="演示 2. 支付服务（8083）" type="SpringBootApplicationConfigurationType" />
-    <toRun name="演示 3. 订单与商品（8080）" type="SpringBootApplicationConfigurationType" />
-    <toRun name="演示 4. 网关 + 演示控制台（9000）" type="SpringBootApplicationConfigurationType" />
-    <method v="2" />
-  </configuration>
-</component>
