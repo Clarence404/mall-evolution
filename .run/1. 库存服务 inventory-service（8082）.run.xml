@@ -3,6 +3,7 @@
     <option name="ACTIVE_PROFILES" value="dev,local,demo" />
     <module name="inventory-service" />
     <option name="SPRING_BOOT_MAIN_CLASS" value="io.github.clarence404.mall.inventory.InventoryServiceApplication" />
+    <option name="VM_PARAMETERS" value="--enable-native-access=ALL-UNNAMED" />
     <option name="WORKING_DIRECTORY" value="file://$PROJECT_DIR$" />
     <method v="2">
       <option name="Make" enabled="true" />
