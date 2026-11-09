@@ -100,8 +100,8 @@ curl -i localhost:9000/api/orders -H "Authorization: Bearer $TOKEN" \
 本机没有 Docker 时，可以连另一台机器（比如共享的开发虚拟机）上的中间件：
 
 1. 在那台机器上用仓库的 `docker-compose.yml` 只起中间件（`docker compose up -d`），端口冲突时改映射端口；
-2. 把仓库根目录的 `application-local.example.yml` 复制为 `application-local.yml`（已加入 `.gitignore`，不会提交），填上那台机器的地址与端口（`MALL_DB_HOST` / `MALL_DB_PORT`、`MALL_REDIS_HOST` / `MALL_REDIS_PORT`、`NACOS_ADDR`、`ROCKETMQ_ENDPOINTS`）；
-3. 直接点上面的运行配置。它们启用 `dev,local` 两个 profile、工作目录是仓库根目录，Spring Boot 会自动读 `./application-local.yml`，没有这个文件时照常连 localhost。
+2. 把 `config/application-local.example.yml` 复制为同目录下的 `config/application-local.yml`（已加入 `.gitignore`，不会提交），填上那台机器的地址与端口（`MALL_DB_HOST` / `MALL_DB_PORT`、`MALL_REDIS_HOST` / `MALL_REDIS_PORT`、`NACOS_ADDR`、`ROCKETMQ_ENDPOINTS`）；
+3. 直接点上面的运行配置。它们启用 `dev,local` 两个 profile、工作目录是仓库根目录，Spring Boot 默认会读 `./config/` 下的 `application-{profile}.yml`，所以能自动读到 `config/application-local.yml`，没有这个文件时照常连 localhost。
 
 示例里的 `spring.cloud.nacos.discovery.ip: 127.0.0.1` 让四个服务以 127.0.0.1 注册到 Nacos，本机互相调用（网关转发、服务间 HTTP 调用）都能连上；有服务跑在别的机器上时改成本机局域网 IP。几个人共用同一个 Nacos 时，各自设不同的 `NACOS_NAMESPACE`（先在 Nacos 控制台建好命名空间），免得互相调到对方的实例。运行配置只在 `main` 上；切到早期章节（如 `git checkout ch03-api-design`）后 `.run/` 会随之消失，这时在 IDEA 里对 `MallApplication` 右键运行即可，那时只有这一个进程，也只需要 MySQL。
 
@@ -156,7 +156,7 @@ mall-evolution/
 │   ├── redis/ rocketmq/ mysql/   本地与自建环境的 Redis Sentinel、Broker、建库建 Topic 脚本
 │   ├── promo/            大促预案脚本（扩容、分桶与合并）
 │   └── mall-evolution.service、deploy.sh   阶段一的 systemd 单元与逐台发布脚本
-├── config/checkstyle/
+├── config/               Checkstyle 规则（checkstyle/）、本地覆盖配置模板 application-local.example.yml
 ├── Dockerfile            按模块构建镜像，内置 OpenTelemetry Java Agent
 └── .github/workflows/    完整验证与测试报告发布（verify）、PR 检查（verify + 契约 diff + 密钥扫描 + 清单与告警规则校验）、阶段一部署、发布（镜像 → GitOps）
 ```

@@ -13,7 +13,7 @@ spring:
     locations: classpath:db/migration,classpath:db/seed   # 本地额外加载演示数据
   config:
     import:
-      - optional:file:./application-local.yml        # 个人覆盖项，已加入 .gitignore
+      - optional:file:./config/application-local.yml   # 个人覆盖项，已加入 .gitignore
       - optional:nacos:mall-common.yaml?group=COMMON_GROUP
       - optional:nacos:mall-app.yaml
 
