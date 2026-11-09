@@ -4,6 +4,7 @@ target/
 
 # IDE
 .idea/
+.openidea/
 *.iml
 .vscode/
 .classpath
