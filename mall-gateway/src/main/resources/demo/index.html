@@ -3,7 +3,9 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>mall-evolution 演示控制台</title>
+<title>演示控制台 · 示例商城</title>
+<!-- 标签页图标：与智能客服（mall-assistant）同一底色 #4f46e5，图形不同（这里是网格），内联 SVG，不额外请求文件 -->
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 32 32%27%3E%3Crect width=%2732%27 height=%2732%27 rx=%277%27 fill=%27%234f46e5%27/%3E%3Cg fill=%27%23fff%27%3E%3Crect x=%277%27 y=%277%27 width=%278%27 height=%278%27 rx=%272%27/%3E%3Crect x=%2717%27 y=%277%27 width=%278%27 height=%278%27 rx=%272%27/%3E%3Crect x=%277%27 y=%2717%27 width=%278%27 height=%278%27 rx=%272%27/%3E%3Crect x=%2717%27 y=%2717%27 width=%278%27 height=%278%27 rx=%272%27/%3E%3C/g%3E%3C/svg%3E">
 <!-- 仅演示环境（demo profile）由网关托管；纯静态页面，不依赖任何框架或外部资源 -->
 <style>
   :root {
@@ -63,8 +65,8 @@
 </head>
 <body>
 <header>
-  <h1>mall-evolution 演示控制台</h1>
-  <p>只用于演示：由网关在 demo profile 下托管，生产不启用。所有请求都经网关 <code>/api/**</code> 发出，下面每张卡片展示一个设计点的原始请求与响应。</p>
+  <h1>示例商城演示控制台</h1>
+  <p>mall-evolution 的演示页，只用于演示：由网关在 demo profile 下托管，生产不启用。所有请求都经网关 <code>/api/**</code> 发出，下面每张卡片展示一个设计点的原始请求与响应。</p>
   <div class="bar">
     <span>登录状态：<span id="loginState" class="pill warn">未登录</span></span>
     <span class="note">接口返回的 <code>X-Trace-Id</code>（成功）或 ProblemDetail 的 <code>traceId</code>（失败）显示在每条记录末尾。</span>
