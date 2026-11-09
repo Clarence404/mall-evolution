@@ -2,7 +2,7 @@
 
 Java Doc「项目演进」模块的配套代码：示例商城订单服务，从 3 人的模块化单体一步步演进到大促下单峰值 5000 QPS 的分布式系统。
 
-**版本基线**：JDK 21、Spring Boot 4.0.9、Spring Cloud 2025.1.4、Spring Cloud Alibaba 2025.1.0.0、MySQL 8.4、Redis 8、RocketMQ 5（rocketmq-client-java 5.2.2）、Flyway 11、Testcontainers 2、Resilience4j 2、Gatling 3.16。
+**版本基线**：JDK 21、Spring Boot 4.1.2、Spring Cloud 2025.1.4、Spring Cloud Alibaba 2025.1.0.0、MySQL 8.4、Redis 8、RocketMQ 5（rocketmq-client-java 5.2.2）、Flyway 11、Testcontainers 2、Resilience4j 2、Gatling 3.16。
 
 [![verify](https://github.com/Clarence404/mall-evolution/actions/workflows/verify.yml/badge.svg)](https://github.com/Clarence404/mall-evolution/actions/workflows/verify.yml) [测试报告](https://clarence404.github.io/mall-evolution/)
 
