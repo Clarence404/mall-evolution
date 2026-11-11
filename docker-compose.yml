@@ -29,11 +29,11 @@ x-demo-health: &demo-health
   timeout: 3s
   retries: 60
   start_period: 30s
-# 镜像里没有 curl：用 bash 的 /dev/tcp 请求就绪探针
-x-health-8080: &health-8080 "exec 3<>/dev/tcp/127.0.0.1/8080 && printf 'GET /actuator/health/readiness HTTP/1.0\r\n\r\n' >&3 && grep -q UP <&3"
-x-health-8082: &health-8082 "exec 3<>/dev/tcp/127.0.0.1/8082 && printf 'GET /actuator/health/readiness HTTP/1.0\r\n\r\n' >&3 && grep -q UP <&3"
-x-health-8083: &health-8083 "exec 3<>/dev/tcp/127.0.0.1/8083 && printf 'GET /actuator/health/readiness HTTP/1.0\r\n\r\n' >&3 && grep -q UP <&3"
-x-health-9000: &health-9000 "exec 3<>/dev/tcp/127.0.0.1/9000 && printf 'GET /actuator/health/readiness HTTP/1.0\r\n\r\n' >&3 && grep -q UP <&3"
+# 镜像里没有 curl：用 bash 的 /dev/tcp 请求就绪探针；dev profile 开了独立管理端口（业务端口 + 10000），健康检查在管理端口上
+x-health-8080: &health-8080 "exec 3<>/dev/tcp/127.0.0.1/18080 && printf 'GET /actuator/health/readiness HTTP/1.0\r\n\r\n' >&3 && grep -q UP <&3"
+x-health-8082: &health-8082 "exec 3<>/dev/tcp/127.0.0.1/18082 && printf 'GET /actuator/health/readiness HTTP/1.0\r\n\r\n' >&3 && grep -q UP <&3"
+x-health-8083: &health-8083 "exec 3<>/dev/tcp/127.0.0.1/18083 && printf 'GET /actuator/health/readiness HTTP/1.0\r\n\r\n' >&3 && grep -q UP <&3"
+x-health-9000: &health-9000 "exec 3<>/dev/tcp/127.0.0.1/19000 && printf 'GET /actuator/health/readiness HTTP/1.0\r\n\r\n' >&3 && grep -q UP <&3"
 
 services:
   mysql:

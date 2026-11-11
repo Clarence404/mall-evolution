@@ -5,6 +5,9 @@ import io.github.clarence404.mall.common.error.GlobalExceptionHandler;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.core.Ordered;
+import org.springframework.core.annotation.Order;
+import org.springframework.core.env.Environment;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.MediaType;
 import org.springframework.http.ProblemDetail;
@@ -28,6 +31,43 @@ import tools.jackson.databind.json.JsonMapper;
 @EnableWebSecurity
 @EnableConfigurationProperties(JwtProperties.class)
 public class SecurityConfig {
+
+    /**
+     * 管理端口的过滤链：只在配置了独立管理端口（management.server.port，与业务端口不同）时才会匹配到请求。
+     *
+     * <p>Prometheus 只能从管理端口匿名抓取 /actuator/prometheus；管理端口不对外暴露（不进网关、不进 Service），
+     * 只给同网段的 Prometheus 访问。业务端口上 /actuator/prometheus 仍走下面的 apiSecurity，匿名访问一律 401。
+     * 管理端口上除健康检查、info、prometheus 以外的端点（如 /actuator/metrics）一律拒绝。
+     */
+    @Bean
+    @Order(Ordered.HIGHEST_PRECEDENCE)
+    SecurityFilterChain managementPortSecurity(HttpSecurity http, Environment env) throws Exception {
+        http.securityMatcher(request -> onManagementPort(env, request.getLocalPort()))
+                .csrf(c -> c.disable())
+                .sessionManagement(s -> s.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
+                .authorizeHttpRequests(
+                        a -> a.requestMatchers("/actuator/health/**", "/actuator/info", "/actuator/prometheus")
+                                .permitAll()
+                                .anyRequest()
+                                .denyAll());
+        return http.build();
+    }
+
+    /**
+     * 请求是否打在独立的管理端口上。
+     *
+     * <p>Spring Boot 在管理端口的 Web 服务器启动后把实际端口写进 local.management.port（随机端口 0 也是实际值）。
+     * 注意：没有独立管理端口时，local.management.port 是 local.server.port 的别名，所以要求两者不同；
+     * 这时这条过滤链永远不匹配，行为与改动前完全一样。
+     */
+    static boolean onManagementPort(Environment env, int localPort) {
+        Integer managementPort = env.getProperty("local.management.port", Integer.class);
+        Integer serverPort = env.getProperty("local.server.port", Integer.class);
+        return managementPort != null
+                && managementPort > 0
+                && !managementPort.equals(serverPort)
+                && managementPort == localPort;
+    }
 
     @Bean
     SecurityFilterChain apiSecurity(

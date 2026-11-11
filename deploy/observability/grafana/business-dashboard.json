@@ -21,7 +21,7 @@
       "description": "突然掉一半而错误率不高，多半是前端或网关的问题",
       "datasource": {
         "type": "prometheus",
-        "uid": "prometheus"
+        "uid": "${datasource}"
       },
       "gridPos": {
         "x": 0,
@@ -33,12 +33,20 @@
         {
           "refId": "A",
           "expr": "sum(increase(http_server_requests_seconds_count{application=\"mall-app\",method=\"POST\",uri=\"/api/orders\",status=\"201\"}[1m]))",
-          "legendFormat": "本周"
+          "legendFormat": "本周",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          }
         },
         {
           "refId": "B",
           "expr": "sum(increase(http_server_requests_seconds_count{application=\"mall-app\",method=\"POST\",uri=\"/api/orders\",status=\"201\"}[1m] offset 1w))",
-          "legendFormat": "上周"
+          "legendFormat": "上周",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          }
         }
       ],
       "fieldConfig": {
@@ -61,7 +69,7 @@
       "description": "某个渠道单独下跌，切换默认渠道",
       "datasource": {
         "type": "prometheus",
-        "uid": "prometheus"
+        "uid": "${datasource}"
       },
       "gridPos": {
         "x": 12,
@@ -73,7 +81,11 @@
         {
           "refId": "A",
           "expr": "sum by (channel) (rate(pay_callback_total{application=\"payment-service\",result=\"success\"}[5m])) / sum by (channel) (rate(pay_callback_total{application=\"payment-service\"}[5m]))",
-          "legendFormat": "{{channel}}"
+          "legendFormat": "{{channel}}",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          }
         }
       ],
       "fieldConfig": {
@@ -96,7 +108,7 @@
       "description": "持续上涨说明中继或 Broker 出了问题",
       "datasource": {
         "type": "prometheus",
-        "uid": "prometheus"
+        "uid": "${datasource}"
       },
       "gridPos": {
         "x": 0,
@@ -108,7 +120,11 @@
         {
           "refId": "A",
           "expr": "max by (application) (outbox_pending_age_seconds)",
-          "legendFormat": "{{application}}"
+          "legendFormat": "{{application}}",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          }
         }
       ],
       "fieldConfig": {
@@ -128,10 +144,10 @@
       "id": 4,
       "type": "timeseries",
       "title": "各消费组堆积（order-payment-consumer 置顶）",
-      "description": "只有一个组涨，是这个组的下游慢了",
+      "description": "只有一个组涨，是这个组的下游慢了。指标来自 rocketmq-exporter 或云厂商的 RocketMQ 指标接入，只抓应用的 /actuator/prometheus 时这块没有数据",
       "datasource": {
         "type": "prometheus",
-        "uid": "prometheus"
+        "uid": "${datasource}"
       },
       "gridPos": {
         "x": 12,
@@ -143,12 +159,20 @@
         {
           "refId": "A",
           "expr": "sum(rocketmq_group_diff{group=\"order-payment-consumer\"})",
-          "legendFormat": "order-payment-consumer"
+          "legendFormat": "order-payment-consumer",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          }
         },
         {
           "refId": "B",
           "expr": "sum by (group) (rocketmq_group_diff{group!~\"%DLQ%.*\",group!=\"order-payment-consumer\"})",
-          "legendFormat": "{{group}}"
+          "legendFormat": "{{group}}",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          }
         }
       ],
       "fieldConfig": {
@@ -168,10 +192,10 @@
       "id": 5,
       "type": "timeseries",
       "title": "对账差异数",
-      "description": "某类差异连续两天出现，说明有系统性 bug",
+      "description": "某类差异连续两天出现，说明有系统性 bug。每日对账只在生产开启（mall.reconcile.enabled），没开时不注册这个指标，这块没有数据",
       "datasource": {
         "type": "prometheus",
-        "uid": "prometheus"
+        "uid": "${datasource}"
       },
       "gridPos": {
         "x": 0,
@@ -183,7 +207,11 @@
         {
           "refId": "A",
           "expr": "max(reconcile_diff_count{application=\"mall-app\"})",
-          "legendFormat": "差异数"
+          "legendFormat": "差异数",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          }
         }
       ],
       "fieldConfig": {
@@ -206,7 +234,7 @@
       "description": "大促时一眼看出哪些保护正在起作用；降级开关当前取值见 Nacos 的 mall.degrade.*",
       "datasource": {
         "type": "prometheus",
-        "uid": "prometheus"
+        "uid": "${datasource}"
       },
       "gridPos": {
         "x": 12,
@@ -218,17 +246,29 @@
         {
           "refId": "A",
           "expr": "max by (name) (resilience4j_circuitbreaker_state{state=\"open\"})",
-          "legendFormat": "熔断打开 {{name}}"
+          "legendFormat": "熔断打开 {{name}}",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          }
         },
         {
           "refId": "B",
           "expr": "sum(rate(http_server_requests_seconds_count{application=\"mall-gateway\",status=\"429\"}[1m]))",
-          "legendFormat": "网关 429"
+          "legendFormat": "网关 429",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          }
         },
         {
           "refId": "C",
           "expr": "sum(rate(order_pending_limit_total{application=\"mall-app\"}[1m]))",
-          "legendFormat": "ORDER_PENDING_LIMIT"
+          "legendFormat": "ORDER_PENDING_LIMIT",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          }
         }
       ],
       "fieldConfig": {
@@ -249,6 +289,17 @@
     "list": []
   },
   "templating": {
-    "list": []
+    "list": [
+      {
+        "name": "datasource",
+        "label": "数据源",
+        "type": "datasource",
+        "query": "prometheus",
+        "current": {},
+        "hide": 0,
+        "refresh": 1,
+        "regex": ""
+      }
+    ]
   }
 }

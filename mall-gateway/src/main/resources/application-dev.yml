@@ -15,3 +15,9 @@ mall:
   security:
     jwt:
       secret: dev-only-jwt-secret-change-me-0123456789   # 本地开发占位，非真实密钥
+
+# 独立管理端口（业务端口 + 10000）：Prometheus 只从这里匿名抓 /actuator/prometheus，业务端口上它仍要登录（401）；
+# 健康检查也随之挪到这个端口。管理端口只给同网段的监控访问，不经网关、不对外。用 MANAGEMENT_PORT 改端口
+management:
+  server:
+    port: ${MANAGEMENT_PORT:19000}

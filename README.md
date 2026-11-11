@@ -72,13 +72,15 @@ curl -i localhost:9000/api/orders -H "Authorization: Bearer $TOKEN" \
 
 ### 端口规划
 
-| 服务 | 端口 |
-|------|------|
-| 订单与商品 mall-app | 8080 |
-| 库存服务 inventory-service | 8082 |
-| 支付服务 payment-service | 8083 |
-| 网关 mall-gateway（对外入口） | 9000 |
-| 配套的智能客服 [mall-assistant](https://github.com/Clarence404/mall-assistant) | 8088（与本仓库错开，可同时运行） |
+| 服务 | 端口 | 管理端口（dev） |
+|------|------|------|
+| 订单与商品 mall-app | 8080 | 18080 |
+| 库存服务 inventory-service | 8082 | 18082 |
+| 支付服务 payment-service | 8083 | 18083 |
+| 网关 mall-gateway（对外入口） | 9000 | 19000 |
+| 配套的智能客服 [mall-assistant](https://github.com/Clarence404/mall-assistant) | 8088（与本仓库错开，可同时运行） | |
+
+**抓指标**：dev profile 给每个服务开了独立管理端口（业务端口 + 10000，环境变量 `MANAGEMENT_PORT` 可改），Prometheus 匿名抓 `http://<主机>:18080/actuator/prometheus`（其余三个同理），健康检查也在管理端口（`/actuator/health/readiness`）。业务端口上的 `/actuator/prometheus` 仍要登录、匿名返回 401；管理端口上只放行 health、info、prometheus，其余端点拒绝。管理端口不经网关，只给同网段的监控访问。没开独立管理端口时（如 prod），行为与之前一样。
 
 ### 在 IntelliJ IDEA 里运行
 
@@ -151,7 +153,7 @@ mall-evolution/
 │   ├── k8s/              Deployment / Rollout + AnalysisTemplate、Service、Ingress、HPA、Flyway PreSync Job、Secret 模板
 │   ├── argocd/           Argo CD Application
 │   ├── demo/             一条命令体验的镜像构建（容器里跑 Maven，四个服务共用）
-│   ├── observability/    OTel Collector（两层）、Prometheus SLO 与组件告警、PodMonitor、Alertmanager、Grafana 业务大盘
+│   ├── observability/    OTel Collector（两层）、Prometheus SLO 与组件告警、PodMonitor、Alertmanager、Grafana 业务大盘与 JVM / HTTP 通用面板
 │   ├── nacos/            Nacos 配置样例（熔断舱壁、降级开关、活动白名单、限流路由、结构化日志）
 │   ├── redis/ rocketmq/ mysql/   本地与自建环境的 Redis Sentinel、Broker、建库建 Topic 脚本
 │   ├── promo/            大促预案脚本（扩容、分桶与合并）
