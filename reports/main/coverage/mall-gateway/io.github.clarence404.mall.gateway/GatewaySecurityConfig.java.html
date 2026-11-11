@@ -1,10 +1,14 @@
 <?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>GatewaySecurityConfig.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">mall-gateway</a> &gt; <a href="index.source.html" class="el_package">io.github.clarence404.mall.gateway</a> &gt; <span class="el_source">GatewaySecurityConfig.java</span></div><h1>GatewaySecurityConfig.java</h1><pre class="source lang-java linenums">package io.github.clarence404.mall.gateway;
 
+import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
 import javax.crypto.spec.SecretKeySpec;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.core.Ordered;
+import org.springframework.core.annotation.Order;
+import org.springframework.core.env.Environment;
 import org.springframework.http.HttpMethod;
 import org.springframework.security.config.annotation.web.reactive.EnableWebFluxSecurity;
 import org.springframework.security.config.web.server.ServerHttpSecurity;
@@ -14,39 +18,77 @@ import org.springframework.security.oauth2.jwt.JwtValidators;
 import org.springframework.security.oauth2.jwt.NimbusReactiveJwtDecoder;
 import org.springframework.security.oauth2.jwt.ReactiveJwtDecoder;
 import org.springframework.security.web.server.SecurityWebFilterChain;
+import org.springframework.security.web.server.util.matcher.ServerWebExchangeMatcher;
+import org.springframework.web.server.ServerWebExchange;
 
 /**
  * 网关作为资源服务器统一校验 JWT；下游服务仍用同一把密钥再校验一次，不只凭请求头里的用户 ID 放行。
  */
 @Configuration(proxyBeanMethods = false)
 @EnableWebFluxSecurity
-<span class="fc" id="L23">class GatewaySecurityConfig {</span>
+<span class="fc" id="L29">class GatewaySecurityConfig {</span>
+
+    /**
+     * 管理端口的过滤链：只在配置了独立管理端口（management.server.port，与业务端口不同）时才会匹配到请求。
+     *
+     * &lt;p&gt;Prometheus 只能从管理端口匿名抓取 /actuator/prometheus；业务端口（对外入口）上它仍走 gatewaySecurity，匿名 401。
+     * 管理端口上除健康检查、info、prometheus 以外的端点一律拒绝。
+     */
+    @Bean
+    @Order(Ordered.HIGHEST_PRECEDENCE)
+    SecurityWebFilterChain managementPortSecurity(ServerHttpSecurity http, Environment env) {
+<span class="fc bfc" id="L40" title="All 2 branches covered.">        return http.securityMatcher(exchange -&gt; onManagementPort(env, exchange)</span>
+<span class="fc" id="L41">                        ? ServerWebExchangeMatcher.MatchResult.match()</span>
+<span class="fc" id="L42">                        : ServerWebExchangeMatcher.MatchResult.notMatch())</span>
+<span class="fc" id="L43">                .csrf(ServerHttpSecurity.CsrfSpec::disable)</span>
+<span class="fc" id="L44">                .authorizeExchange(a -&gt; a.pathMatchers(&quot;/actuator/health/**&quot;, &quot;/actuator/info&quot;, &quot;/actuator/prometheus&quot;)</span>
+<span class="fc" id="L45">                        .permitAll()</span>
+<span class="fc" id="L46">                        .anyExchange()</span>
+<span class="fc" id="L47">                        .denyAll())</span>
+<span class="fc" id="L48">                .build();</span>
+    }
+
+    /**
+     * 请求是否打在独立的管理端口上。Spring Boot 在管理端口启动后把实际端口写进 local.management.port；
+     * 没有独立管理端口时它是 local.server.port 的别名，所以要求两者不同，这时这条过滤链永远不匹配。
+     */
+    static boolean onManagementPort(Environment env, ServerWebExchange exchange) {
+<span class="fc" id="L56">        Integer managementPort = env.getProperty(&quot;local.management.port&quot;, Integer.class);</span>
+<span class="fc" id="L57">        Integer serverPort = env.getProperty(&quot;local.server.port&quot;, Integer.class);</span>
+<span class="fc" id="L58">        InetSocketAddress local = exchange.getRequest().getLocalAddress();</span>
+<span class="pc bpc" id="L59" title="1 of 2 branches missed.">        return managementPort != null</span>
+<span class="pc bpc" id="L60" title="1 of 2 branches missed.">                &amp;&amp; managementPort &gt; 0</span>
+<span class="pc bpc" id="L61" title="1 of 4 branches missed.">                &amp;&amp; !managementPort.equals(serverPort)</span>
+                &amp;&amp; local != null
+<span class="fc bfc" id="L63" title="All 2 branches covered.">                &amp;&amp; local.getPort() == managementPort;</span>
+    }
 
     @Bean
+    @Order(Ordered.LOWEST_PRECEDENCE)
     SecurityWebFilterChain gatewaySecurity(ServerHttpSecurity http, ReactiveJwtDecoder jwtDecoder) {
-<span class="fc" id="L27">        return http.csrf(ServerHttpSecurity.CsrfSpec::disable)</span>
-<span class="fc" id="L28">                .authorizeExchange(a -&gt; a.pathMatchers(</span>
+<span class="fc" id="L69">        return http.csrf(ServerHttpSecurity.CsrfSpec::disable)</span>
+<span class="fc" id="L70">                .authorizeExchange(a -&gt; a.pathMatchers(</span>
                                 &quot;/api/auth/**&quot;, &quot;/api/payments/notify/**&quot;, &quot;/actuator/health/**&quot;, &quot;/actuator/info&quot;)
-<span class="fc" id="L30">                        .permitAll()</span>
-<span class="fc" id="L31">                        .pathMatchers(HttpMethod.GET, &quot;/api/products/**&quot;)</span>
-<span class="fc" id="L32">                        .permitAll()</span>
-<span class="fc" id="L33">                        .pathMatchers(&quot;/internal/**&quot;)</span>
-<span class="fc" id="L34">                        .denyAll() // 双保险：网关本来就不路由 /internal/**</span>
-<span class="fc" id="L35">                        .anyExchange()</span>
-<span class="fc" id="L36">                        .authenticated())</span>
-<span class="fc" id="L37">                .oauth2ResourceServer(o -&gt; o.jwt(j -&gt; j.jwtDecoder(jwtDecoder)))</span>
-<span class="fc" id="L38">                .build();</span>
+<span class="fc" id="L72">                        .permitAll()</span>
+<span class="fc" id="L73">                        .pathMatchers(HttpMethod.GET, &quot;/api/products/**&quot;)</span>
+<span class="fc" id="L74">                        .permitAll()</span>
+<span class="fc" id="L75">                        .pathMatchers(&quot;/internal/**&quot;)</span>
+<span class="fc" id="L76">                        .denyAll() // 双保险：网关本来就不路由 /internal/**</span>
+<span class="fc" id="L77">                        .anyExchange()</span>
+<span class="fc" id="L78">                        .authenticated())</span>
+<span class="fc" id="L79">                .oauth2ResourceServer(o -&gt; o.jwt(j -&gt; j.jwtDecoder(jwtDecoder)))</span>
+<span class="fc" id="L80">                .build();</span>
     }
 
     @Bean
     ReactiveJwtDecoder jwtDecoder(
             @Value(&quot;${mall.security.jwt.secret}&quot;) String secret, @Value(&quot;${mall.security.jwt.issuer}&quot;) String issuer) {
-<span class="fc" id="L44">        NimbusReactiveJwtDecoder decoder = NimbusReactiveJwtDecoder.withSecretKey(</span>
-<span class="fc" id="L45">                        new SecretKeySpec(secret.getBytes(StandardCharsets.UTF_8), &quot;HmacSHA256&quot;))</span>
-<span class="fc" id="L46">                .macAlgorithm(MacAlgorithm.HS256)</span>
-<span class="fc" id="L47">                .build();</span>
-<span class="fc" id="L48">        decoder.setJwtValidator(new DelegatingOAuth2TokenValidator&lt;&gt;(JwtValidators.createDefaultWithIssuer(issuer)));</span>
-<span class="fc" id="L49">        return decoder;</span>
+<span class="fc" id="L86">        NimbusReactiveJwtDecoder decoder = NimbusReactiveJwtDecoder.withSecretKey(</span>
+<span class="fc" id="L87">                        new SecretKeySpec(secret.getBytes(StandardCharsets.UTF_8), &quot;HmacSHA256&quot;))</span>
+<span class="fc" id="L88">                .macAlgorithm(MacAlgorithm.HS256)</span>
+<span class="fc" id="L89">                .build();</span>
+<span class="fc" id="L90">        decoder.setJwtValidator(new DelegatingOAuth2TokenValidator&lt;&gt;(JwtValidators.createDefaultWithIssuer(issuer)));</span>
+<span class="fc" id="L91">        return decoder;</span>
     }
 }
 </pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.13.202504020838</span></div></body></html>

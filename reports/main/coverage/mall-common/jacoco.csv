@@ -3,7 +3,7 @@ mall-common,io.github.clarence404.mall.common.lifecycle,RegisterWhenReady,0,44,2
 mall-common,io.github.clarence404.mall.common.lifecycle,OfflineController,41,0,4,0,11,0,5,0,3,0
 mall-common,io.github.clarence404.mall.common.degrade,DegradeProperties,12,0,0,0,4,0,1,0,1,0
 mall-common,io.github.clarence404.mall.common.security,LoginUser,10,0,0,0,2,0,2,0,2,0
-mall-common,io.github.clarence404.mall.common.security,SecurityConfig,197,0,0,0,39,0,13,0,13,0
+mall-common,io.github.clarence404.mall.common.security,SecurityConfig,249,29,1,7,48,6,19,4,18,1
 mall-common,io.github.clarence404.mall.common.security,JwtProperties,55,0,10,0,12,0,7,0,2,0
 mall-common,io.github.clarence404.mall.common.security,LoginUserAuthentication,59,0,2,0,17,0,8,0,7,0
 mall-common,io.github.clarence404.mall.common.web,CursorResult,12,0,0,0,1,0,1,0,1,0

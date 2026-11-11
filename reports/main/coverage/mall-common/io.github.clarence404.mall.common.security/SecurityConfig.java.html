@@ -5,6 +5,9 @@ import io.github.clarence404.mall.common.error.GlobalExceptionHandler;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.core.Ordered;
+import org.springframework.core.annotation.Order;
+import org.springframework.core.env.Environment;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.MediaType;
 import org.springframework.http.ProblemDetail;
@@ -27,7 +30,44 @@ import tools.jackson.databind.json.JsonMapper;
 @Configuration(proxyBeanMethods = false)
 @EnableWebSecurity
 @EnableConfigurationProperties(JwtProperties.class)
-<span class="nc" id="L30">public class SecurityConfig {</span>
+<span class="nc" id="L33">public class SecurityConfig {</span>
+
+    /**
+     * 管理端口的过滤链：只在配置了独立管理端口（management.server.port，与业务端口不同）时才会匹配到请求。
+     *
+     * &lt;p&gt;Prometheus 只能从管理端口匿名抓取 /actuator/prometheus；管理端口不对外暴露（不进网关、不进 Service），
+     * 只给同网段的 Prometheus 访问。业务端口上 /actuator/prometheus 仍走下面的 apiSecurity，匿名访问一律 401。
+     * 管理端口上除健康检查、info、prometheus 以外的端点（如 /actuator/metrics）一律拒绝。
+     */
+    @Bean
+    @Order(Ordered.HIGHEST_PRECEDENCE)
+    SecurityFilterChain managementPortSecurity(HttpSecurity http, Environment env) throws Exception {
+<span class="nc" id="L45">        http.securityMatcher(request -&gt; onManagementPort(env, request.getLocalPort()))</span>
+<span class="nc" id="L46">                .csrf(c -&gt; c.disable())</span>
+<span class="nc" id="L47">                .sessionManagement(s -&gt; s.sessionCreationPolicy(SessionCreationPolicy.STATELESS))</span>
+<span class="nc" id="L48">                .authorizeHttpRequests(</span>
+<span class="nc" id="L49">                        a -&gt; a.requestMatchers(&quot;/actuator/health/**&quot;, &quot;/actuator/info&quot;, &quot;/actuator/prometheus&quot;)</span>
+<span class="nc" id="L50">                                .permitAll()</span>
+<span class="nc" id="L51">                                .anyRequest()</span>
+<span class="nc" id="L52">                                .denyAll());</span>
+<span class="nc" id="L53">        return http.build();</span>
+    }
+
+    /**
+     * 请求是否打在独立的管理端口上。
+     *
+     * &lt;p&gt;Spring Boot 在管理端口的 Web 服务器启动后把实际端口写进 local.management.port（随机端口 0 也是实际值）。
+     * 注意：没有独立管理端口时，local.management.port 是 local.server.port 的别名，所以要求两者不同；
+     * 这时这条过滤链永远不匹配，行为与改动前完全一样。
+     */
+    static boolean onManagementPort(Environment env, int localPort) {
+<span class="fc" id="L64">        Integer managementPort = env.getProperty(&quot;local.management.port&quot;, Integer.class);</span>
+<span class="fc" id="L65">        Integer serverPort = env.getProperty(&quot;local.server.port&quot;, Integer.class);</span>
+<span class="fc bfc" id="L66" title="All 2 branches covered.">        return managementPort != null</span>
+<span class="pc bpc" id="L67" title="1 of 2 branches missed.">                &amp;&amp; managementPort &gt; 0</span>
+<span class="fc bfc" id="L68" title="All 2 branches covered.">                &amp;&amp; !managementPort.equals(serverPort)</span>
+<span class="fc bfc" id="L69" title="All 2 branches covered.">                &amp;&amp; managementPort == localPort;</span>
+    }
 
     @Bean
     SecurityFilterChain apiSecurity(
@@ -36,9 +76,9 @@ import tools.jackson.databind.json.JsonMapper;
             AuthenticationEntryPoint entryPoint,
             AccessDeniedHandler accessDeniedHandler)
             throws Exception {
-<span class="nc" id="L39">        http.csrf(c -&gt; c.disable())</span>
-<span class="nc" id="L40">                .sessionManagement(s -&gt; s.sessionCreationPolicy(SessionCreationPolicy.STATELESS))</span>
-<span class="nc" id="L41">                .authorizeHttpRequests(a -&gt; a.requestMatchers(</span>
+<span class="nc" id="L79">        http.csrf(c -&gt; c.disable())</span>
+<span class="nc" id="L80">                .sessionManagement(s -&gt; s.sessionCreationPolicy(SessionCreationPolicy.STATELESS))</span>
+<span class="nc" id="L81">                .authorizeHttpRequests(a -&gt; a.requestMatchers(</span>
                                 &quot;/api/auth/**&quot;,
                                 &quot;/api/payments/notify/**&quot;, // 渠道回调：免 JWT，改验渠道签名
                                 &quot;/internal/**&quot;, // 只在内网可达，网关不路由
@@ -48,55 +88,55 @@ import tools.jackson.databind.json.JsonMapper;
                                 &quot;/swagger-ui/**&quot;,
                                 &quot;/swagger-ui.html&quot;,
                                 &quot;/error&quot;)
-<span class="nc" id="L51">                        .permitAll()</span>
-<span class="nc" id="L52">                        .requestMatchers(HttpMethod.GET, &quot;/api/products/**&quot;)</span>
-<span class="nc" id="L53">                        .permitAll()</span>
-<span class="nc" id="L54">                        .requestMatchers(&quot;/api/admin/**&quot;) // 运营后台：令牌里要有 ADMIN 角色</span>
-<span class="nc" id="L55">                        .hasRole(&quot;ADMIN&quot;)</span>
-<span class="nc" id="L56">                        .anyRequest()</span>
-<span class="nc" id="L57">                        .authenticated())</span>
-<span class="nc" id="L58">                .oauth2ResourceServer(o -&gt; o.jwt(j -&gt;</span>
-<span class="nc" id="L59">                                j.decoder(jwtDecoder).jwtAuthenticationConverter(LoginUserAuthentication.converter()))</span>
-<span class="nc" id="L60">                        .authenticationEntryPoint(entryPoint))</span>
-<span class="nc" id="L61">                .exceptionHandling(</span>
-<span class="nc" id="L62">                        e -&gt; e.authenticationEntryPoint(entryPoint).accessDeniedHandler(accessDeniedHandler));</span>
-<span class="nc" id="L63">        return http.build();</span>
+<span class="nc" id="L91">                        .permitAll()</span>
+<span class="nc" id="L92">                        .requestMatchers(HttpMethod.GET, &quot;/api/products/**&quot;)</span>
+<span class="nc" id="L93">                        .permitAll()</span>
+<span class="nc" id="L94">                        .requestMatchers(&quot;/api/admin/**&quot;) // 运营后台：令牌里要有 ADMIN 角色</span>
+<span class="nc" id="L95">                        .hasRole(&quot;ADMIN&quot;)</span>
+<span class="nc" id="L96">                        .anyRequest()</span>
+<span class="nc" id="L97">                        .authenticated())</span>
+<span class="nc" id="L98">                .oauth2ResourceServer(o -&gt; o.jwt(j -&gt;</span>
+<span class="nc" id="L99">                                j.decoder(jwtDecoder).jwtAuthenticationConverter(LoginUserAuthentication.converter()))</span>
+<span class="nc" id="L100">                        .authenticationEntryPoint(entryPoint))</span>
+<span class="nc" id="L101">                .exceptionHandling(</span>
+<span class="nc" id="L102">                        e -&gt; e.authenticationEntryPoint(entryPoint).accessDeniedHandler(accessDeniedHandler));</span>
+<span class="nc" id="L103">        return http.build();</span>
     }
 
     @Bean
     JwtDecoder jwtDecoder(JwtProperties props) {
-<span class="nc" id="L68">        NimbusJwtDecoder decoder = NimbusJwtDecoder.withSecretKey(props.secretKey())</span>
-<span class="nc" id="L69">                .macAlgorithm(MacAlgorithm.HS256)</span>
-<span class="nc" id="L70">                .build();</span>
-<span class="nc" id="L71">        decoder.setJwtValidator(</span>
-<span class="nc" id="L72">                new DelegatingOAuth2TokenValidator&lt;&gt;(JwtValidators.createDefaultWithIssuer(props.issuer())));</span>
-<span class="nc" id="L73">        return decoder;</span>
+<span class="nc" id="L108">        NimbusJwtDecoder decoder = NimbusJwtDecoder.withSecretKey(props.secretKey())</span>
+<span class="nc" id="L109">                .macAlgorithm(MacAlgorithm.HS256)</span>
+<span class="nc" id="L110">                .build();</span>
+<span class="nc" id="L111">        decoder.setJwtValidator(</span>
+<span class="nc" id="L112">                new DelegatingOAuth2TokenValidator&lt;&gt;(JwtValidators.createDefaultWithIssuer(props.issuer())));</span>
+<span class="nc" id="L113">        return decoder;</span>
     }
 
     /** 已登录但角色不够（如普通用户调后台接口）时返回 403 的 ProblemDetail。 */
     @Bean
     AccessDeniedHandler problemAccessDeniedHandler(JsonMapper jsonMapper) {
-<span class="nc" id="L79">        return (request, response, ex) -&gt; {</span>
-<span class="nc" id="L80">            ProblemDetail pd = GlobalExceptionHandler.problem(CommonErrorCode.FORBIDDEN, &quot;需要运营后台权限&quot;);</span>
-<span class="nc" id="L81">            pd.setInstance(java.net.URI.create(request.getRequestURI()));</span>
-<span class="nc" id="L82">            response.setStatus(403);</span>
-<span class="nc" id="L83">            response.setContentType(MediaType.APPLICATION_PROBLEM_JSON_VALUE);</span>
-<span class="nc" id="L84">            response.setCharacterEncoding(&quot;UTF-8&quot;);</span>
-<span class="nc" id="L85">            jsonMapper.writeValue(response.getOutputStream(), pd);</span>
-<span class="nc" id="L86">        };</span>
+<span class="nc" id="L119">        return (request, response, ex) -&gt; {</span>
+<span class="nc" id="L120">            ProblemDetail pd = GlobalExceptionHandler.problem(CommonErrorCode.FORBIDDEN, &quot;需要运营后台权限&quot;);</span>
+<span class="nc" id="L121">            pd.setInstance(java.net.URI.create(request.getRequestURI()));</span>
+<span class="nc" id="L122">            response.setStatus(403);</span>
+<span class="nc" id="L123">            response.setContentType(MediaType.APPLICATION_PROBLEM_JSON_VALUE);</span>
+<span class="nc" id="L124">            response.setCharacterEncoding(&quot;UTF-8&quot;);</span>
+<span class="nc" id="L125">            jsonMapper.writeValue(response.getOutputStream(), pd);</span>
+<span class="nc" id="L126">        };</span>
     }
 
     /** 未登录或令牌无效时返回 401 的 ProblemDetail，与业务错误格式一致。 */
     @Bean
     AuthenticationEntryPoint problemAuthenticationEntryPoint(JsonMapper jsonMapper) {
-<span class="nc" id="L92">        return (request, response, ex) -&gt; {</span>
-<span class="nc" id="L93">            ProblemDetail pd = GlobalExceptionHandler.problem(CommonErrorCode.UNAUTHORIZED, &quot;未登录或登录已过期&quot;);</span>
-<span class="nc" id="L94">            pd.setInstance(java.net.URI.create(request.getRequestURI()));</span>
-<span class="nc" id="L95">            response.setStatus(401);</span>
-<span class="nc" id="L96">            response.setContentType(MediaType.APPLICATION_PROBLEM_JSON_VALUE);</span>
-<span class="nc" id="L97">            response.setCharacterEncoding(&quot;UTF-8&quot;);</span>
-<span class="nc" id="L98">            jsonMapper.writeValue(response.getOutputStream(), pd);</span>
-<span class="nc" id="L99">        };</span>
+<span class="nc" id="L132">        return (request, response, ex) -&gt; {</span>
+<span class="nc" id="L133">            ProblemDetail pd = GlobalExceptionHandler.problem(CommonErrorCode.UNAUTHORIZED, &quot;未登录或登录已过期&quot;);</span>
+<span class="nc" id="L134">            pd.setInstance(java.net.URI.create(request.getRequestURI()));</span>
+<span class="nc" id="L135">            response.setStatus(401);</span>
+<span class="nc" id="L136">            response.setContentType(MediaType.APPLICATION_PROBLEM_JSON_VALUE);</span>
+<span class="nc" id="L137">            response.setCharacterEncoding(&quot;UTF-8&quot;);</span>
+<span class="nc" id="L138">            jsonMapper.writeValue(response.getOutputStream(), pd);</span>
+<span class="nc" id="L139">        };</span>
     }
 }
 </pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.13.202504020838</span></div></body></html>
