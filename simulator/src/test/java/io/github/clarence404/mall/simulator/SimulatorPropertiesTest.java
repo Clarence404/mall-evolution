@@ -36,6 +36,7 @@ class SimulatorPropertiesTest {
                         + p.anomalies().notFound())
                 .isLessThanOrEqualTo(0.05);
         assertThat(p.spike().meanInterval()).isGreaterThanOrEqualTo(Duration.ofHours(1));
+        assertThat(p.spike().sku()).isEqualTo(20004L); // 已下架：高峰不产生订单
         assertThat(p.stock().restockTo()).isGreaterThan(p.stock().lowWatermark());
     }
 }

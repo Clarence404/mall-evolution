@@ -94,6 +94,7 @@ public record SimulatorProperties(
      * @param duration 每次持续多久
      * @param users 几个用户在狂点
      * @param requestsPerSecond 每人每秒点几次
+     * @param sku 狂点的商品：默认已下架的 20004（「还没开卖就狂点」），放行的请求返回 422，不产生订单
      */
     public record Spike(
             boolean enabled,
@@ -101,7 +102,8 @@ public record SimulatorProperties(
             Duration meanInterval,
             Duration duration,
             int users,
-            double requestsPerSecond) {}
+            double requestsPerSecond,
+            long sku) {}
 
     /**
      * 库存保护。

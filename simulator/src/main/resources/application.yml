@@ -71,13 +71,14 @@ simulator:
     wrong-password: 0.01           # 输错密码 → 401
     bad-request: 0.01              # 非法参数（商品 ID 为 0）→ 400
     not-found: 0.01                # 不存在的商品 → 404
-  spike:                           # 偶尔一阵突发高峰：几个用户狂点「提交订单」（同一个幂等键），网关按「用户 + 路由」限流返回 429
+  spike:                           # 偶尔一阵突发高峰：几个用户对还没开卖的商品狂点「提交订单」，网关按「用户 + 路由」限流返回 429
     enabled: true                  # 持续 8 分钟时 429 占比超过 5% 满 5 分钟，GatewayRateLimitedHigh 告警会真实 firing 一次，结束后自动恢复
     first-after: 1h                # 启动后至少多久才可能来第一次
     mean-interval: 6h              # 两次高峰的平均间隔（指数分布随机），不让告警常驻
     duration: 8m
     users: 2                       # 几个用户在狂点（各用一个演示账号）
     requests-per-second: 3         # 每人每秒点几次；下单路由每人每秒放行 1 次，突发 3 次
+    sku: 20004                     # 狂点哪个商品：已下架的演示商品，放行的请求返回 422（商品已下架），不产生订单、不动库存、下单量曲线不受影响
   stock:                           # 库存保护：已支付的订单会一直消耗库存，长期跑下去会全部「库存不足」
     skus: [20001, 20002, 20003]
     check-interval: 1m             # 多久看一次库存（GET /api/demo/inventory/stocks，demo profile 才有）

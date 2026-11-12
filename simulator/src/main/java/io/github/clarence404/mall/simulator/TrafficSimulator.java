@@ -314,8 +314,9 @@ class TrafficSimulator implements SmartLifecycle {
     // ———————————————————— 突发高峰 ————————————————————
 
     /**
-     * 等到下一次高峰，几个用户（取账号列表最后几个）各自狂点「提交订单」：先正常下一单，然后用同一个幂等键每秒点 requests-per-second 次。
-     * 网关的下单路由每人每秒只放行 1 次（突发 3 次），多出来的返回 429；放行的那些由幂等键重放成同一单，不会多下单、不动库存。
+     * 等到下一次高峰，几个用户（取账号列表最后几个）对一个还没开卖的商品（默认已下架的 20004）狂点「提交订单」，每秒 requests-per-second 次。
+     * 网关的下单路由每人每秒只放行 1 次（突发 3 次），多出来的返回 429；放行的那些到订单服务计价时返回 422（商品已下架），
+     * 不产生订单、不动库存，业务大盘的下单量曲线也不会被这阵高峰撑高。
      */
     private void spikeLoop() {
         SpikePlanner planner =
@@ -334,8 +335,9 @@ class TrafficSimulator implements SmartLifecycle {
             }
             int users = Math.clamp(props.spike().users(), 1, props.accounts().size());
             log.info(
-                    "突发高峰开始：{} 个用户狂点「提交订单」，每人每秒 {} 次，持续 {} 分钟（网关会返回 429）",
+                    "突发高峰开始：{} 个用户对还没开卖的商品 {} 狂点「提交订单」，每人每秒 {} 次，持续 {} 分钟（网关返回 429，放行的返回 422）",
                     users,
+                    props.spike().sku(),
                     props.spike().requestsPerSecond(),
                     props.spike().duration().toMinutes());
             spikeState = "进行中";
@@ -365,16 +367,19 @@ class TrafficSimulator implements SmartLifecycle {
         if (token == null) {
             return;
         }
-        String idemKey = UUID.randomUUID().toString();
         Map<String, Object> body = Map.of(
-                "lines",
-                        List.of(Map.of(
-                                "skuId", String.valueOf(props.stock().skus().getFirst()), "quantity", 1)),
+                "lines", List.of(Map.of("skuId", String.valueOf(props.spike().sku()), "quantity", 1)),
                 "address", Map.of("receiver", "演示用户", "phone", phone, "detail", "杭州市西湖区文三路 100 号"));
         long intervalMs =
                 Math.max(50, (long) (1000 / Math.max(0.1, props.spike().requestsPerSecond())));
         while (running && Instant.now().isBefore(end)) {
-            MallApi.Resp resp = api.send("POST", "/api/orders", token, body, Map.of("Idempotency-Key", idemKey));
+            // 每次点击一个新的幂等键（脚本式狂点）；失败的下单不记幂等结果，不占存储
+            MallApi.Resp resp = api.send(
+                    "POST",
+                    "/api/orders",
+                    token,
+                    body,
+                    Map.of("Idempotency-Key", UUID.randomUUID().toString()));
             if (resp.status() == 401) {
                 return; // 令牌过期（高峰不超过 30 分钟，一般遇不到）
             }
