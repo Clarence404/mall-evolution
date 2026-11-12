@@ -1,7 +1,7 @@
 GROUP,PACKAGE,CLASS,INSTRUCTION_MISSED,INSTRUCTION_COVERED,BRANCH_MISSED,BRANCH_COVERED,LINE_MISSED,LINE_COVERED,COMPLEXITY_MISSED,COMPLEXITY_COVERED,METHOD_MISSED,METHOD_COVERED
 simulator,io.github.clarence404.mall.simulator,Backoff,0,55,0,0,0,12,0,4,0,4
 simulator,io.github.clarence404.mall.simulator,SpikePlanner,0,33,0,0,0,7,0,2,0,2
-simulator,io.github.clarence404.mall.simulator,SimulatorProperties.Spike,0,21,0,0,0,1,0,1,0,1
+simulator,io.github.clarence404.mall.simulator,SimulatorProperties.Spike,0,24,0,0,0,1,0,1,0,1
 simulator,io.github.clarence404.mall.simulator,HourlyQuota,0,54,0,8,0,14,0,7,0,3
 simulator,io.github.clarence404.mall.simulator,SimulatorProperties,0,54,0,0,0,1,0,1,0,1
 simulator,io.github.clarence404.mall.simulator,SimulatorProperties.Purchase,0,18,0,0,0,1,0,1,0,1
@@ -15,7 +15,7 @@ simulator,io.github.clarence404.mall.simulator,MockPaySigner,6,25,0,0,2,5,0,1,0,
 simulator,io.github.clarence404.mall.simulator,MallApi.Resp,58,0,16,0,6,0,12,0,4,0
 simulator,io.github.clarence404.mall.simulator,Stats,121,0,10,0,25,0,11,0,6,0
 simulator,io.github.clarence404.mall.simulator,StockGuard.Action,0,15,0,0,0,3,0,1,0,1
-simulator,io.github.clarence404.mall.simulator,TrafficSimulator,1280,0,88,0,238,0,71,0,27,0
+simulator,io.github.clarence404.mall.simulator,TrafficSimulator,1285,0,88,0,238,0,71,0,27,0
 simulator,io.github.clarence404.mall.simulator,SimulatorProperties.Stock,0,18,0,0,0,1,0,1,0,1
 simulator,io.github.clarence404.mall.simulator,SimClock,0,48,0,2,0,9,0,4,0,3
 simulator,io.github.clarence404.mall.simulator,SimulatorProperties.Range,0,9,0,0,0,1,0,1,0,1

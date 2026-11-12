@@ -94,14 +94,16 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
      * @param duration 每次持续多久
      * @param users 几个用户在狂点
      * @param requestsPerSecond 每人每秒点几次
+     * @param sku 狂点的商品：默认已下架的 20004（「还没开卖就狂点」），放行的请求返回 422，不产生订单
      */
-<span class="fc" id="L98">    public record Spike(</span>
+<span class="fc" id="L99">    public record Spike(</span>
             boolean enabled,
             Duration firstAfter,
             Duration meanInterval,
             Duration duration,
             int users,
-            double requestsPerSecond) {}
+            double requestsPerSecond,
+            long sku) {}
 
     /**
      * 库存保护。
@@ -112,15 +114,15 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
      * @param restockTo 补到多少
      * @param floor 补不了货时，低于多少就不再买
      */
-<span class="fc" id="L115">    public record Stock(List&lt;Long&gt; skus, Duration checkInterval, int lowWatermark, int restockTo, int floor) {}</span>
+<span class="fc" id="L117">    public record Stock(List&lt;Long&gt; skus, Duration checkInterval, int lowWatermark, int restockTo, int floor) {}</span>
 
     /** 正常行为的种类（yml 里写 browse、my-orders 这样的小写连字符，Spring Boot 会转成枚举）。 */
-<span class="fc" id="L118">    public enum Behavior {</span>
-<span class="fc" id="L119">        BROWSE,</span>
-<span class="fc" id="L120">        RECOMMEND,</span>
-<span class="fc" id="L121">        PROFILE,</span>
-<span class="fc" id="L122">        MY_ORDERS,</span>
-<span class="fc" id="L123">        PURCHASE</span>
+<span class="fc" id="L120">    public enum Behavior {</span>
+<span class="fc" id="L121">        BROWSE,</span>
+<span class="fc" id="L122">        RECOMMEND,</span>
+<span class="fc" id="L123">        PROFILE,</span>
+<span class="fc" id="L124">        MY_ORDERS,</span>
+<span class="fc" id="L125">        PURCHASE</span>
     }
 }
 </pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.13.202504020838</span></div></body></html>
