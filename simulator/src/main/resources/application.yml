@@ -1,0 +1,87 @@
+# 流量模拟器的配置（见 SimulatorProperties）。每一项都能用环境变量覆盖，规则是 Spring Boot 的宽松绑定：
+#   simulator.base-url          → SIMULATOR_BASE_URL=http://192.168.x.x:9000
+#   simulator.max-shoppers      → SIMULATOR_MAX_SHOPPERS=20
+#   simulator.curve.acceleration → SIMULATOR_CURVE_ACCELERATION=24（一小时走完一天的起伏，演示用）
+#   simulator.spike.enabled     → SIMULATOR_SPIKE_ENABLED=false
+# 也可以在 IDEA 运行配置的 Program arguments 里写 --simulator.max-shoppers=20
+spring:
+  application:
+    name: simulator
+  main:
+    web-application-type: none     # 不开端口，只往外发请求
+    keep-alive: true               # 模拟线程是虚拟线程（守护线程），靠这个让 JVM 一直跑，直到 Ctrl+C / IDEA 停止
+    banner-mode: off
+
+logging:
+  pattern:
+    console: "%d{HH:mm:ss.SSS} %-5level [%thread] %logger{0} - %msg%n"
+
+simulator:
+  base-url: http://localhost:9000  # 网关地址：所有请求都经网关，和真实用户走同一条路（限流、JWT 校验、路由指标都算上）
+  # 演示账号（mall-app 的 db/seed/R__dev_seed_users.sql，密码都是 mall123）；不用运营账号 13800000009
+  accounts:
+    - 13800000000
+    - 13800000001
+    - 13800000002
+    - 13800000003
+    - 13800000004
+    - 13800000005
+    - 13800000006
+    - 13800000007
+  password: mall123
+  max-shoppers: 12                 # 晚高峰同时在逛的虚拟用户数；其他时段按 curve 打折，最少 1 个
+  think-time:                      # 两次操作之间的「思考时间」，在 min～max 之间均匀随机
+    min: 2s
+    max: 8s
+  session-actions:                 # 一次「打开 App 逛一会」做几件事，做完离开，歇一会再来（可能换个账号）
+    min: 3
+    max: 12
+  session-gap:                     # 两次逛之间歇多久
+    min: 5s
+    max: 30s
+  duration: 0s                     # 跑多久后自动退出；0 = 一直跑
+  stats-interval: 1m               # 多久打印一行统计
+  curve:
+    # 24 个整点的相对流量（0 点到 23 点），中间按分钟线性插值；取最大值为 1 归一化。形状参考一般电商：凌晨最低，午休一个小高峰，晚上 8～9 点最高
+    hourly: [0.30, 0.22, 0.17, 0.15, 0.15, 0.18, 0.28, 0.42, 0.55, 0.65, 0.72, 0.80,
+             0.86, 0.76, 0.70, 0.72, 0.75, 0.80, 0.88, 0.95, 1.00, 0.97, 0.80, 0.50]
+    min-factor: 0.25               # 再低也保留的比例：夜里太冷清时商品详情的本地缓存命中率掉到 70% 以下，会触发 ProductDetailL1HitRateLow
+    acceleration: 1                # 时间加速倍数：1 = 跟着真实时钟；24 = 一小时走完一天（演示起伏用）
+  behaviors:                       # 每次操作做什么，按权重随机（不必加起来等于 100）
+    browse: 55                     # 看商品详情（匿名即可）
+    recommend: 18                  # 看详情页的「猜你喜欢」（商城没有搜索接口，用它代替「逛」）
+    profile: 10                    # 看「我的」（积分）
+    my-orders: 15                  # 查我的订单列表，偶尔点进一单
+    purchase: 2                    # 下单：之后大约 70% 付款、其余不付等 1 分钟自动关单（demo profile）或主动取消
+  browse-skus:                     # 浏览哪些商品（权重）：20004 是已下架的演示商品
+    "20001": 5
+    "20002": 3
+    "20003": 2
+    "20004": 1
+  purchase:
+    skus:                          # 买哪些商品（权重）；20004 已下架，不买
+      "20001": 5
+      "20002": 3
+      "20003": 2
+    pay-probability: 0.7           # 下单后付款的比例
+    cancel-probability: 0.1        # 不付款的订单里主动点「取消」的比例；其余等超时关单
+    duplicate-submit-probability: 0.05   # 网络卡了再点一次提交（同一个 Idempotency-Key，返回同一单）
+    max-orders-per-hour: 180       # 每小时最多下多少单（硬上限，控制数据增长）
+  anomalies:                       # 少量异常行为：每次操作有这个概率改做一次「出错的请求」，都是 4xx，不会算进下单 SLO 的 5xx
+    wrong-password: 0.01           # 输错密码 → 401
+    bad-request: 0.01              # 非法参数（商品 ID 为 0）→ 400
+    not-found: 0.01                # 不存在的商品 → 404
+  spike:                           # 偶尔一阵突发高峰：几个用户狂点「提交订单」（同一个幂等键），网关按「用户 + 路由」限流返回 429
+    enabled: true                  # 持续 8 分钟时 429 占比超过 5% 满 5 分钟，GatewayRateLimitedHigh 告警会真实 firing 一次，结束后自动恢复
+    first-after: 1h                # 启动后至少多久才可能来第一次
+    mean-interval: 6h              # 两次高峰的平均间隔（指数分布随机），不让告警常驻
+    duration: 8m
+    users: 2                       # 几个用户在狂点（各用一个演示账号）
+    requests-per-second: 3         # 每人每秒点几次；下单路由每人每秒放行 1 次，突发 3 次
+  stock:                           # 库存保护：已支付的订单会一直消耗库存，长期跑下去会全部「库存不足」
+    skus: [20001, 20002, 20003]
+    check-interval: 1m             # 多久看一次库存（GET /api/demo/inventory/stocks，demo profile 才有）
+    low-watermark: 200             # 低于这个数就补货
+    restock-to: 1000               # 补到多少（PUT /api/demo/inventory/stocks/{sku}/restock，只补不减）
+    floor: 50                      # 补货接口不可用时，低于这个数就不再买这个商品，只逛
+  mock-pay-secret: dev-only-mock-pay-secret   # 模拟渠道回调的签名密钥：dev profile 的占位值（payment-service 的 mall.pay.mock.secret）

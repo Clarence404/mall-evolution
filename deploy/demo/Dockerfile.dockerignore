@@ -5,5 +5,7 @@
 **/*.iml
 perf/*
 !perf/pom.xml
+simulator/*
+!simulator/pom.xml
 api
 deploy

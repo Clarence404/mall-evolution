@@ -29,6 +29,16 @@ public interface InventoryMapper {
     @Update("UPDATE t_inventory SET reserved = reserved - #{quantity} WHERE sku_id = #{skuId}")
     int confirm(@Param("skuId") long skuId, @Param("quantity") int quantity);
 
+    /**
+     * 仅演示环境的补货（demo profile 的 {@code PUT /internal/demo/stocks/{skuId}/restock}，给长期运行的流量模拟器用）：可售数量低于
+     * target 时补到 target，只补不减；分桶的活动 SKU 不处理（库存在桶里）。一条条件更新，和并发的预占互不覆盖。
+     */
+    @Update("""
+            UPDATE t_inventory SET stock = #{target}
+            WHERE sku_id = #{skuId} AND bucket_count = 0 AND stock < #{target}
+            """)
+    int restockTo(@Param("skuId") long skuId, @Param("target") int target);
+
     @Select("SELECT stock FROM t_inventory WHERE sku_id = #{skuId}")
     Integer selectStock(@Param("skuId") long skuId);
 

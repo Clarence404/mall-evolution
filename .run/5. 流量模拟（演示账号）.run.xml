@@ -1,0 +1,11 @@
+<component name="ProjectRunConfigurationManager">
+  <configuration default="false" name="5. 流量模拟（演示账号）" type="SpringBootApplicationConfigurationType" factoryName="Spring Boot">
+    <module name="simulator" />
+    <option name="SPRING_BOOT_MAIN_CLASS" value="io.github.clarence404.mall.simulator.SimulatorApplication" />
+    <option name="VM_PARAMETERS" value="-Dfile.encoding=UTF-8" />
+    <option name="WORKING_DIRECTORY" value="file://$PROJECT_DIR$" />
+    <method v="2">
+      <option name="Make" enabled="true" />
+    </method>
+  </configuration>
+</component>

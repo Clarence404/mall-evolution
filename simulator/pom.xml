@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+    <parent>
+        <groupId>io.github.clarence404.mall</groupId>
+        <artifactId>mall-evolution</artifactId>
+        <version>${revision}</version>
+    </parent>
+
+    <artifactId>simulator</artifactId>
+    <description>流量模拟器：长期运行，用演示账号经网关模拟真人浏览、登录、下单、支付，让监控面板一直有数据。只用于本地 / 开发环境（demo profile）</description>
+
+    <dependencies>
+        <!-- 非 Web 的 Spring Boot 应用：只用它的配置绑定（yml + 环境变量）、日志和生命周期（Ctrl+C 优雅退出） -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter</artifactId>
+        </dependency>
+        <!-- Jackson 3：解析网关返回的 JSON；HTTP 用 JDK 自带的 HttpClient，不引入别的客户端 -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-jackson</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-test</artifactId>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
+
+    <build>
+        <finalName>simulator</finalName>
+        <plugins>
+            <plugin>
+                <groupId>org.springframework.boot</groupId>
+                <artifactId>spring-boot-maven-plugin</artifactId>
+            </plugin>
+        </plugins>
+    </build>
+</project>

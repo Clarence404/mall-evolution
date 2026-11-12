@@ -72,6 +72,28 @@ class DemoFaultH2Test {
                 .andExpect(jsonPath("$[0].stock").value(5));
     }
 
+    @Test
+    void restockOnlyTopsUp() throws Exception {
+        mvc.perform(put("/internal/demo/stocks/20001/restock").param("target", "1000"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[0].stock").value(1000));
+        mvc.perform(put("/internal/demo/stocks/20001/restock").param("target", "10")) // 只补不减
+                .andExpect(jsonPath("$[0].stock").value(1000));
+        mvc.perform(put("/internal/demo/stocks/20001/restock").param("target", "999999999")) // 上限 10 万
+                .andExpect(jsonPath("$[0].stock").value(100_000));
+    }
+
+    @Test
+    void restockSkipsBucketedSku() throws Exception {
+        jdbc.update("UPDATE t_inventory SET bucket_count = 2 WHERE sku_id = 20001");
+        assertThat(jdbc.queryForObject("SELECT stock FROM t_inventory WHERE sku_id = 20001", Integer.class))
+                .isEqualTo(5);
+        mvc.perform(put("/internal/demo/stocks/20001/restock").param("target", "1000"))
+                .andExpect(status().isOk());
+        assertThat(jdbc.queryForObject("SELECT stock FROM t_inventory WHERE sku_id = 20001", Integer.class))
+                .isEqualTo(5);
+    }
+
     private org.springframework.test.web.servlet.ResultActions reserve(String orderNo) throws Exception {
         return mvc.perform(post("/internal/inventory/reserve")
                 .contentType(MediaType.APPLICATION_JSON)

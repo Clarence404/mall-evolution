@@ -56,7 +56,7 @@ java -jar mall-app/target/mall-app.jar                     # :8080
 java -jar mall-gateway/target/mall-gateway.jar             # :9000，对外入口
 ```
 
-演示账号 `13800000000` / `mall123`（用户 10001），运营演示账号 `13800000009` / `mall123`（ADMIN，可调 `/api/admin/**` 后台改价接口，普通用户调用返回 403），演示商品 20001–20004（20004 已下架）。经网关下单：
+演示账号 `13800000000` / `mall123`（用户 10001；`13800000001`–`13800000007` 是另外 7 个普通演示用户，密码相同，主要给下文的流量模拟器分散用户），运营演示账号 `13800000009` / `mall123`（ADMIN，可调 `/api/admin/**` 后台改价接口，普通用户调用返回 403），演示商品 20001–20004（20004 已下架）。经网关下单：
 
 ```bash
 TOKEN=$(curl -s localhost:9000/api/auth/login -H 'Content-Type: application/json' \
@@ -91,6 +91,7 @@ curl -i localhost:9000/api/orders -H "Authorization: Bearer $TOKEN" \
 | 0. 中间件（docker compose，需 Docker） | 起 MySQL、Redis、RocketMQ、Nacos，等同 `docker compose up -d` |
 | 1. 库存服务 / 2. 支付服务 / 3. 订单与商品 / 4. 网关 | 分别启动四个服务，`dev,local` 两个 profile |
 | 全部服务（先起中间件） | 按 1→4 一次启动四个服务 |
+| 5. 流量模拟（演示账号） | 四个服务起来之后再启动：长期模拟真人浏览、下单、支付，让监控面板一直有数据，见下文「流量模拟器」 |
 | 测试：mvn verify | 跑全部检查与测试（没有 Docker 时集成测试自动跳过） |
 
 四个服务用的是 Spring Boot 类型的运行配置（需 IDEA Ultimate），profile 在「Active profiles」里设为 `dev,local,demo`；用 Community 版时，对各服务的启动类右键运行，并在运行配置里加环境变量 `SPRING_PROFILES_ACTIVE=dev,local`、工作目录设为仓库根目录。IDEA 自动识别出的同名 Spring Boot 配置不带 `local` profile，用仓库里这几个即可。
@@ -106,6 +107,29 @@ curl -i localhost:9000/api/orders -H "Authorization: Bearer $TOKEN" \
 3. 直接点上面的运行配置。它们启用 `dev,local` 两个 profile、工作目录是仓库根目录，Spring Boot 默认会读 `./config/` 下的 `application-{profile}.yml`，所以能自动读到 `config/application-local.yml`，没有这个文件时照常连 localhost。
 
 示例里的 `spring.cloud.nacos.discovery.ip: 127.0.0.1` 让四个服务以 127.0.0.1 注册到 Nacos，本机互相调用（网关转发、服务间 HTTP 调用）都能连上；有服务跑在别的机器上时改成本机局域网 IP。几个人共用同一个 Nacos 时，各自设不同的 `NACOS_NAMESPACE`（先在 Nacos 控制台建好命名空间），免得互相调到对方的实例。运行配置只在 `main` 上；切到早期章节（如 `git checkout ch03-api-design`）后 `.run/` 会随之消失，这时在 IDEA 里对 `MallApplication` 右键运行即可，那时只有这一个进程，也只需要 MySQL。
+
+### 流量模拟器（让监控一直有数据）
+
+`simulator` 模块是一个不开端口的 Spring Boot 应用，用演示账号经网关（`http://localhost:9000`）长期模拟真人使用商城，让 Prometheus / Grafana 的业务大盘和 JVM / HTTP 面板一直有数据。它和 `perf`（Gatling 压测，跑一阵子、压到极限）不同：速率低、一直跑、行为像真人。
+
+```bash
+# 先起中间件和四个服务（dev,local,demo），再：
+./mvnw -B -DskipTests -pl simulator -am package
+java -jar simulator/target/simulator.jar                         # Ctrl+C 停止
+java -jar simulator/target/simulator.jar --simulator.max-shoppers=20 --simulator.curve.acceleration=24   # 人多一点、一小时走完一天
+```
+
+IDEA 里直接选运行配置「5. 流量模拟（演示账号）」，停止按钮即退出（做完手上的请求再走）。配置都在 `simulator/src/main/resources/application.yml`，每项都能用环境变量覆盖（`SIMULATOR_BASE_URL`、`SIMULATOR_MAX_SHOPPERS`、`SIMULATOR_SPIKE_ENABLED=false` 这样）或在 Program arguments 里写 `--simulator.xxx=yyy`。
+
+- **像真人**：最多 12 个虚拟用户，每人「打开 App 逛一会」做 3～12 件事（看商品详情 55%、猜你喜欢 18%、我的 10%、查订单 15%、下单 2%），两件事之间思考 2～8 秒，逛完歇 5～30 秒、可能换个账号再来；同时在逛的人数按时段起伏（24 个整点的曲线，凌晨约 1/4、晚上 8～9 点最多，`curve.acceleration` 可加速）。商城没有搜索接口，「逛」用猜你喜欢代替
+- **下单**：下单后 70% 付款（创建支付单 + 用 dev 的占位密钥签名模拟渠道回调，看订单变待发货、积分到账），其余一部分主动取消、其余放着等 demo profile 的 1 分钟超时关单；5% 的下单会用同一个幂等键再提交一次
+- **少量异常**：每次操作 1% 输错密码（401）、1% 非法参数（400）、1% 不存在的商品（404），都是 4xx，不算进下单 SLO 的 5xx；不注入故障，熔断、下单 SLO 告警不会被它触发
+- **偶尔一阵高峰**：平均 6 小时一次（启动 1 小时后才可能有第一次）、每次 8 分钟，2 个用户狂点「提交订单」（同一个幂等键，每人每秒 3 次），网关按「用户 + 路由」限流返回 429；429 占比超过 5% 满 5 分钟，`GatewayRateLimitedHigh` 会真实 firing 一次、高峰过后自动恢复。不想要就 `SIMULATOR_SPIKE_ENABLED=false`
+- **库存保护**：已支付的订单会一直消耗库存。模拟器每分钟看一次库存（demo profile 的 `GET /api/demo/inventory/stocks`），低于 200 就调 `PUT /api/demo/inventory/stocks/{skuId}/restock?target=1000` 补到 1000（只补不减，分桶 SKU 不处理，同样只在 demo profile 下存在）；补货接口不可用时，低于 50 就停买该商品、只逛不买
+- **数据量**：默认每小时最多 180 单（`purchase.max-orders-per-hour`），实测白天约每分钟 2 单，按曲线折算**一天约 2000～2500 单**（其中约七成支付），连同支付单、本地消息、消费记录、预占记录，MySQL 一天大约多几万行、十来 MB；本地开发库不用专门清理，想清空就 `docker compose down -v` 重建（演示数据会重新加载）。四个服务的日志也会随请求增长
+- 启动时打印目标和速率，之后每分钟一行统计（请求按状态码分类、登录、下单与付款、库存、下一次高峰时间）
+
+演示账号 13800000001–13800000007 是在 `mall-app` 的 `db/seed/R__dev_seed_users.sql`（可重复迁移，只在 dev / 集成测试加载）里加的，重启 mall-app 时 Flyway 自动补上；模拟器用 8 个普通账号，运营账号 13800000009 不用。
 
 ## 构建与测试
 
@@ -148,6 +172,7 @@ mall-evolution/
 ├── payment-service/      支付服务：渠道回调、payment-succeeded、关单与退款，独享 mall_payment
 ├── mall-gateway/         入口网关：路由 /api/**、JWT 校验、按「用户 + 路由」限流；demo profile 下托管演示控制台
 ├── perf/                 Gatling 压测脚本
+├── simulator/            流量模拟器：演示账号经网关长期模拟真人浏览、下单、支付，让监控面板一直有数据（只用于本地 / 开发环境）
 ├── api/openapi.json      对外接口契约基线
 ├── deploy/
 │   ├── k8s/              Deployment / Rollout + AnalysisTemplate、Service、Ingress、HPA、Flyway PreSync Job、Secret 模板

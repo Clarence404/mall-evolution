@@ -50,6 +50,7 @@
         <module>payment-service</module>
         <module>mall-gateway</module>
         <module>perf</module>
+        <module>simulator</module>
     </modules>
 
     <dependencyManagement>
