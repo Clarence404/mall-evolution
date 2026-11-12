@@ -1,0 +1,50 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>HourlyQuota.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">simulator</a> &gt; <a href="index.source.html" class="el_package">io.github.clarence404.mall.simulator</a> &gt; <span class="el_source">HourlyQuota.java</span></div><h1>HourlyQuota.java</h1><pre class="source lang-java linenums">package io.github.clarence404.mall.simulator;
+
+import java.time.Duration;
+import java.time.Instant;
+import java.util.ArrayDeque;
+import java.util.Deque;
+
+/**
+ * 每小时下单上限（滑动窗口）：不管曲线和权重怎么配，一小时内最多下这么多单，用来控制数据增长（订单、支付单、消息记录都会一直累积）。
+ *
+ * &lt;p&gt;记下最近一小时内每一单的时间，超过一小时的从队头扔掉；多个虚拟用户线程共用一个，方法加锁。
+ */
+public final class HourlyQuota {
+
+<span class="fc" id="L15">    private static final Duration WINDOW = Duration.ofHours(1);</span>
+
+    private final int limit;
+<span class="fc" id="L18">    private final Deque&lt;Instant&gt; granted = new ArrayDeque&lt;&gt;();</span>
+
+    /**
+     * 创建。
+     *
+     * @param limit 每小时上限，≤ 0 表示不限
+     */
+<span class="fc" id="L25">    public HourlyQuota(int limit) {</span>
+<span class="fc" id="L26">        this.limit = limit;</span>
+<span class="fc" id="L27">    }</span>
+
+    /**
+     * 尝试拿一个名额。
+     *
+     * @param now 当前时刻
+     * @return 拿到返回 true（同时记下这一单）
+     */
+    public synchronized boolean tryAcquire(Instant now) {
+<span class="fc bfc" id="L36" title="All 2 branches covered.">        if (limit &lt;= 0) {</span>
+<span class="fc" id="L37">            return true;</span>
+        }
+<span class="fc" id="L39">        Instant cutoff = now.minus(WINDOW);</span>
+<span class="fc bfc" id="L40" title="All 4 branches covered.">        while (!granted.isEmpty() &amp;&amp; !granted.peekFirst().isAfter(cutoff)) {</span>
+<span class="fc" id="L41">            granted.pollFirst();</span>
+        }
+<span class="fc bfc" id="L43" title="All 2 branches covered.">        if (granted.size() &gt;= limit) {</span>
+<span class="fc" id="L44">            return false;</span>
+        }
+<span class="fc" id="L46">        granted.addLast(now);</span>
+<span class="fc" id="L47">        return true;</span>
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.13.202504020838</span></div></body></html>

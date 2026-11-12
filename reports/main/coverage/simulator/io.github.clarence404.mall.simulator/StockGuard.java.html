@@ -1,0 +1,96 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>StockGuard.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">simulator</a> &gt; <a href="index.source.html" class="el_package">io.github.clarence404.mall.simulator</a> &gt; <span class="el_source">StockGuard.java</span></div><h1>StockGuard.java</h1><pre class="source lang-java linenums">package io.github.clarence404.mall.simulator;
+
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
+
+/**
+ * 库存保护：长期运行时，已支付的订单会一直消耗库存（未支付的会在关单后归还），几天后所有商品都会「库存不足」，下单量曲线也就没了。
+ *
+ * &lt;p&gt;两道保险：
+ *
+ * &lt;ol&gt;
+ *   &lt;li&gt;定时看库存（demo profile 的 {@code GET /api/demo/inventory/stocks}），低于 low-watermark 就调补货接口补到 restock-to
+ *   &lt;li&gt;补货接口不可用（比如没开 demo profile、或库存服务还是旧版本没有这个接口）时，低于 floor 就不再买这个商品，只逛不买
+ * &lt;/ol&gt;
+ *
+ * &lt;p&gt;这里只做判断、不发请求（发请求在 {@link TrafficSimulator}），方便单元测试。多个虚拟用户线程同时读，状态放在并发容器里。
+ */
+public final class StockGuard {
+
+    /** 看完一次库存之后要做什么。 */
+<span class="fc" id="L21">    public enum Action {</span>
+        /** 够用，什么都不做。 */
+<span class="fc" id="L23">        NONE,</span>
+        /** 低于水位，去补货。 */
+<span class="fc" id="L25">        RESTOCK</span>
+    }
+
+    private final int lowWatermark;
+    private final int floor;
+<span class="fc" id="L30">    private final Map&lt;Long, Integer&gt; lastStock = new ConcurrentHashMap&lt;&gt;();</span>
+<span class="fc" id="L31">    private volatile boolean restockAvailable = true;</span>
+
+    /**
+     * 创建。
+     *
+     * @param lowWatermark 低于多少补货
+     * @param floor 补不了货时，低于多少就不再买
+     */
+<span class="fc" id="L39">    public StockGuard(int lowWatermark, int floor) {</span>
+<span class="fc" id="L40">        this.lowWatermark = lowWatermark;</span>
+<span class="fc" id="L41">        this.floor = floor;</span>
+<span class="fc" id="L42">    }</span>
+
+    /**
+     * 记下最新看到的库存，并决定要不要补货。
+     *
+     * @param skuId 商品
+     * @param stock 可售数量
+     * @return 补货接口可用且低于水位时 RESTOCK
+     */
+    public Action onStock(long skuId, int stock) {
+<span class="fc" id="L52">        lastStock.put(skuId, stock);</span>
+<span class="fc bfc" id="L53" title="All 4 branches covered.">        return restockAvailable &amp;&amp; stock &lt; lowWatermark ? Action.RESTOCK : Action.NONE;</span>
+    }
+
+    /** 补货接口不存在（404）或被拒绝：以后不再尝试，改为低于 floor 就停买。 */
+    public void markRestockUnavailable() {
+<span class="fc" id="L58">        restockAvailable = false;</span>
+<span class="fc" id="L59">    }</span>
+
+    /**
+     * 补货接口是否可用。
+     *
+     * @return 没失败过就算可用
+     */
+    public boolean restockAvailable() {
+<span class="fc" id="L67">        return restockAvailable;</span>
+    }
+
+    /**
+     * 这个商品现在还能不能下单。
+     *
+     * @param skuId 商品
+     * @return 还没看到过库存（接口不可用）时放行，由每小时下单上限兜底；补不了货且低于 floor 时不放行
+     */
+    public boolean allowOrder(long skuId) {
+<span class="fc" id="L77">        Integer stock = lastStock.get(skuId);</span>
+<span class="fc bfc" id="L78" title="All 2 branches covered.">        if (stock == null) {</span>
+<span class="fc" id="L79">            return true;</span>
+        }
+<span class="fc bfc" id="L81" title="All 2 branches covered.">        if (stock &lt;= 0) {</span>
+<span class="fc" id="L82">            return false; // 卖光了：下单也只会 409，不如不点</span>
+        }
+<span class="fc bfc" id="L84" title="All 4 branches covered.">        return restockAvailable || stock &gt; floor;</span>
+    }
+
+    /**
+     * 最近看到的库存（打印统计用）。
+     *
+     * @return 商品 → 可售数量
+     */
+    public Map&lt;Long, Integer&gt; snapshot() {
+<span class="fc" id="L93">        return Map.copyOf(lastStock);</span>
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.13.202504020838</span></div></body></html>

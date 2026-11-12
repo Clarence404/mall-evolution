@@ -1,0 +1,59 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>Backoff.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">simulator</a> &gt; <a href="index.source.html" class="el_package">io.github.clarence404.mall.simulator</a> &gt; <span class="el_source">Backoff.java</span></div><h1>Backoff.java</h1><pre class="source lang-java linenums">package io.github.clarence404.mall.simulator;
+
+import java.time.Duration;
+import java.util.random.RandomGenerator;
+
+/**
+ * 指数退避：连续失败时等待时间翻倍（base、2×base、4×base……封顶 max），再乘一个 0.5～1.0 的随机系数（抖动），成功一次就清零。
+ *
+ * &lt;p&gt;为什么要退避：网关没起、被限流（429）、服务 5xx 时，虚拟用户如果照常每几秒发一次，就成了「狂刷」，既污染监控又给服务添乱；
+ * 抖动是为了让十几个虚拟用户不要在同一时刻一起重试。
+ *
+ * &lt;p&gt;不是线程安全的：每个虚拟用户各有一个。
+ */
+public final class Backoff {
+
+    private final Duration base;
+    private final Duration max;
+    private int failures;
+
+    /**
+     * 创建。
+     *
+     * @param base 第一次失败后的等待
+     * @param max 最长等待
+     */
+<span class="fc" id="L26">    public Backoff(Duration base, Duration max) {</span>
+<span class="fc" id="L27">        this.base = base;</span>
+<span class="fc" id="L28">        this.max = max;</span>
+<span class="fc" id="L29">    }</span>
+
+    /**
+     * 记一次失败，返回这次应该等多久。
+     *
+     * @param random 随机源
+     * @return 等待时间，介于 0.5 倍和 1 倍的「base × 2^(连续失败次数-1)」之间，不超过 max
+     */
+    public Duration onFailure(RandomGenerator random) {
+<span class="fc" id="L38">        failures++;</span>
+<span class="fc" id="L39">        long exp = base.toMillis() &lt;&lt; Math.min(failures - 1, 20); // 左移封顶，防止溢出</span>
+<span class="fc" id="L40">        long capped = Math.min(exp, max.toMillis());</span>
+<span class="fc" id="L41">        long jittered = (long) (capped * (0.5 + random.nextDouble() * 0.5));</span>
+<span class="fc" id="L42">        return Duration.ofMillis(Math.max(jittered, 1));</span>
+    }
+
+    /** 成功一次：清零。 */
+    public void onSuccess() {
+<span class="fc" id="L47">        failures = 0;</span>
+<span class="fc" id="L48">    }</span>
+
+    /**
+     * 连续失败了几次。
+     *
+     * @return 次数
+     */
+    public int failures() {
+<span class="fc" id="L56">        return failures;</span>
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.13.202504020838</span></div></body></html>

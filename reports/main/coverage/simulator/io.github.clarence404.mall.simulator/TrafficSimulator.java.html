@@ -1,0 +1,420 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>TrafficSimulator.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">simulator</a> &gt; <a href="index.source.html" class="el_package">io.github.clarence404.mall.simulator</a> &gt; <span class="el_source">TrafficSimulator.java</span></div><h1>TrafficSimulator.java</h1><pre class="source lang-java linenums">package io.github.clarence404.mall.simulator;
+
+import io.github.clarence404.mall.simulator.SimulatorProperties.Behavior;
+import io.github.clarence404.mall.simulator.Stats.Counter;
+import java.time.Clock;
+import java.time.Duration;
+import java.time.Instant;
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ThreadLocalRandom;
+import java.util.stream.Collectors;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.context.ConfigurableApplicationContext;
+import org.springframework.context.SmartLifecycle;
+import org.springframework.stereotype.Component;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.json.JsonMapper;
+
+/**
+ * 模拟器的总控：随 Spring 容器启动、停止（{@link SmartLifecycle}），管着几类后台线程：
+ *
+ * &lt;ul&gt;
+ *   &lt;li&gt;max-shoppers 个虚拟用户（{@link Shopper}），按流量曲线决定几个在逛
+ *   &lt;li&gt;库存巡检：每分钟看一次库存，低于水位就补货（{@link StockGuard}）
+ *   &lt;li&gt;突发高峰：偶尔几个用户狂点「提交订单」，触发网关限流（{@link SpikePlanner}）
+ *   &lt;li&gt;统计：每分钟打印一行
+ * &lt;/ul&gt;
+ *
+ * &lt;p&gt;线程都是 Java 21 的虚拟线程：大部分时间在 sleep 或等 HTTP 响应，用虚拟线程几乎不占资源。停止时把 running 置为 false 并打断所有线程，
+ * 它们从 sleep 里醒来就退出（{@link #pause} 返回 false），最多等 5 秒。
+ */
+@Component
+class TrafficSimulator implements SmartLifecycle {
+
+<span class="nc" id="L42">    private static final Logger log = LoggerFactory.getLogger(TrafficSimulator.class);</span>
+<span class="nc" id="L43">    private static final DateTimeFormatter HM = DateTimeFormatter.ofPattern(&quot;HH:mm&quot;);</span>
+
+    private final SimulatorProperties props;
+    private final ConfigurableApplicationContext context;
+<span class="nc" id="L47">    private final Stats stats = new Stats();</span>
+    private final MallApi api;
+    private final LoadCurve curve;
+    private final SimClock clock;
+    private final WeightedPicker&lt;Behavior&gt; behaviors;
+    private final WeightedPicker&lt;Long&gt; browseSkus;
+    private final WeightedPicker&lt;Long&gt; purchaseSkus;
+    private final StockGuard stockGuard;
+    private final HourlyQuota orderQuota;
+<span class="nc" id="L56">    private final Set&lt;String&gt; warned = ConcurrentHashMap.newKeySet();</span>
+<span class="nc" id="L57">    private final List&lt;Thread&gt; threads = new ArrayList&lt;&gt;();</span>
+
+    private volatile boolean running;
+    private volatile Instant startedAt;
+<span class="nc" id="L61">    private volatile String spikeState = &quot;未开启&quot;;</span>
+
+<span class="nc" id="L63">    TrafficSimulator(SimulatorProperties props, ConfigurableApplicationContext context) {</span>
+<span class="nc" id="L64">        this.props = props;</span>
+<span class="nc" id="L65">        this.context = context;</span>
+<span class="nc" id="L66">        this.api = new MallApi(props.baseUrl(), JsonMapper.builder().build(), stats);</span>
+<span class="nc" id="L67">        this.curve = new LoadCurve(props.curve().hourly(), props.curve().minFactor());</span>
+<span class="nc" id="L68">        this.clock = new SimClock(Clock.systemDefaultZone(), props.curve().acceleration());</span>
+<span class="nc" id="L69">        this.behaviors = new WeightedPicker&lt;&gt;(props.behaviors());</span>
+<span class="nc" id="L70">        this.browseSkus = new WeightedPicker&lt;&gt;(props.browseSkus());</span>
+<span class="nc" id="L71">        this.purchaseSkus = new WeightedPicker&lt;&gt;(props.purchase().skus());</span>
+<span class="nc" id="L72">        this.stockGuard =</span>
+<span class="nc" id="L73">                new StockGuard(props.stock().lowWatermark(), props.stock().floor());</span>
+<span class="nc" id="L74">        this.orderQuota = new HourlyQuota(props.purchase().maxOrdersPerHour());</span>
+<span class="nc bnc" id="L75" title="All 4 branches missed.">        if (props.accounts() == null || props.accounts().isEmpty()) {</span>
+<span class="nc" id="L76">            throw new IllegalArgumentException(&quot;simulator.accounts 至少要有一个演示账号&quot;);</span>
+        }
+<span class="nc" id="L78">    }</span>
+
+    @Override
+    public void start() {
+<span class="nc" id="L82">        running = true;</span>
+<span class="nc" id="L83">        startedAt = Instant.now();</span>
+<span class="nc" id="L84">        printBanner();</span>
+<span class="nc bnc" id="L85" title="All 2 branches missed.">        for (int i = 0; i &lt; props.maxShoppers(); i++) {</span>
+<span class="nc" id="L86">            threads.add(Thread.ofVirtual().name(&quot;shopper-&quot; + (i + 1)).start(new Shopper(i, this)));</span>
+        }
+<span class="nc" id="L88">        threads.add(Thread.ofVirtual().name(&quot;stock-guard&quot;).start(this::stockLoop));</span>
+<span class="nc" id="L89">        threads.add(Thread.ofVirtual().name(&quot;stats&quot;).start(this::statsLoop));</span>
+<span class="nc bnc" id="L90" title="All 2 branches missed.">        if (props.spike().enabled()) {</span>
+<span class="nc" id="L91">            threads.add(Thread.ofVirtual().name(&quot;spike&quot;).start(this::spikeLoop));</span>
+        }
+<span class="nc bnc" id="L93" title="All 2 branches missed.">        if (!props.duration().isZero()) {</span>
+<span class="nc" id="L94">            threads.add(Thread.ofVirtual().name(&quot;timer&quot;).start(() -&gt; {</span>
+<span class="nc bnc" id="L95" title="All 2 branches missed.">                if (pause(props.duration())) {</span>
+<span class="nc" id="L96">                    log.info(&quot;已运行 {}，按 simulator.duration 自动退出&quot;, props.duration());</span>
+<span class="nc" id="L97">                    context.close(); // 关容器 → 调 stop() → keep-alive 线程结束 → JVM 退出</span>
+                }
+<span class="nc" id="L99">            }));</span>
+        }
+<span class="nc" id="L101">    }</span>
+
+    @Override
+    public void stop() {
+<span class="nc bnc" id="L105" title="All 2 branches missed.">        if (!running) {</span>
+<span class="nc" id="L106">            return;</span>
+        }
+<span class="nc" id="L108">        log.info(&quot;正在停止：等虚拟用户做完手上的请求……&quot;);</span>
+<span class="nc" id="L109">        running = false;</span>
+<span class="nc" id="L110">        threads.forEach(Thread::interrupt);</span>
+<span class="nc bnc" id="L111" title="All 2 branches missed.">        for (Thread t : threads) {</span>
+<span class="nc bnc" id="L112" title="All 2 branches missed.">            if (t == Thread.currentThread()) {</span>
+<span class="nc" id="L113">                continue; // 按 duration 自动退出时，stop() 就跑在 timer 线程上，不能等自己</span>
+            }
+            try {
+<span class="nc" id="L116">                t.join(Duration.ofSeconds(5));</span>
+<span class="nc" id="L117">            } catch (InterruptedException e) {</span>
+<span class="nc" id="L118">                Thread.currentThread().interrupt();</span>
+<span class="nc" id="L119">                break;</span>
+<span class="nc" id="L120">            }</span>
+<span class="nc" id="L121">        }</span>
+<span class="nc" id="L122">        log.info(</span>
+                &quot;已停止。累计：请求 {}，登录 {}，下单 {}（支付 {}、取消 {}、待超时关单 {}），补货 {} 次&quot;,
+<span class="nc" id="L124">                stats.total(Counter.REQUESTS),</span>
+<span class="nc" id="L125">                stats.total(Counter.LOGINS),</span>
+<span class="nc" id="L126">                stats.total(Counter.ORDERS),</span>
+<span class="nc" id="L127">                stats.total(Counter.PAID),</span>
+<span class="nc" id="L128">                stats.total(Counter.CANCELLED),</span>
+<span class="nc" id="L129">                stats.total(Counter.UNPAID),</span>
+<span class="nc" id="L130">                stats.total(Counter.RESTOCKS));</span>
+<span class="nc" id="L131">    }</span>
+
+    @Override
+    public boolean isRunning() {
+<span class="nc" id="L135">        return running;</span>
+    }
+
+    private void printBanner() {
+<span class="nc" id="L139">        LocalDateTime now = clock.now();</span>
+<span class="nc" id="L140">        log.info(&quot;流量模拟器启动：目标 {}（经网关），演示账号 {} 个&quot;, api.baseUrl(), props.accounts().size());</span>
+<span class="nc" id="L141">        log.info(</span>
+                &quot;速率：最多 {} 个虚拟用户同时在逛（当前时段 {} 个，曲线系数 {}，时间加速 {} 倍），思考时间 {}～{} 秒，每次逛 {}～{} 件事&quot;,
+<span class="nc" id="L143">                props.maxShoppers(),</span>
+<span class="nc" id="L144">                activeShoppers(),</span>
+<span class="nc" id="L145">                String.format(&quot;%.2f&quot;, curve.factor(now.toLocalTime())),</span>
+<span class="nc" id="L146">                props.curve().acceleration(),</span>
+<span class="nc" id="L147">                props.thinkTime().min().toSeconds(),</span>
+<span class="nc" id="L148">                props.thinkTime().max().toSeconds(),</span>
+<span class="nc" id="L149">                props.sessionActions().min(),</span>
+<span class="nc" id="L150">                props.sessionActions().max());</span>
+<span class="nc" id="L151">        log.info(</span>
+                &quot;行为占比：{}；下单后付款 {}%，每小时最多 {} 单；异常请求：错密码 {}%、非法参数 {}%、不存在的商品 {}%&quot;,
+<span class="nc" id="L153">                props.behaviors().keySet().stream()</span>
+<span class="nc" id="L154">                        .map(b -&gt; b.name().toLowerCase() + &quot; &quot; + Math.round(behaviors.probability(b) * 100) + &quot;%&quot;)</span>
+<span class="nc" id="L155">                        .collect(Collectors.joining(&quot;、&quot;)),</span>
+<span class="nc" id="L156">                Math.round(props.purchase().payProbability() * 100),</span>
+<span class="nc" id="L157">                props.purchase().maxOrdersPerHour(),</span>
+<span class="nc" id="L158">                props.anomalies().wrongPassword() * 100,</span>
+<span class="nc" id="L159">                props.anomalies().badRequest() * 100,</span>
+<span class="nc" id="L160">                props.anomalies().notFound() * 100);</span>
+<span class="nc" id="L161">        log.info(</span>
+                &quot;突发高峰：{}；库存保护：低于 {} 补到 {}；{}&quot;,
+<span class="nc bnc" id="L163" title="All 2 branches missed.">                props.spike().enabled()</span>
+<span class="nc" id="L164">                        ? &quot;平均每 &quot; + props.spike().meanInterval().toMinutes() + &quot; 分钟一次、每次 &quot;</span>
+<span class="nc" id="L165">                                + props.spike().duration().toMinutes() + &quot; 分钟（最早启动后 &quot;</span>
+<span class="nc" id="L166">                                + props.spike().firstAfter().toMinutes() + &quot; 分钟）&quot;</span>
+<span class="nc" id="L167">                        : &quot;关闭&quot;,</span>
+<span class="nc" id="L168">                props.stock().lowWatermark(),</span>
+<span class="nc" id="L169">                props.stock().restockTo(),</span>
+<span class="nc bnc" id="L170" title="All 2 branches missed.">                props.duration().isZero() ? &quot;一直运行，Ctrl+C 或 IDEA 停止按钮退出&quot; : &quot;运行 &quot; + props.duration() + &quot; 后退出&quot;);</span>
+<span class="nc" id="L171">    }</span>
+
+    // ———————————————————— 给 Shopper 用的共享状态 ————————————————————
+
+    SimulatorProperties props() {
+<span class="nc" id="L176">        return props;</span>
+    }
+
+    MallApi api() {
+<span class="nc" id="L180">        return api;</span>
+    }
+
+    Stats stats() {
+<span class="nc" id="L184">        return stats;</span>
+    }
+
+    WeightedPicker&lt;Behavior&gt; behaviors() {
+<span class="nc" id="L188">        return behaviors;</span>
+    }
+
+    WeightedPicker&lt;Long&gt; browseSkus() {
+<span class="nc" id="L192">        return browseSkus;</span>
+    }
+
+    WeightedPicker&lt;Long&gt; purchaseSkus() {
+<span class="nc" id="L196">        return purchaseSkus;</span>
+    }
+
+    StockGuard stockGuard() {
+<span class="nc" id="L200">        return stockGuard;</span>
+    }
+
+    HourlyQuota orderQuota() {
+<span class="nc" id="L204">        return orderQuota;</span>
+    }
+
+    boolean running() {
+<span class="nc" id="L208">        return running;</span>
+    }
+
+    /** 当前模拟时刻应该有几个虚拟用户在逛。 */
+    int activeShoppers() {
+<span class="nc" id="L213">        return curve.activeShoppers(clock.now().toLocalTime(), props.maxShoppers());</span>
+    }
+
+    /**
+     * 睡一会；停止时被打断就返回 false，调用方据此退出循环。
+     *
+     * @param duration 时长
+     * @return 正常睡醒且仍在运行返回 true
+     */
+    boolean pause(Duration duration) {
+<span class="nc bnc" id="L223" title="All 2 branches missed.">        if (!running) {</span>
+<span class="nc" id="L224">            return false;</span>
+        }
+        try {
+<span class="nc" id="L227">            Thread.sleep(duration);</span>
+<span class="nc" id="L228">            return running;</span>
+<span class="nc" id="L229">        } catch (InterruptedException e) {</span>
+<span class="nc" id="L230">            Thread.currentThread().interrupt();</span>
+<span class="nc" id="L231">            return false;</span>
+        }
+    }
+
+    /** 同一个问题只警告一次，免得每个虚拟用户每次都刷一行。 */
+    void warnOnce(String key, String message) {
+<span class="nc bnc" id="L237" title="All 2 branches missed.">        if (warned.add(key)) {</span>
+<span class="nc" id="L238">            log.warn(message);</span>
+        }
+<span class="nc" id="L240">    }</span>
+
+    // ———————————————————— 库存巡检 ————————————————————
+
+    /** 每 check-interval 看一次库存，低于水位就补货。看库存和补货都要登录（网关校验 JWT），用第一个演示账号。 */
+    private void stockLoop() {
+<span class="nc" id="L246">        String token = null;</span>
+<span class="nc bnc" id="L247" title="All 2 branches missed.">        while (running) {</span>
+<span class="nc bnc" id="L248" title="All 2 branches missed.">            if (token == null) {</span>
+<span class="nc" id="L249">                MallApi.Resp login = api.post(</span>
+                        &quot;/api/auth/login&quot;,
+                        null,
+<span class="nc" id="L252">                        Map.of(&quot;phone&quot;, props.accounts().getFirst(), &quot;password&quot;, props.password()));</span>
+<span class="nc bnc" id="L253" title="All 2 branches missed.">                token = login.ok() ? login.text(&quot;accessToken&quot;) : null;</span>
+            }
+<span class="nc bnc" id="L255" title="All 2 branches missed.">            if (token != null) {</span>
+<span class="nc" id="L256">                token = checkStock(token);</span>
+            }
+<span class="nc bnc" id="L258" title="All 2 branches missed.">            if (!pause(props.stock().checkInterval())) {</span>
+<span class="nc" id="L259">                return;</span>
+            }
+        }
+<span class="nc" id="L262">    }</span>
+
+    /** 看一次库存并按需补货；令牌失效时返回 null，下一轮重新登录。 */
+    private String checkStock(String token) {
+<span class="nc" id="L266">        String ids = props.stock().skus().stream().map(String::valueOf).collect(Collectors.joining(&quot;,&quot;));</span>
+<span class="nc" id="L267">        MallApi.Resp resp = api.get(&quot;/api/demo/inventory/stocks?skuIds=&quot; + ids, token);</span>
+<span class="nc bnc" id="L268" title="All 2 branches missed.">        if (resp.status() == 401) {</span>
+<span class="nc" id="L269">            return null; // 令牌 30 分钟过期</span>
+        }
+<span class="nc bnc" id="L271" title="All 2 branches missed.">        if (resp.status() == 404) {</span>
+<span class="nc" id="L272">            warnOnce(&quot;stocks-404&quot;, &quot;看不到库存（/api/demo/inventory/stocks 返回 404）：四个服务没开 demo profile？库存保护只剩每小时下单上限&quot;);</span>
+<span class="nc" id="L273">            stockGuard.markRestockUnavailable();</span>
+<span class="nc" id="L274">            return token;</span>
+        }
+<span class="nc bnc" id="L276" title="All 6 branches missed.">        if (!resp.ok() || resp.json() == null || !resp.json().isArray()) {</span>
+<span class="nc" id="L277">            return token;</span>
+        }
+<span class="nc bnc" id="L279" title="All 2 branches missed.">        for (JsonNode row : resp.json()) {</span>
+<span class="nc" id="L280">            long sku = row.get(&quot;skuId&quot;).asLong();</span>
+<span class="nc" id="L281">            int stock = row.get(&quot;stock&quot;).asInt();</span>
+<span class="nc bnc" id="L282" title="All 2 branches missed.">            if (stockGuard.onStock(sku, stock) == StockGuard.Action.RESTOCK) {</span>
+<span class="nc" id="L283">                restock(sku, stock, token);</span>
+            }
+<span class="nc" id="L285">        }</span>
+<span class="nc" id="L286">        return token;</span>
+    }
+
+    private void restock(long sku, int before, String token) {
+<span class="nc" id="L290">        MallApi.Resp resp = api.send(</span>
+                &quot;PUT&quot;,
+                &quot;/api/demo/inventory/stocks/&quot; + sku + &quot;/restock?target=&quot;
+<span class="nc" id="L293">                        + props.stock().restockTo(),</span>
+                token,
+                null,
+<span class="nc" id="L296">                Map.of());</span>
+<span class="nc bnc" id="L297" title="All 2 branches missed.">        if (resp.ok()</span>
+<span class="nc bnc" id="L298" title="All 2 branches missed.">                &amp;&amp; resp.json() != null</span>
+<span class="nc bnc" id="L299" title="All 2 branches missed.">                &amp;&amp; resp.json().isArray()</span>
+<span class="nc bnc" id="L300" title="All 2 branches missed.">                &amp;&amp; !resp.json().isEmpty()) {</span>
+<span class="nc" id="L301">            int after = resp.json().get(0).get(&quot;stock&quot;).asInt();</span>
+<span class="nc" id="L302">            stockGuard.onStock(sku, after);</span>
+<span class="nc" id="L303">            stats.inc(Counter.RESTOCKS);</span>
+<span class="nc" id="L304">            log.info(&quot;补货：商品 {} 库存 {} → {}&quot;, sku, before, after);</span>
+<span class="nc bnc" id="L305" title="All 4 branches missed.">        } else if (resp.status() == 404 || resp.status() == 405) {</span>
+<span class="nc" id="L306">            stockGuard.markRestockUnavailable();</span>
+<span class="nc" id="L307">            warnOnce(</span>
+                    &quot;restock-404&quot;,
+<span class="nc" id="L309">                    &quot;补货接口不可用（HTTP &quot; + resp.status() + &quot;）：库存服务是旧版本？改为库存低于 &quot;</span>
+<span class="nc" id="L310">                            + props.stock().floor() + &quot; 就停买该商品；更新并重启 inventory-service 后再重启模拟器即可恢复补货&quot;);</span>
+        }
+<span class="nc" id="L312">    }</span>
+
+    // ———————————————————— 突发高峰 ————————————————————
+
+    /**
+     * 等到下一次高峰，几个用户（取账号列表最后几个）各自狂点「提交订单」：先正常下一单，然后用同一个幂等键每秒点 requests-per-second 次。
+     * 网关的下单路由每人每秒只放行 1 次（突发 3 次），多出来的返回 429；放行的那些由幂等键重放成同一单，不会多下单、不动库存。
+     */
+    private void spikeLoop() {
+<span class="nc" id="L321">        SpikePlanner planner =</span>
+<span class="nc" id="L322">                new SpikePlanner(props.spike().firstAfter(), props.spike().meanInterval());</span>
+<span class="nc" id="L323">        Instant next = planner.next(Instant.now(), ThreadLocalRandom.current());</span>
+<span class="nc bnc" id="L324" title="All 2 branches missed.">        while (running) {</span>
+<span class="nc" id="L325">            spikeState = &quot;下一次约在 &quot;</span>
+<span class="nc" id="L326">                    + HM.format(LocalDateTime.ofInstant(</span>
+<span class="nc" id="L327">                            next, Clock.systemDefaultZone().getZone()));</span>
+<span class="nc" id="L328">            log.info(&quot;突发高峰：{}&quot;, spikeState);</span>
+<span class="nc bnc" id="L329" title="All 2 branches missed.">            if (!pause(</span>
+<span class="nc bnc" id="L330" title="All 2 branches missed.">                    Duration.between(Instant.now(), next).isNegative()</span>
+<span class="nc" id="L331">                            ? Duration.ZERO</span>
+<span class="nc" id="L332">                            : Duration.between(Instant.now(), next))) {</span>
+<span class="nc" id="L333">                return;</span>
+            }
+<span class="nc" id="L335">            int users = Math.clamp(props.spike().users(), 1, props.accounts().size());</span>
+<span class="nc" id="L336">            log.info(</span>
+                    &quot;突发高峰开始：{} 个用户狂点「提交订单」，每人每秒 {} 次，持续 {} 分钟（网关会返回 429）&quot;,
+<span class="nc" id="L338">                    users,</span>
+<span class="nc" id="L339">                    props.spike().requestsPerSecond(),</span>
+<span class="nc" id="L340">                    props.spike().duration().toMinutes());</span>
+<span class="nc" id="L341">            spikeState = &quot;进行中&quot;;</span>
+<span class="nc" id="L342">            Instant end = Instant.now().plus(props.spike().duration());</span>
+<span class="nc" id="L343">            List&lt;Thread&gt; clickers = new ArrayList&lt;&gt;();</span>
+<span class="nc bnc" id="L344" title="All 2 branches missed.">            for (int i = 0; i &lt; users; i++) {</span>
+<span class="nc" id="L345">                String phone = props.accounts().get(props.accounts().size() - 1 - i);</span>
+<span class="nc" id="L346">                clickers.add(Thread.ofVirtual().name(&quot;spike-&quot; + (i + 1)).start(() -&gt; hammer(phone, end)));</span>
+            }
+<span class="nc bnc" id="L348" title="All 2 branches missed.">            for (Thread t : clickers) {</span>
+                try {
+<span class="nc" id="L350">                    t.join();</span>
+<span class="nc" id="L351">                } catch (InterruptedException e) {</span>
+<span class="nc" id="L352">                    clickers.forEach(Thread::interrupt);</span>
+<span class="nc" id="L353">                    Thread.currentThread().interrupt();</span>
+<span class="nc" id="L354">                    return;</span>
+<span class="nc" id="L355">                }</span>
+<span class="nc" id="L356">            }</span>
+<span class="nc" id="L357">            log.info(&quot;突发高峰结束&quot;);</span>
+<span class="nc" id="L358">            next = planner.next(Instant.now(), ThreadLocalRandom.current());</span>
+<span class="nc" id="L359">        }</span>
+<span class="nc" id="L360">    }</span>
+
+    private void hammer(String phone, Instant end) {
+<span class="nc" id="L363">        MallApi.Resp login = api.post(&quot;/api/auth/login&quot;, null, Map.of(&quot;phone&quot;, phone, &quot;password&quot;, props.password()));</span>
+<span class="nc bnc" id="L364" title="All 2 branches missed.">        String token = login.ok() ? login.text(&quot;accessToken&quot;) : null;</span>
+<span class="nc bnc" id="L365" title="All 2 branches missed.">        if (token == null) {</span>
+<span class="nc" id="L366">            return;</span>
+        }
+<span class="nc" id="L368">        String idemKey = UUID.randomUUID().toString();</span>
+<span class="nc" id="L369">        Map&lt;String, Object&gt; body = Map.of(</span>
+                &quot;lines&quot;,
+<span class="nc" id="L371">                        List.of(Map.of(</span>
+<span class="nc" id="L372">                                &quot;skuId&quot;, String.valueOf(props.stock().skus().getFirst()), &quot;quantity&quot;, 1)),</span>
+<span class="nc" id="L373">                &quot;address&quot;, Map.of(&quot;receiver&quot;, &quot;演示用户&quot;, &quot;phone&quot;, phone, &quot;detail&quot;, &quot;杭州市西湖区文三路 100 号&quot;));</span>
+<span class="nc" id="L374">        long intervalMs =</span>
+<span class="nc" id="L375">                Math.max(50, (long) (1000 / Math.max(0.1, props.spike().requestsPerSecond())));</span>
+<span class="nc bnc" id="L376" title="All 4 branches missed.">        while (running &amp;&amp; Instant.now().isBefore(end)) {</span>
+<span class="nc" id="L377">            MallApi.Resp resp = api.send(&quot;POST&quot;, &quot;/api/orders&quot;, token, body, Map.of(&quot;Idempotency-Key&quot;, idemKey));</span>
+<span class="nc bnc" id="L378" title="All 2 branches missed.">            if (resp.status() == 401) {</span>
+<span class="nc" id="L379">                return; // 令牌过期（高峰不超过 30 分钟，一般遇不到）</span>
+            }
+<span class="nc bnc" id="L381" title="All 2 branches missed.">            if (!pause(Duration.ofMillis(intervalMs))) {</span>
+<span class="nc" id="L382">                return;</span>
+            }
+<span class="nc" id="L384">        }</span>
+<span class="nc" id="L385">    }</span>
+
+    // ———————————————————— 统计 ————————————————————
+
+    private void statsLoop() {
+<span class="nc bnc" id="L390" title="All 2 branches missed.">        while (pause(props.statsInterval())) {</span>
+<span class="nc" id="L391">            Map&lt;Counter, Long&gt; s = stats.drainInterval();</span>
+<span class="nc" id="L392">            LocalDateTime simNow = clock.now();</span>
+<span class="nc" id="L393">            log.info(</span>
+                    &quot;最近 {} 秒：在逛 {}/{} 人（模拟时刻 {}，系数 {}）｜请求 {}：2xx {}、4xx {}、429 {}、5xx {}、连不上 {}｜登录 {}，下单 {}（付款 {}、取消 {}、待关单 {}、被拒 {}、未下 {}），异常请求 {}｜库存 {}｜高峰 {}｜累计下单 {}&quot;,
+<span class="nc" id="L395">                    props.statsInterval().toSeconds(),</span>
+<span class="nc" id="L396">                    activeShoppers(),</span>
+<span class="nc" id="L397">                    props.maxShoppers(),</span>
+<span class="nc" id="L398">                    HM.format(simNow),</span>
+<span class="nc" id="L399">                    String.format(&quot;%.2f&quot;, curve.factor(simNow.toLocalTime())),</span>
+<span class="nc" id="L400">                    s.get(Counter.REQUESTS),</span>
+<span class="nc" id="L401">                    s.get(Counter.S2XX),</span>
+<span class="nc" id="L402">                    s.get(Counter.S4XX),</span>
+<span class="nc" id="L403">                    s.get(Counter.S429),</span>
+<span class="nc" id="L404">                    s.get(Counter.S5XX),</span>
+<span class="nc" id="L405">                    s.get(Counter.IO_ERRORS),</span>
+<span class="nc" id="L406">                    s.get(Counter.LOGINS),</span>
+<span class="nc" id="L407">                    s.get(Counter.ORDERS),</span>
+<span class="nc" id="L408">                    s.get(Counter.PAID),</span>
+<span class="nc" id="L409">                    s.get(Counter.CANCELLED),</span>
+<span class="nc" id="L410">                    s.get(Counter.UNPAID),</span>
+<span class="nc" id="L411">                    s.get(Counter.ORDER_REJECTED),</span>
+<span class="nc" id="L412">                    s.get(Counter.ORDER_SKIPPED),</span>
+<span class="nc" id="L413">                    s.get(Counter.ANOMALIES),</span>
+<span class="nc bnc" id="L414" title="All 2 branches missed.">                    stockGuard.snapshot().isEmpty() ? &quot;未知&quot; : stockGuard.snapshot(),</span>
+                    spikeState,
+<span class="nc" id="L416">                    stats.total(Counter.ORDERS));</span>
+<span class="nc" id="L417">        }</span>
+<span class="nc" id="L418">    }</span>
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.13.202504020838</span></div></body></html>

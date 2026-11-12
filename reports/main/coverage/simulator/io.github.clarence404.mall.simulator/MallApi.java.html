@@ -1,0 +1,162 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>MallApi.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">simulator</a> &gt; <a href="index.source.html" class="el_package">io.github.clarence404.mall.simulator</a> &gt; <span class="el_source">MallApi.java</span></div><h1>MallApi.java</h1><pre class="source lang-java linenums">package io.github.clarence404.mall.simulator;
+
+import java.io.IOException;
+import java.net.URI;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
+import java.time.Duration;
+import java.util.Map;
+import tools.jackson.core.JacksonException;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.json.JsonMapper;
+
+/**
+ * 经网关调商城接口的薄封装：JDK 自带的 HttpClient，发 JSON、收 JSON，每个响应都记进 {@link Stats}。
+ *
+ * &lt;p&gt;不抛异常：连不上、超时返回状态码 -1，由调用方决定退避；这样虚拟用户的循环里不用到处 try/catch。
+ */
+public final class MallApi {
+
+    /**
+     * 一次响应。
+     *
+     * @param status HTTP 状态码，-1 表示连不上或超时
+     * @param json 响应体解析成的 JSON，不是 JSON 时为 null
+     */
+<span class="nc" id="L27">    public record Resp(int status, JsonNode json) {</span>
+
+        /**
+         * 是否 2xx。
+         *
+         * @return 2xx 返回 true
+         */
+        public boolean ok() {
+<span class="nc bnc" id="L35" title="All 4 branches missed.">            return status &gt;= 200 &amp;&amp; status &lt; 300;</span>
+        }
+
+        /**
+         * 是否需要退避：连不上、被限流、服务端错误。
+         *
+         * @return 是则 true
+         */
+        public boolean shouldBackOff() {
+<span class="nc bnc" id="L44" title="All 6 branches missed.">            return status &lt; 0 || status == 429 || status &gt;= 500;</span>
+        }
+
+        /**
+         * 取一个文本字段。
+         *
+         * @param field 字段名
+         * @return 值，没有时返回 null
+         */
+        public String text(String field) {
+<span class="nc bnc" id="L54" title="All 6 branches missed.">            if (json == null || !json.has(field) || json.get(field).isNull()) {</span>
+<span class="nc" id="L55">                return null;</span>
+            }
+<span class="nc" id="L57">            return json.get(field).asString();</span>
+        }
+    }
+
+    private final String baseUrl;
+    private final HttpClient http;
+    private final JsonMapper json;
+    private final Stats stats;
+
+    /**
+     * 创建。
+     *
+     * @param baseUrl 网关地址，如 http://localhost:9000
+     * @param json Jackson
+     * @param stats 统计
+     */
+<span class="nc" id="L73">    public MallApi(String baseUrl, JsonMapper json, Stats stats) {</span>
+<span class="nc bnc" id="L74" title="All 2 branches missed.">        this.baseUrl = baseUrl.endsWith(&quot;/&quot;) ? baseUrl.substring(0, baseUrl.length() - 1) : baseUrl;</span>
+<span class="nc" id="L75">        this.json = json;</span>
+<span class="nc" id="L76">        this.stats = stats;</span>
+<span class="nc" id="L77">        this.http =</span>
+<span class="nc" id="L78">                HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(3)).build();</span>
+<span class="nc" id="L79">    }</span>
+
+    /**
+     * 网关地址。
+     *
+     * @return 去掉末尾斜杠后的地址
+     */
+    public String baseUrl() {
+<span class="nc" id="L87">        return baseUrl;</span>
+    }
+
+    /**
+     * 发一个请求。
+     *
+     * @param method GET / POST / PUT / DELETE
+     * @param path 以 / 开头的路径（可带查询串）
+     * @param token 访问令牌，匿名时为 null
+     * @param body 请求体（会序列化成 JSON），没有时为 null
+     * @param headers 额外的请求头
+     * @return 响应；连不上或超时时 status = -1
+     */
+    public Resp send(String method, String path, String token, Object body, Map&lt;String, String&gt; headers) {
+<span class="nc" id="L101">        HttpRequest.Builder req = HttpRequest.newBuilder(URI.create(baseUrl + path))</span>
+<span class="nc" id="L102">                .timeout(Duration.ofSeconds(10))</span>
+<span class="nc" id="L103">                .header(&quot;Accept&quot;, &quot;application/json&quot;)</span>
+<span class="nc" id="L104">                .header(&quot;User-Agent&quot;, &quot;mall-simulator&quot;);</span>
+<span class="nc bnc" id="L105" title="All 2 branches missed.">        if (token != null) {</span>
+<span class="nc" id="L106">            req.header(&quot;Authorization&quot;, &quot;Bearer &quot; + token);</span>
+        }
+<span class="nc" id="L108">        headers.forEach(req::header);</span>
+<span class="nc bnc" id="L109" title="All 2 branches missed.">        if (body != null) {</span>
+<span class="nc" id="L110">            req.header(&quot;Content-Type&quot;, &quot;application/json&quot;)</span>
+<span class="nc" id="L111">                    .method(method, HttpRequest.BodyPublishers.ofString(json.writeValueAsString(body)));</span>
+        } else {
+<span class="nc" id="L113">            req.method(method, HttpRequest.BodyPublishers.noBody());</span>
+        }
+        try {
+<span class="nc" id="L116">            HttpResponse&lt;String&gt; resp = http.send(req.build(), HttpResponse.BodyHandlers.ofString());</span>
+<span class="nc" id="L117">            stats.response(resp.statusCode());</span>
+<span class="nc" id="L118">            return new Resp(resp.statusCode(), parse(resp.body()));</span>
+<span class="nc" id="L119">        } catch (IOException e) {</span>
+<span class="nc" id="L120">            stats.response(-1);</span>
+<span class="nc" id="L121">            return new Resp(-1, null);</span>
+<span class="nc" id="L122">        } catch (InterruptedException e) {</span>
+<span class="nc" id="L123">            Thread.currentThread().interrupt(); // 停止时被打断：保留中断标记，让外层循环退出</span>
+<span class="nc" id="L124">            return new Resp(-1, null);</span>
+        }
+    }
+
+    /**
+     * GET。
+     *
+     * @param path 路径
+     * @param token 令牌，可为 null
+     * @return 响应
+     */
+    public Resp get(String path, String token) {
+<span class="nc" id="L136">        return send(&quot;GET&quot;, path, token, null, Map.of());</span>
+    }
+
+    /**
+     * POST JSON。
+     *
+     * @param path 路径
+     * @param token 令牌，可为 null
+     * @param body 请求体
+     * @return 响应
+     */
+    public Resp post(String path, String token, Object body) {
+<span class="nc" id="L148">        return send(&quot;POST&quot;, path, token, body, Map.of());</span>
+    }
+
+    private JsonNode parse(String body) {
+<span class="nc bnc" id="L152" title="All 4 branches missed.">        if (body == null || body.isBlank()) {</span>
+<span class="nc" id="L153">            return null;</span>
+        }
+        try {
+<span class="nc" id="L156">            return json.readTree(body);</span>
+<span class="nc" id="L157">        } catch (JacksonException e) {</span>
+<span class="nc" id="L158">            return null; // 比如回调接口返回的纯文本 success</span>
+        }
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.13.202504020838</span></div></body></html>

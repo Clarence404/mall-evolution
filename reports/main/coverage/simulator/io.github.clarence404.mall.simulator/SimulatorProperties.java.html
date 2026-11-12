@@ -1,0 +1,126 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>SimulatorProperties.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">simulator</a> &gt; <a href="index.source.html" class="el_package">io.github.clarence404.mall.simulator</a> &gt; <span class="el_source">SimulatorProperties.java</span></div><h1>SimulatorProperties.java</h1><pre class="source lang-java linenums">package io.github.clarence404.mall.simulator;
+
+import java.time.Duration;
+import java.util.List;
+import java.util.Map;
+import org.springframework.boot.context.properties.ConfigurationProperties;
+
+/**
+ * 模拟器的全部配置（{@code simulator.*}），默认值和每一项的含义写在 {@code application.yml} 里。
+ *
+ * &lt;p&gt;用 record 做配置类：Spring Boot 通过构造器绑定，绑定完就不可变，多个虚拟用户线程同时读也不用担心。
+ *
+ * @param baseUrl 网关地址，所有请求都经网关
+ * @param accounts 演示账号的手机号
+ * @param password 演示账号的密码
+ * @param maxShoppers 流量最高时同时在逛的虚拟用户数
+ * @param thinkTime 两次操作之间的思考时间
+ * @param sessionActions 一次逛做几件事
+ * @param sessionGap 两次逛之间歇多久
+ * @param duration 跑多久自动退出，0 表示一直跑
+ * @param statsInterval 多久打印一行统计
+ * @param curve 按时段起伏的流量曲线
+ * @param behaviors 各类行为的权重
+ * @param browseSkus 浏览哪些商品（权重）
+ * @param purchase 下单相关
+ * @param anomalies 异常行为的概率
+ * @param spike 突发高峰
+ * @param stock 库存保护
+ * @param mockPaySecret 模拟支付渠道回调的签名密钥
+ */
+@ConfigurationProperties(&quot;simulator&quot;)
+<span class="fc" id="L32">public record SimulatorProperties(</span>
+        String baseUrl,
+        List&lt;String&gt; accounts,
+        String password,
+        int maxShoppers,
+        Range&lt;Duration&gt; thinkTime,
+        Range&lt;Integer&gt; sessionActions,
+        Range&lt;Duration&gt; sessionGap,
+        Duration duration,
+        Duration statsInterval,
+        Curve curve,
+        Map&lt;Behavior, Double&gt; behaviors,
+        Map&lt;Long, Double&gt; browseSkus,
+        Purchase purchase,
+        Anomalies anomalies,
+        Spike spike,
+        Stock stock,
+        String mockPaySecret) {
+
+    /** 一个闭区间，在 min～max 之间均匀取值。 */
+<span class="fc" id="L52">    public record Range&lt;T&gt;(T min, T max) {}</span>
+
+    /**
+     * 流量曲线。
+     *
+     * @param hourly 0～23 点各整点的相对流量
+     * @param minFactor 最低比例
+     * @param acceleration 时间加速倍数
+     */
+<span class="fc" id="L61">    public record Curve(List&lt;Double&gt; hourly, double minFactor, double acceleration) {}</span>
+
+    /**
+     * 下单。
+     *
+     * @param skus 买哪些商品（权重）
+     * @param payProbability 下单后付款的比例
+     * @param cancelProbability 不付款的订单里主动取消的比例
+     * @param duplicateSubmitProbability 用同一个幂等键再提交一次的比例
+     * @param maxOrdersPerHour 每小时下单上限
+     */
+<span class="fc" id="L72">    public record Purchase(</span>
+            Map&lt;Long, Double&gt; skus,
+            double payProbability,
+            double cancelProbability,
+            double duplicateSubmitProbability,
+            int maxOrdersPerHour) {}
+
+    /**
+     * 异常行为，每次操作改做一次出错请求的概率。
+     *
+     * @param wrongPassword 输错密码
+     * @param badRequest 非法参数
+     * @param notFound 不存在的商品
+     */
+<span class="fc" id="L86">    public record Anomalies(double wrongPassword, double badRequest, double notFound) {}</span>
+
+    /**
+     * 突发高峰。
+     *
+     * @param enabled 开关
+     * @param firstAfter 启动后至少多久才来第一次
+     * @param meanInterval 平均间隔
+     * @param duration 每次持续多久
+     * @param users 几个用户在狂点
+     * @param requestsPerSecond 每人每秒点几次
+     */
+<span class="fc" id="L98">    public record Spike(</span>
+            boolean enabled,
+            Duration firstAfter,
+            Duration meanInterval,
+            Duration duration,
+            int users,
+            double requestsPerSecond) {}
+
+    /**
+     * 库存保护。
+     *
+     * @param skus 要看着的商品
+     * @param checkInterval 多久看一次
+     * @param lowWatermark 低于多少补货
+     * @param restockTo 补到多少
+     * @param floor 补不了货时，低于多少就不再买
+     */
+<span class="fc" id="L115">    public record Stock(List&lt;Long&gt; skus, Duration checkInterval, int lowWatermark, int restockTo, int floor) {}</span>
+
+    /** 正常行为的种类（yml 里写 browse、my-orders 这样的小写连字符，Spring Boot 会转成枚举）。 */
+<span class="fc" id="L118">    public enum Behavior {</span>
+<span class="fc" id="L119">        BROWSE,</span>
+<span class="fc" id="L120">        RECOMMEND,</span>
+<span class="fc" id="L121">        PROFILE,</span>
+<span class="fc" id="L122">        MY_ORDERS,</span>
+<span class="fc" id="L123">        PURCHASE</span>
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.13.202504020838</span></div></body></html>

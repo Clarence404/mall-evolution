@@ -1,0 +1,350 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>Shopper.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">simulator</a> &gt; <a href="index.source.html" class="el_package">io.github.clarence404.mall.simulator</a> &gt; <span class="el_source">Shopper.java</span></div><h1>Shopper.java</h1><pre class="source lang-java linenums">package io.github.clarence404.mall.simulator;
+
+import io.github.clarence404.mall.simulator.SimulatorProperties.Behavior;
+import io.github.clarence404.mall.simulator.Stats.Counter;
+import java.time.Duration;
+import java.time.Instant;
+import java.util.List;
+import java.util.Map;
+import java.util.UUID;
+import java.util.concurrent.ThreadLocalRandom;
+import java.util.random.RandomGenerator;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import tools.jackson.databind.JsonNode;
+
+/**
+ * 一个虚拟用户：反复「打开 App 逛一会 → 离开 → 歇一会再来」。每次来随机挑一个演示账号，做 3～12 件事（看商品、看猜你喜欢、看我的、查订单、偶尔下单），
+ * 两件事之间停几秒「思考」；需要登录时才登录，离开时有时退出登录。
+ *
+ * &lt;p&gt;编号 ≥ 当前应在线人数（流量曲线算出来的）时不出门，只每 5 秒看一眼，这样夜里自然只剩几个人在逛。
+ *
+ * &lt;p&gt;出错时（连不上、429、5xx）不按思考时间继续，而是指数退避，避免变成「狂刷」。
+ */
+final class Shopper implements Runnable {
+
+<span class="nc" id="L26">    private static final Logger log = LoggerFactory.getLogger(Shopper.class);</span>
+
+    /** 收货地址：随便挑一个，看起来像不同的人在下单。 */
+<span class="nc" id="L29">    private static final List&lt;String&gt; ADDRESSES =</span>
+<span class="nc" id="L30">            List.of(&quot;杭州市西湖区文三路 100 号&quot;, &quot;上海市浦东新区张江路 88 号&quot;, &quot;北京市海淀区中关村大街 1 号&quot;, &quot;广州市天河区体育西路 66 号&quot;);</span>
+
+    private final int index;
+    private final TrafficSimulator sim;
+    private final SimulatorProperties props;
+    private final MallApi api;
+    private final Stats stats;
+<span class="nc" id="L37">    private final Backoff backoff = new Backoff(Duration.ofSeconds(5), Duration.ofMinutes(5));</span>
+
+    /** 这一次逛的登录态：换账号或退出时清空。 */
+    private String phone;
+
+    private String accessToken;
+    private String refreshToken;
+<span class="nc" id="L44">    private Instant tokenExpiresAt = Instant.MIN;</span>
+
+<span class="nc" id="L46">    Shopper(int index, TrafficSimulator sim) {</span>
+<span class="nc" id="L47">        this.index = index;</span>
+<span class="nc" id="L48">        this.sim = sim;</span>
+<span class="nc" id="L49">        this.props = sim.props();</span>
+<span class="nc" id="L50">        this.api = sim.api();</span>
+<span class="nc" id="L51">        this.stats = sim.stats();</span>
+<span class="nc" id="L52">    }</span>
+
+    @Override
+    public void run() {
+<span class="nc" id="L56">        RandomGenerator random = ThreadLocalRandom.current();</span>
+        // 错开启动：十几个人不要在同一毫秒一起打开 App
+<span class="nc bnc" id="L58" title="All 2 branches missed.">        if (!sim.pause(Duration.ofMillis(random.nextLong(1, 5000)))) {</span>
+<span class="nc" id="L59">            return;</span>
+        }
+<span class="nc bnc" id="L61" title="All 2 branches missed.">        while (sim.running()) {</span>
+<span class="nc bnc" id="L62" title="All 2 branches missed.">            if (index &gt;= sim.activeShoppers()) {</span>
+<span class="nc bnc" id="L63" title="All 2 branches missed.">                if (!sim.pause(Duration.ofSeconds(5))) {</span>
+<span class="nc" id="L64">                    return;</span>
+                }
+                continue;
+            }
+<span class="nc" id="L68">            visit(random);</span>
+<span class="nc bnc" id="L69" title="All 2 branches missed.">            if (!sim.pause(between(props.sessionGap(), random))) {</span>
+<span class="nc" id="L70">                return;</span>
+            }
+        }
+<span class="nc" id="L73">    }</span>
+
+    /** 逛一次：换一个账号（先不登录），做若干件事，离开时三成概率退出登录。 */
+    private void visit(RandomGenerator random) {
+<span class="nc" id="L77">        forget(); // 上次没退出登录的，像关掉 App 一样直接丢掉登录态（令牌自己过期）</span>
+<span class="nc" id="L78">        phone = props.accounts().get(random.nextInt(props.accounts().size()));</span>
+<span class="nc" id="L79">        int actions = random.nextInt(</span>
+<span class="nc" id="L80">                props.sessionActions().min(), props.sessionActions().max() + 1);</span>
+<span class="nc bnc" id="L81" title="All 6 branches missed.">        for (int i = 0; i &lt; actions &amp;&amp; sim.running() &amp;&amp; index &lt; sim.activeShoppers(); i++) {</span>
+<span class="nc" id="L82">            boolean failed = act(random);</span>
+<span class="nc bnc" id="L83" title="All 2 branches missed.">            Duration wait = failed ? backoff.onFailure(random) : between(props.thinkTime(), random);</span>
+<span class="nc bnc" id="L84" title="All 2 branches missed.">            if (!failed) {</span>
+<span class="nc" id="L85">                backoff.onSuccess();</span>
+<span class="nc bnc" id="L86" title="All 2 branches missed.">            } else if (backoff.failures() == 3) {</span>
+<span class="nc" id="L87">                log.warn(&quot;连续 {} 次请求失败（连不上、限流或 5xx），退避 {} 秒；检查 {} 的服务是否都已启动&quot;, 3, wait.toSeconds(), api.baseUrl());</span>
+            }
+<span class="nc bnc" id="L89" title="All 2 branches missed.">            if (!sim.pause(wait)) {</span>
+<span class="nc" id="L90">                return;</span>
+            }
+        }
+<span class="nc bnc" id="L93" title="All 4 branches missed.">        if (accessToken != null &amp;&amp; random.nextDouble() &lt; 0.3) {</span>
+<span class="nc" id="L94">            logout();</span>
+        }
+<span class="nc" id="L96">    }</span>
+
+    /**
+     * 做一件事。
+     *
+     * @return 是否失败到需要退避
+     */
+    private boolean act(RandomGenerator random) {
+<span class="nc" id="L104">        SimulatorProperties.Anomalies a = props.anomalies();</span>
+<span class="nc" id="L105">        double r = random.nextDouble();</span>
+<span class="nc bnc" id="L106" title="All 2 branches missed.">        if (r &lt; a.wrongPassword()) {</span>
+<span class="nc" id="L107">            stats.inc(Counter.ANOMALIES);</span>
+            // 输错密码：401，账号不会因此被锁（演示账号没有错误次数限制）
+<span class="nc" id="L109">            return api.post(</span>
+                            &quot;/api/auth/login&quot;,
+                            null,
+<span class="nc" id="L112">                            Map.of(&quot;phone&quot;, phone, &quot;password&quot;, &quot;wrong-&quot; + random.nextInt(1000)))</span>
+<span class="nc" id="L113">                    .shouldBackOff();</span>
+        }
+<span class="nc bnc" id="L115" title="All 2 branches missed.">        if (r &lt; a.wrongPassword() + a.badRequest()) {</span>
+<span class="nc" id="L116">            stats.inc(Counter.ANOMALIES);</span>
+<span class="nc" id="L117">            return api.get(&quot;/api/products/0&quot;, null).shouldBackOff(); // skuId 必须是正整数 → 400</span>
+        }
+<span class="nc bnc" id="L119" title="All 2 branches missed.">        if (r &lt; a.wrongPassword() + a.badRequest() + a.notFound()) {</span>
+<span class="nc" id="L120">            stats.inc(Counter.ANOMALIES);</span>
+            // 不存在的商品 → 404；只用 10 个固定的号，空值缓存能命中，不会把缓存命中率拉低
+<span class="nc" id="L122">            return api.get(&quot;/api/products/&quot; + (29990 + random.nextInt(10)), null)</span>
+<span class="nc" id="L123">                    .shouldBackOff();</span>
+        }
+<span class="nc" id="L125">        Behavior behavior = sim.behaviors().pick(random);</span>
+<span class="nc bnc" id="L126" title="All 5 branches missed.">        return switch (behavior) {</span>
+<span class="nc" id="L127">            case BROWSE -&gt; browse(random);</span>
+<span class="nc" id="L128">            case RECOMMEND -&gt; recommend(random);</span>
+<span class="nc" id="L129">            case PROFILE -&gt; profile();</span>
+<span class="nc" id="L130">            case MY_ORDERS -&gt; myOrders(random);</span>
+<span class="nc" id="L131">            case PURCHASE -&gt; purchase(random);</span>
+        };
+    }
+
+    /** 看一个商品详情（匿名）。 */
+    private boolean browse(RandomGenerator random) {
+<span class="nc" id="L137">        return api.get(&quot;/api/products/&quot; + sim.browseSkus().pick(random), null).shouldBackOff();</span>
+    }
+
+    /** 看详情 → 看「猜你喜欢」→ 点进其中一个。 */
+    private boolean recommend(RandomGenerator random) {
+<span class="nc" id="L142">        long sku = sim.browseSkus().pick(random);</span>
+<span class="nc bnc" id="L143" title="All 2 branches missed.">        if (api.get(&quot;/api/products/&quot; + sku, null).shouldBackOff()) {</span>
+<span class="nc" id="L144">            return true;</span>
+        }
+<span class="nc" id="L146">        MallApi.Resp rec = api.get(&quot;/api/products/&quot; + sku + &quot;/recommendations&quot;, null);</span>
+<span class="nc bnc" id="L147" title="All 2 branches missed.">        if (rec.shouldBackOff()) {</span>
+<span class="nc" id="L148">            return true;</span>
+        }
+<span class="nc bnc" id="L150" title="All 8 branches missed.">        if (rec.json() != null &amp;&amp; rec.json().isArray() &amp;&amp; !rec.json().isEmpty() &amp;&amp; random.nextDouble() &lt; 0.6) {</span>
+<span class="nc" id="L151">            JsonNode pick = rec.json().get(random.nextInt(rec.json().size()));</span>
+<span class="nc bnc" id="L152" title="All 2 branches missed.">            if (!sim.pause(Duration.ofMillis(random.nextLong(500, 3000)))) {</span>
+<span class="nc" id="L153">                return false;</span>
+            }
+<span class="nc" id="L155">            return api.get(&quot;/api/products/&quot; + pick.get(&quot;skuId&quot;).asString(), null)</span>
+<span class="nc" id="L156">                    .shouldBackOff();</span>
+        }
+<span class="nc" id="L158">        return false;</span>
+    }
+
+    /** 看「我的」（积分）。 */
+    private boolean profile() {
+<span class="nc" id="L163">        Boolean ok = ensureLogin();</span>
+<span class="nc bnc" id="L164" title="All 2 branches missed.">        if (ok == null) {</span>
+<span class="nc" id="L165">            return true;</span>
+        }
+<span class="nc bnc" id="L167" title="All 4 branches missed.">        return ok &amp;&amp; authed(api.get(&quot;/api/users/me&quot;, accessToken)).shouldBackOff();</span>
+    }
+
+    /** 查订单列表，一半概率点进第一单看详情。 */
+    private boolean myOrders(RandomGenerator random) {
+<span class="nc" id="L172">        Boolean ok = ensureLogin();</span>
+<span class="nc bnc" id="L173" title="All 2 branches missed.">        if (ok == null) {</span>
+<span class="nc" id="L174">            return true;</span>
+        }
+<span class="nc bnc" id="L176" title="All 2 branches missed.">        if (!ok) {</span>
+<span class="nc" id="L177">            return false;</span>
+        }
+<span class="nc" id="L179">        MallApi.Resp list = authed(api.get(&quot;/api/orders?size=10&quot;, accessToken));</span>
+<span class="nc bnc" id="L180" title="All 2 branches missed.">        if (list.shouldBackOff()) {</span>
+<span class="nc" id="L181">            return true;</span>
+        }
+<span class="nc bnc" id="L183" title="All 2 branches missed.">        JsonNode items = list.json() == null ? null : list.json().get(&quot;items&quot;);</span>
+<span class="nc bnc" id="L184" title="All 8 branches missed.">        if (items != null &amp;&amp; items.isArray() &amp;&amp; !items.isEmpty() &amp;&amp; random.nextDouble() &lt; 0.5) {</span>
+<span class="nc" id="L185">            String orderNo = items.get(random.nextInt(Math.min(3, items.size())))</span>
+<span class="nc" id="L186">                    .get(&quot;orderNo&quot;)</span>
+<span class="nc" id="L187">                    .asString();</span>
+<span class="nc" id="L188">            return authed(api.get(&quot;/api/orders/&quot; + orderNo, accessToken)).shouldBackOff();</span>
+        }
+<span class="nc" id="L190">        return false;</span>
+    }
+
+    /**
+     * 下单：看详情 → 提交订单（偶尔重复提交）→ 七成付款（创建支付单 + 模拟渠道回调 + 看订单变成待发货）、其余主动取消或放着等超时关单。
+     */
+    private boolean purchase(RandomGenerator random) {
+<span class="nc" id="L197">        long sku = sim.purchaseSkus().pick(random);</span>
+<span class="nc bnc" id="L198" title="All 4 branches missed.">        if (!sim.stockGuard().allowOrder(sku) || !sim.orderQuota().tryAcquire(Instant.now())) {</span>
+<span class="nc" id="L199">            stats.inc(Counter.ORDER_SKIPPED); // 库存保护或每小时上限：只逛不买</span>
+<span class="nc" id="L200">            return browse(random);</span>
+        }
+<span class="nc" id="L202">        Boolean ok = ensureLogin();</span>
+<span class="nc bnc" id="L203" title="All 2 branches missed.">        if (ok == null) {</span>
+<span class="nc" id="L204">            return true;</span>
+        }
+<span class="nc bnc" id="L206" title="All 2 branches missed.">        if (!ok) {</span>
+<span class="nc" id="L207">            return false;</span>
+        }
+<span class="nc bnc" id="L209" title="All 2 branches missed.">        if (api.get(&quot;/api/products/&quot; + sku, null).shouldBackOff()) {</span>
+<span class="nc" id="L210">            return true;</span>
+        }
+<span class="nc bnc" id="L212" title="All 2 branches missed.">        if (!sim.pause(Duration.ofMillis(random.nextLong(1000, 4000)))) { // 选规格、确认地址</span>
+<span class="nc" id="L213">            return false;</span>
+        }
+<span class="nc" id="L215">        String idemKey = UUID.randomUUID().toString();</span>
+<span class="nc" id="L216">        Map&lt;String, Object&gt; body = Map.of(</span>
+                &quot;lines&quot;,
+<span class="nc" id="L218">                List.of(Map.of(&quot;skuId&quot;, String.valueOf(sku), &quot;quantity&quot;, 1)),</span>
+                &quot;address&quot;,
+<span class="nc" id="L220">                Map.of(</span>
+                        &quot;receiver&quot;,
+<span class="nc" id="L222">                        &quot;演示用户&quot; + phone.substring(phone.length() - 2),</span>
+                        &quot;phone&quot;,
+                        phone,
+                        &quot;detail&quot;,
+<span class="nc" id="L226">                        ADDRESSES.get(random.nextInt(ADDRESSES.size()))));</span>
+<span class="nc" id="L227">        MallApi.Resp placed = placeOrder(idemKey, body);</span>
+<span class="nc bnc" id="L228" title="All 2 branches missed.">        if (placed.status() == 409) {</span>
+<span class="nc" id="L229">            stats.inc(Counter.ORDER_REJECTED); // 库存不足、待支付订单太多：正常的业务结果</span>
+<span class="nc" id="L230">            return false;</span>
+        }
+<span class="nc bnc" id="L232" title="All 2 branches missed.">        if (!placed.ok()) {</span>
+<span class="nc" id="L233">            return placed.shouldBackOff();</span>
+        }
+<span class="nc" id="L235">        stats.inc(Counter.ORDERS);</span>
+<span class="nc" id="L236">        String orderNo = placed.text(&quot;orderNo&quot;);</span>
+<span class="nc bnc" id="L237" title="All 2 branches missed.">        if (random.nextDouble() &lt; props.purchase().duplicateSubmitProbability()) {</span>
+<span class="nc" id="L238">            stats.inc(Counter.DUPLICATE_SUBMITS); // 网络卡了再点一次：同一个幂等键，返回同一单（Idempotent-Replayed: true）</span>
+<span class="nc" id="L239">            placeOrder(idemKey, body);</span>
+        }
+<span class="nc bnc" id="L241" title="All 2 branches missed.">        if (random.nextDouble() &lt; props.purchase().payProbability()) {</span>
+<span class="nc" id="L242">            return pay(orderNo, random);</span>
+        }
+<span class="nc bnc" id="L244" title="All 2 branches missed.">        if (random.nextDouble() &lt; props.purchase().cancelProbability()) {</span>
+<span class="nc bnc" id="L245" title="All 2 branches missed.">            if (!sim.pause(Duration.ofMillis(random.nextLong(3000, 10000)))) {</span>
+<span class="nc" id="L246">                return false;</span>
+            }
+<span class="nc" id="L248">            MallApi.Resp cancel = authed(api.post(&quot;/api/orders/&quot; + orderNo + &quot;/cancel&quot;, accessToken, null));</span>
+<span class="nc bnc" id="L249" title="All 2 branches missed.">            if (cancel.ok()) {</span>
+<span class="nc" id="L250">                stats.inc(Counter.CANCELLED);</span>
+            }
+<span class="nc" id="L252">            return cancel.shouldBackOff();</span>
+        }
+<span class="nc" id="L254">        stats.inc(Counter.UNPAID); // 不付款：demo profile 下 1 分钟后自动关单、库存归还</span>
+<span class="nc" id="L255">        return false;</span>
+    }
+
+    private MallApi.Resp placeOrder(String idemKey, Map&lt;String, Object&gt; body) {
+<span class="nc" id="L259">        return authed(api.send(&quot;POST&quot;, &quot;/api/orders&quot;, accessToken, body, Map.of(&quot;Idempotency-Key&quot;, idemKey)));</span>
+    }
+
+    /** 付款：犹豫几秒 → 创建支付单 → 模拟渠道回调（HMAC 签名）→ 轮询订单状态 → 看积分。 */
+    private boolean pay(String orderNo, RandomGenerator random) {
+<span class="nc bnc" id="L264" title="All 2 branches missed.">        if (!sim.pause(Duration.ofMillis(random.nextLong(2000, 15000)))) { // 远小于 1 分钟的关单时间</span>
+<span class="nc" id="L265">            return false;</span>
+        }
+<span class="nc" id="L267">        MallApi.Resp payment = authed(api.post(&quot;/api/payments&quot;, accessToken, Map.of(&quot;orderNo&quot;, orderNo)));</span>
+<span class="nc bnc" id="L268" title="All 2 branches missed.">        if (!payment.ok()) {</span>
+<span class="nc" id="L269">            return payment.shouldBackOff();</span>
+        }
+<span class="nc" id="L271">        String paymentNo = payment.text(&quot;paymentNo&quot;);</span>
+<span class="nc" id="L272">        String amount = payment.text(&quot;amount&quot;);</span>
+<span class="nc" id="L273">        String channelTradeNo = &quot;SIM&quot; + System.currentTimeMillis() + random.nextInt(1000);</span>
+<span class="nc" id="L274">        String sign = MockPaySigner.sign(props.mockPaySecret(), paymentNo, channelTradeNo, amount);</span>
+<span class="nc" id="L275">        MallApi.Resp notify = api.post(</span>
+                &quot;/api/payments/notify/mock&quot;,
+                null,
+<span class="nc" id="L278">                Map.of(&quot;paymentNo&quot;, paymentNo, &quot;channelTradeNo&quot;, channelTradeNo, &quot;amount&quot;, amount, &quot;sign&quot;, sign));</span>
+<span class="nc bnc" id="L279" title="All 2 branches missed.">        if (!notify.ok()) {</span>
+<span class="nc" id="L280">            return notify.shouldBackOff();</span>
+        }
+<span class="nc" id="L282">        stats.inc(Counter.PAID);</span>
+        // 支付结果经消息异步回到订单：像 App 一样隔一会刷新一次，最多 3 次
+<span class="nc bnc" id="L284" title="All 2 branches missed.">        for (int i = 0; i &lt; 3; i++) {</span>
+<span class="nc bnc" id="L285" title="All 2 branches missed.">            if (!sim.pause(Duration.ofMillis(1500))) {</span>
+<span class="nc" id="L286">                return false;</span>
+            }
+<span class="nc" id="L288">            MallApi.Resp order = authed(api.get(&quot;/api/orders/&quot; + orderNo, accessToken));</span>
+<span class="nc bnc" id="L289" title="All 4 branches missed.">            if (order.shouldBackOff() || !&quot;PENDING_PAYMENT&quot;.equals(order.text(&quot;status&quot;))) {</span>
+<span class="nc" id="L290">                break;</span>
+            }
+        }
+<span class="nc" id="L293">        return authed(api.get(&quot;/api/users/me&quot;, accessToken)).shouldBackOff();</span>
+    }
+
+    /**
+     * 需要登录的操作之前调：没登录或令牌快过期就登录。
+     *
+     * @return true 已登录；false 登录被拒（不退避）；null 连不上（要退避）
+     */
+    private Boolean ensureLogin() {
+<span class="nc bnc" id="L302" title="All 4 branches missed.">        if (accessToken != null &amp;&amp; Instant.now().isBefore(tokenExpiresAt.minusSeconds(60))) {</span>
+<span class="nc" id="L303">            return true;</span>
+        }
+<span class="nc" id="L305">        MallApi.Resp resp = api.post(&quot;/api/auth/login&quot;, null, Map.of(&quot;phone&quot;, phone, &quot;password&quot;, props.password()));</span>
+<span class="nc bnc" id="L306" title="All 4 branches missed.">        if (resp.ok() &amp;&amp; resp.text(&quot;accessToken&quot;) != null) {</span>
+<span class="nc" id="L307">            accessToken = resp.text(&quot;accessToken&quot;);</span>
+<span class="nc" id="L308">            refreshToken = resp.text(&quot;refreshToken&quot;);</span>
+            long expiresIn =
+<span class="nc bnc" id="L310" title="All 2 branches missed.">                    resp.json().has(&quot;expiresIn&quot;) ? resp.json().get(&quot;expiresIn&quot;).asLong() : 1800;</span>
+<span class="nc" id="L311">            tokenExpiresAt = Instant.now().plusSeconds(expiresIn);</span>
+<span class="nc" id="L312">            stats.inc(Counter.LOGINS);</span>
+<span class="nc" id="L313">            return true;</span>
+        }
+<span class="nc bnc" id="L315" title="All 2 branches missed.">        if (resp.status() == 401) {</span>
+<span class="nc" id="L316">            sim.warnOnce(&quot;login-&quot; + phone, &quot;演示账号 &quot; + phone + &quot; 登录失败（401）：mall-app 的演示数据里没有这个账号？检查 simulator.accounts&quot;);</span>
+        }
+<span class="nc bnc" id="L318" title="All 2 branches missed.">        return resp.shouldBackOff() ? null : false;</span>
+    }
+
+    /** 令牌失效（401）时清掉，下次需要时重新登录。 */
+    private MallApi.Resp authed(MallApi.Resp resp) {
+<span class="nc bnc" id="L323" title="All 2 branches missed.">        if (resp.status() == 401) {</span>
+<span class="nc" id="L324">            accessToken = null;</span>
+        }
+<span class="nc" id="L326">        return resp;</span>
+    }
+
+    /** 退出登录（吊销刷新令牌），清空登录态。 */
+    private void logout() {
+<span class="nc bnc" id="L331" title="All 4 branches missed.">        if (refreshToken != null &amp;&amp; accessToken != null) {</span>
+<span class="nc" id="L332">            api.post(&quot;/api/auth/logout&quot;, null, Map.of(&quot;refreshToken&quot;, refreshToken));</span>
+        }
+<span class="nc" id="L334">        forget();</span>
+<span class="nc" id="L335">    }</span>
+
+    /** 只清空本地的登录态，不调接口。 */
+    private void forget() {
+<span class="nc" id="L339">        accessToken = null;</span>
+<span class="nc" id="L340">        refreshToken = null;</span>
+<span class="nc" id="L341">        tokenExpiresAt = Instant.MIN;</span>
+<span class="nc" id="L342">    }</span>
+
+    private static Duration between(SimulatorProperties.Range&lt;Duration&gt; range, RandomGenerator random) {
+<span class="nc" id="L345">        long min = range.min().toMillis();</span>
+<span class="nc" id="L346">        long max = range.max().toMillis();</span>
+<span class="nc bnc" id="L347" title="All 2 branches missed.">        return Duration.ofMillis(max &gt; min ? random.nextLong(min, max + 1) : min);</span>
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.13.202504020838</span></div></body></html>

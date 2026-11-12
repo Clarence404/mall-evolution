@@ -1,0 +1,110 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>Stats.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">simulator</a> &gt; <a href="index.source.html" class="el_package">io.github.clarence404.mall.simulator</a> &gt; <span class="el_source">Stats.java</span></div><h1>Stats.java</h1><pre class="source lang-java linenums">package io.github.clarence404.mall.simulator;
+
+import java.util.EnumMap;
+import java.util.Map;
+import java.util.concurrent.atomic.LongAdder;
+
+/**
+ * 统计：每个计数各有「本周期」和「累计」两份，每分钟打印一行后把本周期清零。多个虚拟用户线程同时加，用 LongAdder（高并发下比 AtomicLong 争用小）。
+ */
+public final class Stats {
+
+    /** 计数项。 */
+<span class="nc" id="L13">    public enum Counter {</span>
+        /** 发出的 HTTP 请求。 */
+<span class="nc" id="L15">        REQUESTS,</span>
+        /** 2xx。 */
+<span class="nc" id="L17">        S2XX,</span>
+        /** 4xx（不含 429）。 */
+<span class="nc" id="L19">        S4XX,</span>
+        /** 429 限流。 */
+<span class="nc" id="L21">        S429,</span>
+        /** 5xx。 */
+<span class="nc" id="L23">        S5XX,</span>
+        /** 连不上、超时。 */
+<span class="nc" id="L25">        IO_ERRORS,</span>
+        /** 登录成功。 */
+<span class="nc" id="L27">        LOGINS,</span>
+        /** 下单成功（201，不含重复提交的重放）。 */
+<span class="nc" id="L29">        ORDERS,</span>
+        /** 支付回调成功。 */
+<span class="nc" id="L31">        PAID,</span>
+        /** 主动取消。 */
+<span class="nc" id="L33">        CANCELLED,</span>
+        /** 不付款、等超时关单。 */
+<span class="nc" id="L35">        UNPAID,</span>
+        /** 重复提交（同一个幂等键）。 */
+<span class="nc" id="L37">        DUPLICATE_SUBMITS,</span>
+        /** 下单被拒（库存不足、待支付太多等 409）。 */
+<span class="nc" id="L39">        ORDER_REJECTED,</span>
+        /** 故意制造的异常请求。 */
+<span class="nc" id="L41">        ANOMALIES,</span>
+        /** 因库存保护或每小时上限没下单。 */
+<span class="nc" id="L43">        ORDER_SKIPPED,</span>
+        /** 补货次数。 */
+<span class="nc" id="L45">        RESTOCKS</span>
+    }
+
+<span class="nc" id="L48">    private final Map&lt;Counter, LongAdder&gt; interval = new EnumMap&lt;&gt;(Counter.class);</span>
+<span class="nc" id="L49">    private final Map&lt;Counter, LongAdder&gt; total = new EnumMap&lt;&gt;(Counter.class);</span>
+
+    /** 创建，全部计数为 0。 */
+<span class="nc" id="L52">    public Stats() {</span>
+<span class="nc bnc" id="L53" title="All 2 branches missed.">        for (Counter c : Counter.values()) {</span>
+<span class="nc" id="L54">            interval.put(c, new LongAdder());</span>
+<span class="nc" id="L55">            total.put(c, new LongAdder());</span>
+        }
+<span class="nc" id="L57">    }</span>
+
+    /**
+     * 加一。
+     *
+     * @param counter 计数项
+     */
+    public void inc(Counter counter) {
+<span class="nc" id="L65">        interval.get(counter).increment();</span>
+<span class="nc" id="L66">        total.get(counter).increment();</span>
+<span class="nc" id="L67">    }</span>
+
+    /**
+     * 记一次 HTTP 响应：按状态码归类。
+     *
+     * @param status 状态码，-1 表示连不上或超时
+     */
+    public void response(int status) {
+<span class="nc" id="L75">        inc(Counter.REQUESTS);</span>
+<span class="nc bnc" id="L76" title="All 2 branches missed.">        if (status &lt; 0) {</span>
+<span class="nc" id="L77">            inc(Counter.IO_ERRORS);</span>
+<span class="nc bnc" id="L78" title="All 2 branches missed.">        } else if (status == 429) {</span>
+<span class="nc" id="L79">            inc(Counter.S429);</span>
+<span class="nc bnc" id="L80" title="All 2 branches missed.">        } else if (status &gt;= 500) {</span>
+<span class="nc" id="L81">            inc(Counter.S5XX);</span>
+<span class="nc bnc" id="L82" title="All 2 branches missed.">        } else if (status &gt;= 400) {</span>
+<span class="nc" id="L83">            inc(Counter.S4XX);</span>
+        } else {
+<span class="nc" id="L85">            inc(Counter.S2XX);</span>
+        }
+<span class="nc" id="L87">    }</span>
+
+    /**
+     * 取出本周期的计数并清零。
+     *
+     * @return 计数项 → 本周期的值
+     */
+    public Map&lt;Counter, Long&gt; drainInterval() {
+<span class="nc" id="L95">        Map&lt;Counter, Long&gt; out = new EnumMap&lt;&gt;(Counter.class);</span>
+<span class="nc" id="L96">        interval.forEach((c, adder) -&gt; out.put(c, adder.sumThenReset()));</span>
+<span class="nc" id="L97">        return out;</span>
+    }
+
+    /**
+     * 某一项的累计值。
+     *
+     * @param counter 计数项
+     * @return 启动以来的合计
+     */
+    public long total(Counter counter) {
+<span class="nc" id="L107">        return total.get(counter).sum();</span>
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.13.202504020838</span></div></body></html>

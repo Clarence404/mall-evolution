@@ -1,0 +1,62 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>LoadCurve.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">simulator</a> &gt; <a href="index.source.html" class="el_package">io.github.clarence404.mall.simulator</a> &gt; <span class="el_source">LoadCurve.java</span></div><h1>LoadCurve.java</h1><pre class="source lang-java linenums">package io.github.clarence404.mall.simulator;
+
+import java.time.LocalTime;
+import java.util.List;
+
+/**
+ * 按时段起伏的流量曲线：给出 0～23 点每个整点的相对流量，中间按分钟线性插值，再除以最大值归一化到 0～1，最后不低于 {@code minFactor}。
+ *
+ * &lt;p&gt;为什么用分段线性而不是正弦：真实电商一天有两个高峰（午休、晚上 8～9 点），一条正弦画不出来；24 个点直接写在配置里，想要什么形状改数字即可。
+ *
+ * &lt;p&gt;用法：同时在逛的虚拟用户数 = {@code max-shoppers × factor(当前模拟时刻)}。
+ */
+public final class LoadCurve {
+
+    private final double[] hourly;
+    private final double minFactor;
+
+    /**
+     * 创建。
+     *
+     * @param hourly 24 个整点的相对流量，必须全部 ≥ 0 且至少一个 &gt; 0
+     * @param minFactor 下限（0～1），夜里也保留一点流量
+     */
+<span class="fc" id="L24">    public LoadCurve(List&lt;Double&gt; hourly, double minFactor) {</span>
+<span class="pc bpc" id="L25" title="1 of 4 branches missed.">        if (hourly == null || hourly.size() != 24) {</span>
+<span class="fc" id="L26">            throw new IllegalArgumentException(&quot;simulator.curve.hourly 要正好 24 个数（0～23 点）&quot;);</span>
+        }
+<span class="fc" id="L28">        double max = hourly.stream().mapToDouble(Double::doubleValue).max().orElse(0);</span>
+<span class="pc bpc" id="L29" title="2 of 6 branches missed.">        if (max &lt;= 0 || hourly.stream().anyMatch(v -&gt; v &lt; 0)) {</span>
+<span class="fc" id="L30">            throw new IllegalArgumentException(&quot;simulator.curve.hourly 不能有负数，且至少一个大于 0&quot;);</span>
+        }
+<span class="fc" id="L32">        this.hourly = hourly.stream().mapToDouble(v -&gt; v / max).toArray(); // 归一化：最高点 = 1</span>
+<span class="fc" id="L33">        this.minFactor = Math.clamp(minFactor, 0.0, 1.0);</span>
+<span class="fc" id="L34">    }</span>
+
+    /**
+     * 某个时刻的流量系数。
+     *
+     * @param time 模拟时刻（只看时分秒）
+     * @return 0～1 之间，且不低于 minFactor
+     */
+    public double factor(LocalTime time) {
+<span class="fc" id="L43">        int hour = time.getHour();</span>
+<span class="fc" id="L44">        double fraction = (time.getMinute() * 60 + time.getSecond()) / 3600.0; // 这一小时走了多少</span>
+<span class="fc" id="L45">        double from = hourly[hour];</span>
+<span class="fc" id="L46">        double to = hourly[(hour + 1) % 24]; // 23 点之后接回 0 点</span>
+<span class="fc" id="L47">        double value = from + (to - from) * fraction;</span>
+<span class="fc" id="L48">        return Math.max(minFactor, value);</span>
+    }
+
+    /**
+     * 这个时刻应该有几个虚拟用户在逛：按系数折算并四舍五入，至少 1 个（一直有数据）。
+     *
+     * @param time 模拟时刻
+     * @param maxShoppers 最高峰时的人数
+     * @return 1～maxShoppers
+     */
+    public int activeShoppers(LocalTime time, int maxShoppers) {
+<span class="fc" id="L59">        return Math.clamp(Math.round(maxShoppers * factor(time)), 1, Math.max(1, maxShoppers));</span>
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.13.202504020838</span></div></body></html>

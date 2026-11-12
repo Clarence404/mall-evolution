@@ -29,6 +29,16 @@ public interface InventoryMapper {
     @Update(&quot;UPDATE t_inventory SET reserved = reserved - #{quantity} WHERE sku_id = #{skuId}&quot;)
     int confirm(@Param(&quot;skuId&quot;) long skuId, @Param(&quot;quantity&quot;) int quantity);
 
+    /**
+     * 仅演示环境的补货（demo profile 的 {@code PUT /internal/demo/stocks/{skuId}/restock}，给长期运行的流量模拟器用）：可售数量低于
+     * target 时补到 target，只补不减；分桶的活动 SKU 不处理（库存在桶里）。一条条件更新，和并发的预占互不覆盖。
+     */
+    @Update(&quot;&quot;&quot;
+            UPDATE t_inventory SET stock = #{target}
+            WHERE sku_id = #{skuId} AND bucket_count = 0 AND stock &lt; #{target}
+            &quot;&quot;&quot;)
+    int restockTo(@Param(&quot;skuId&quot;) long skuId, @Param(&quot;target&quot;) int target);
+
     @Select(&quot;SELECT stock FROM t_inventory WHERE sku_id = #{skuId}&quot;)
     Integer selectStock(@Param(&quot;skuId&quot;) long skuId);
 
@@ -47,7 +57,7 @@ public interface InventoryMapper {
     @Update(&quot;UPDATE t_inventory SET stock = stock + #{remaining}, bucket_count = 0 WHERE sku_id = #{skuId}&quot;)
     int unmarkBucketed(@Param(&quot;skuId&quot;) long skuId, @Param(&quot;remaining&quot;) int remaining);
 
-<span class="fc" id="L50">    record StockRow(int stock, int bucketCount) {}</span>
+<span class="fc" id="L60">    record StockRow(int stock, int bucketCount) {}</span>
 
     /** 分桶 SKU 的展示库存是各桶 stock 之和。 */
     @Select(&quot;&quot;&quot;

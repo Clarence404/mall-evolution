@@ -1,0 +1,75 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>WeightedPicker.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">simulator</a> &gt; <a href="index.source.html" class="el_package">io.github.clarence404.mall.simulator</a> &gt; <span class="el_source">WeightedPicker.java</span></div><h1>WeightedPicker.java</h1><pre class="source lang-java linenums">package io.github.clarence404.mall.simulator;
+
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Map;
+import java.util.random.RandomGenerator;
+
+/**
+ * 按权重随机挑一个：权重 55 的被挑中的概率是权重 11 的 5 倍。权重 ≤ 0 的永远不会被挑中（配置里写 0 就等于关掉这种行为）。
+ *
+ * &lt;p&gt;做法：把权重依次累加成一条数轴（[0,55)、[55,73)……），在 [0, 总权重) 里取一个随机数，看它落在哪一段。
+ *
+ * @param &lt;T&gt; 候选项类型
+ */
+public final class WeightedPicker&lt;T&gt; {
+
+<span class="fc" id="L17">    private final List&lt;T&gt; items = new ArrayList&lt;&gt;();</span>
+    private final double[] cumulative;
+    private final double total;
+
+    /**
+     * 创建。
+     *
+     * @param weights 候选项 → 权重；按 Map 的遍历顺序排在数轴上
+     * @throws IllegalArgumentException 没有任何权重 &gt; 0 的候选项
+     */
+<span class="fc" id="L27">    public WeightedPicker(Map&lt;T, Double&gt; weights) {</span>
+<span class="fc" id="L28">        List&lt;Double&gt; sums = new ArrayList&lt;&gt;();</span>
+<span class="fc" id="L29">        double sum = 0;</span>
+<span class="fc bfc" id="L30" title="All 2 branches covered.">        for (Map.Entry&lt;T, Double&gt; e : weights.entrySet()) {</span>
+<span class="pc bpc" id="L31" title="1 of 4 branches missed.">            if (e.getValue() != null &amp;&amp; e.getValue() &gt; 0) {</span>
+<span class="fc" id="L32">                sum += e.getValue();</span>
+<span class="fc" id="L33">                items.add(e.getKey());</span>
+<span class="fc" id="L34">                sums.add(sum);</span>
+            }
+<span class="fc" id="L36">        }</span>
+<span class="fc bfc" id="L37" title="All 2 branches covered.">        if (items.isEmpty()) {</span>
+<span class="fc" id="L38">            throw new IllegalArgumentException(&quot;至少要有一个权重大于 0 的候选项&quot;);</span>
+        }
+<span class="fc" id="L40">        this.cumulative = sums.stream().mapToDouble(Double::doubleValue).toArray();</span>
+<span class="fc" id="L41">        this.total = sum;</span>
+<span class="fc" id="L42">    }</span>
+
+    /**
+     * 挑一个。
+     *
+     * @param random 随机源（测试里传固定种子）
+     * @return 选中的候选项
+     */
+    public T pick(RandomGenerator random) {
+<span class="fc" id="L51">        double r = random.nextDouble(total);</span>
+<span class="pc bpc" id="L52" title="1 of 2 branches missed.">        for (int i = 0; i &lt; cumulative.length; i++) {</span>
+<span class="fc bfc" id="L53" title="All 2 branches covered.">            if (r &lt; cumulative[i]) {</span>
+<span class="fc" id="L54">                return items.get(i);</span>
+            }
+        }
+<span class="nc" id="L57">        return items.getLast(); // 浮点误差兜底</span>
+    }
+
+    /**
+     * 某一项被挑中的概率（打印启动信息、测试用）。
+     *
+     * @param item 候选项
+     * @return 0～1；不在候选里返回 0
+     */
+    public double probability(T item) {
+<span class="fc" id="L67">        int i = items.indexOf(item);</span>
+<span class="fc bfc" id="L68" title="All 2 branches covered.">        if (i &lt; 0) {</span>
+<span class="fc" id="L69">            return 0;</span>
+        }
+<span class="pc bpc" id="L71" title="1 of 2 branches missed.">        double weight = cumulative[i] - (i == 0 ? 0 : cumulative[i - 1]);</span>
+<span class="fc" id="L72">        return weight / total;</span>
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.13.202504020838</span></div></body></html>
