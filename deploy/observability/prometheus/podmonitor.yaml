@@ -1,4 +1,4 @@
-# Prometheus 抓取各服务 /actuator/prometheus；把 Pod 标签 rollouts-pod-template-hash 带进指标，金丝雀分析按它只看新版本。
+# Prometheus 抓取各服务管理端口（18080）上的 /actuator/prometheus；把 Pod 标签 rollouts-pod-template-hash 带进指标，金丝雀分析按它只看新版本。
 apiVersion: monitoring.coreos.com/v1
 kind: PodMonitor
 metadata:
@@ -11,7 +11,7 @@ spec:
     matchExpressions:
       - {key: app, operator: In, values: [mall-app, inventory-service, payment-service, mall-gateway]}
   podMetricsEndpoints:
-    - targetPort: 8080
+    - port: management                 # 容器端口名（18080）：业务端口上 /actuator/prometheus 要登录
       path: /actuator/prometheus
       interval: 15s
       relabelings:

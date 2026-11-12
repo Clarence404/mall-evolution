@@ -19,7 +19,7 @@ spec:
       containers:
         - name: app
           image: mall/mall-gateway:1.0.0
-          ports: [{containerPort: 8080}]
+          ports: [{name: http, containerPort: 8080}, {name: management, containerPort: 18080}]   # 健康检查与指标在管理端口
           envFrom: [{secretRef: {name: mall-gateway-secret}}]
           env:
             - name: JAVA_TOOL_OPTIONS
@@ -42,13 +42,13 @@ spec:
             requests: {cpu: "1", memory: 1Gi}
             limits: {memory: 1Gi}
           startupProbe:
-            httpGet: {path: /actuator/health/liveness, port: 8080}
+            httpGet: {path: /actuator/health/liveness, port: management}
             periodSeconds: 5
             failureThreshold: 24
           livenessProbe:
-            httpGet: {path: /actuator/health/liveness, port: 8080}
+            httpGet: {path: /actuator/health/liveness, port: management}
           readinessProbe:
-            httpGet: {path: /actuator/health/readiness, port: 8080}
+            httpGet: {path: /actuator/health/readiness, port: management}
           lifecycle:
             preStop:
               exec:
@@ -61,7 +61,7 @@ metadata:
   namespace: mall
 spec:
   selector: {app: mall-gateway}
-  ports: [{port: 80, targetPort: 8080}]
+  ports: [{port: 80, targetPort: http}]   # 只暴露业务端口，管理端口不进 Service
 ---
 apiVersion: networking.k8s.io/v1
 kind: Ingress

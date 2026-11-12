@@ -23,7 +23,8 @@ COPY ${MODULE}/target/${MODULE}.jar /app/app.jar
 COPY --from=migrations /out/BOOT-INF/classes/db/migration /app/db/migration
 
 USER app
-EXPOSE 8080
+EXPOSE 8080 18080
+# 8080 业务端口；18080 管理端口（prod profile：健康检查与 /actuator/prometheus，只给集群内探针和 Prometheus 访问）
 # 容器里按 cgroup 限额算堆：limits.memory 的 75% 给堆。agent 由环境变量 JAVA_TOOL_OPTIONS 挂上（见 deploy/k8s）
 ENV JAVA_OPTS="-XX:MaxRAMPercentage=75 -XX:+ExitOnOutOfMemoryError"
 ENTRYPOINT ["sh", "-c", "exec java $JAVA_OPTS -jar /app/app.jar --spring.profiles.active=${SPRING_PROFILES_ACTIVE:-prod}"]

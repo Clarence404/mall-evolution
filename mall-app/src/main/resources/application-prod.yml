@@ -40,3 +40,9 @@ mall:
 logging:
   level:
     root: info
+
+# 独立管理端口（业务端口 8080 + 10000）：Kubernetes 的存活 / 就绪 / 启动探针与 PodMonitor 都走这个端口（容器端口名 management），
+# Prometheus 只从这里匿名抓 /actuator/prometheus，业务端口上它仍要登录（401）。管理端口不进 Service、不经网关
+management:
+  server:
+    port: ${MANAGEMENT_PORT:18080}

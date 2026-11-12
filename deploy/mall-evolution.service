@@ -8,6 +8,7 @@ Wants=network-online.target
 User=mall
 Group=mall
 WorkingDirectory=/opt/mall-evolution
+# 端口：8080 业务（挂负载均衡），18080 管理（健康检查与 Prometheus 抓指标，只对内网监控开放，可用 MANAGEMENT_PORT 改）
 # 数据库密码等密钥只放在这个文件里：权限 600，只有部署账号可读
 EnvironmentFile=/etc/mall-evolution/env
 ExecStart=/usr/bin/java -Xms4g -Xmx4g -XX:+UseG1GC -jar /opt/mall-evolution/mall-app.jar --spring.profiles.active=prod

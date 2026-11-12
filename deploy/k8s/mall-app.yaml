@@ -18,7 +18,7 @@ spec:
       containers:
         - name: app
           image: mall/mall-app:2.0.0          # 由流水线写入镜像 digest
-          ports: [{containerPort: 8080}]
+          ports: [{name: http, containerPort: 8080}, {name: management, containerPort: 18080}]   # 健康检查与指标在管理端口
           envFrom: [{secretRef: {name: mall-app-secret}}]
           env:
             - name: JAVA_TOOL_OPTIONS
@@ -41,13 +41,13 @@ spec:
             requests: {cpu: "2", memory: 8Gi}
             limits: {memory: 8Gi}
           startupProbe:
-            httpGet: {path: /actuator/health/liveness, port: 8080}
+            httpGet: {path: /actuator/health/liveness, port: management}
             periodSeconds: 5
             failureThreshold: 24
           livenessProbe:
-            httpGet: {path: /actuator/health/liveness, port: 8080}
+            httpGet: {path: /actuator/health/liveness, port: management}
           readinessProbe:
-            httpGet: {path: /actuator/health/readiness, port: 8080}
+            httpGet: {path: /actuator/health/readiness, port: management}
           lifecycle:
             preStop:
               exec:   # 停机先从 Nacos 注销并等待 15 秒，再由 server.shutdown: graceful 处理完在途请求
@@ -104,4 +104,4 @@ metadata:
   namespace: mall
 spec:
   selector: {app: mall-app}
-  ports: [{port: 80, targetPort: 8080}]
+  ports: [{port: 80, targetPort: http}]   # 只暴露业务端口，管理端口不进 Service

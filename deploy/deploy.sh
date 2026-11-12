@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 # 逐台发布：从负载均衡摘下 → 替换 jar → systemctl restart → 健康检查通过后挂回
+# 健康检查走管理端口 18080（prod profile 的 management.server.port）
 # 用法：deploy/deploy.sh mall-app/target/mall-app.jar host1 host2
 set -euo pipefail
 
@@ -15,7 +16,7 @@ for host in "${HOSTS[@]}"; do
   scp "$JAR" "deploy@${host}:/opt/mall-evolution/mall-app.jar.new"
   ssh "deploy@${host}" 'sudo mv /opt/mall-evolution/mall-app.jar.new /opt/mall-evolution/mall-app.jar && sudo systemctl restart mall-evolution'
   for i in $(seq 1 60); do
-    if ssh "deploy@${host}" 'curl -fs localhost:8080/actuator/health/readiness' >/dev/null; then
+    if ssh "deploy@${host}" 'curl -fs localhost:18080/actuator/health/readiness' >/dev/null; then
       echo "[ok] ${host} 健康检查通过"
       break
     fi

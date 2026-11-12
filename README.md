@@ -80,7 +80,7 @@ curl -i localhost:9000/api/orders -H "Authorization: Bearer $TOKEN" \
 | 网关 mall-gateway（对外入口） | 9000 | 19000 |
 | 配套的智能客服 [mall-assistant](https://github.com/Clarence404/mall-assistant) | 8088（与本仓库错开，可同时运行） | |
 
-**抓指标**：dev profile 给每个服务开了独立管理端口（业务端口 + 10000，环境变量 `MANAGEMENT_PORT` 可改），Prometheus 匿名抓 `http://<主机>:18080/actuator/prometheus`（其余三个同理），健康检查也在管理端口（`/actuator/health/readiness`）。业务端口上的 `/actuator/prometheus` 仍要登录、匿名返回 401；管理端口上只放行 health、info、prometheus，其余端点拒绝。管理端口不经网关，只给同网段的监控访问。没开独立管理端口时（如 prod），行为与之前一样。
+**抓指标**：dev profile 给每个服务开了独立管理端口（业务端口 + 10000，环境变量 `MANAGEMENT_PORT` 可改），Prometheus 匿名抓 `http://<主机>:18080/actuator/prometheus`（其余三个同理），健康检查也在管理端口（`/actuator/health/readiness`）。业务端口上的 `/actuator/prometheus` 仍要登录、匿名返回 401；管理端口上只放行 health、info、prometheus，其余端点拒绝。管理端口不经网关，只给同网段的监控访问。prod profile 同样开了管理端口：四个服务业务端口都是 8080，管理端口统一 18080（`MANAGEMENT_PORT` 可改）；`deploy/k8s` 里容器端口分别命名为 `http`（8080）和 `management`（18080），存活 / 就绪 / 启动探针与 PodMonitor 都指向 `management`，Service 只暴露 `http`；云主机部署（`deploy/deploy.sh`、`mall-evolution.service`）的健康检查也走 18080。
 
 ### 在 IntelliJ IDEA 里运行
 
