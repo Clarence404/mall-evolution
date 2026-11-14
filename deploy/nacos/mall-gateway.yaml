@@ -1,4 +1,6 @@
 # Nacos：mall-gateway.yaml。限流阈值按压测结论调；改这里等同于一次发布，先 Beta 推给一个 Pod 观察 5 分钟再全量
+# 注意：routes 是列表，Nacos 里的值会整体替换 application.yml 里的那份，不是按 id 合并——所以这里必须把全部路由写全，
+# 只写要改的那一条会让其余路由消失（支付回调、商品详情、兜底路由全部 404）
 spring:
   cloud:
     gateway:
@@ -19,4 +21,35 @@ spring:
                     redis-rate-limiter.replenishRate: 1     # 每个用户每秒 1 次
                     redis-rate-limiter.burstCapacity: 3     # 允许连点 3 次的突发
                     key-resolver: "#{@userRouteKeyResolver}"
-            # payment-notify / payment / anonymous / mall-app 兜底路由与 application.yml 相同，略
+            - id: payment-notify                 # 渠道回调：免 JWT、改验渠道签名，不挂用户限流
+              uri: lb://payment-service
+              order: 20
+              predicates:
+                - Path=/api/payments/notify/**
+            - id: payment
+              uri: lb://payment-service
+              order: 30
+              predicates:
+                - Path=/api/payments/**
+              filters:
+                - name: RequestRateLimiter
+                  args:
+                    redis-rate-limiter.replenishRate: 20
+                    redis-rate-limiter.burstCapacity: 40
+                    key-resolver: "#{@userRouteKeyResolver}"
+            - id: anonymous                      # 商品详情、登录这类匿名可访问的接口走单独的路由，不挂用户限流
+              uri: lb://mall-app
+              order: 50
+              predicates:
+                - Path=/api/auth/**,/api/products/**
+            - id: mall-app
+              uri: lb://mall-app
+              order: 100                         # 兜底路由放最后
+              predicates:
+                - Path=/api/**
+              filters:
+                - name: RequestRateLimiter
+                  args:
+                    redis-rate-limiter.replenishRate: 20    # 每个用户每秒 20 次、突发 40
+                    redis-rate-limiter.burstCapacity: 40
+                    key-resolver: "#{@userRouteKeyResolver}"

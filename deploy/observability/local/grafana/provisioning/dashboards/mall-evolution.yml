@@ -1,0 +1,12 @@
+# Grafana provisioning 示例：启动时从一个目录加载本仓库的两个面板（deploy/observability/grafana/ 下的 business-dashboard.json 与 jvm-http-dashboard.json）。
+# 把这两个 JSON 挂进容器的 /var/lib/grafana/dashboards-evolution（目录名随意，和下面的 path 一致即可）；改了 JSON 30 秒内自动重新读
+apiVersion: 1
+providers:
+  - name: mall-evolution
+    folder: mall-evolution
+    type: file
+    disableDeletion: true
+    allowUiUpdates: false         # 页面上改的不存回文件，要改就改仓库里的 JSON
+    updateIntervalSeconds: 30
+    options:
+      path: /var/lib/grafana/dashboards-evolution

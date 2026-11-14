@@ -67,6 +67,8 @@ spec:
     metadata:
       labels: {app: otel-collector-agent}
     spec:
+      # ServiceAccount 需自备，本文件不创建：k8sattributes 处理器要读 Pod 的元数据，得给它绑一个能 get / list / watch
+      # pods、namespaces（以及 replicasets）的 ClusterRole；没有这份权限时 Collector 能启动，但日志和 Span 上打不出 app 标签
       serviceAccountName: otel-collector
       containers:
         - name: collector

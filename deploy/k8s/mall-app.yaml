@@ -17,7 +17,7 @@ spec:
       terminationGracePeriodSeconds: 60
       containers:
         - name: app
-          image: mall/mall-app:2.0.0          # 由流水线写入镜像 digest
+          image: mall/mall-app:2.0.0          # 占位标签，由流水线写入镜像 digest（与 flyway-presync-job.yaml 里的同一次构建）
           ports: [{name: http, containerPort: 8080}, {name: management, containerPort: 18080}]   # 健康检查与指标在管理端口
           envFrom: [{secretRef: {name: mall-app-secret}}]
           env:

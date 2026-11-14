@@ -18,7 +18,7 @@ spec:
       terminationGracePeriodSeconds: 30
       containers:
         - name: app
-          image: mall/mall-gateway:1.0.0
+          image: mall/mall-gateway:2.0.0   # 占位标签，由流水线写入镜像 digest
           ports: [{name: http, containerPort: 8080}, {name: management, containerPort: 18080}]   # 健康检查与指标在管理端口
           envFrom: [{secretRef: {name: mall-gateway-secret}}]
           env:

@@ -1,0 +1,13 @@
+# Grafana provisioning 示例：启动时自动建好 Prometheus 数据源。已经有同样的数据源（例如 mall-assistant 的 monitoring/ 里那份）就不用再放这个文件。
+# 两个面板 JSON 里的数据源是模板变量 ${datasource}，导入后在面板顶部选这个数据源即可
+apiVersion: 1
+datasources:
+  - name: Prometheus
+    uid: prometheus
+    type: prometheus
+    access: proxy
+    url: http://prometheus:9090   # 同一个 compose 网络里的服务名；Prometheus 不在同一个网络时改成它的地址
+    isDefault: true
+    editable: false
+    jsonData:
+      timeInterval: 15s           # 和抓取间隔一致，$__rate_interval 才取得对

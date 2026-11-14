@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+# 阶段一遗留：只对应 stage-1-monolith 标签（那时只有 mall-app 一个进程、部署在云主机上），main 上不再维护；阶段三起改为 Kubernetes，见 deploy/k8s
+# （调用它的流水线 .github/workflows/main.yml 已从 main 删除，只在 stage-1-monolith 标签里）
 # 逐台发布：从负载均衡摘下 → 替换 jar → systemctl restart → 健康检查通过后挂回
 # 健康检查走管理端口 18080（prod profile 的 management.server.port）
 # 用法：deploy/deploy.sh mall-app/target/mall-app.jar host1 host2

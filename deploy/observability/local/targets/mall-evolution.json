@@ -1,0 +1,6 @@
+[
+  {"targets": ["host.docker.internal:18080"], "labels": {"app": "mall-app", "env": "local"}},
+  {"targets": ["host.docker.internal:18082"], "labels": {"app": "inventory-service", "env": "local"}},
+  {"targets": ["host.docker.internal:18083"], "labels": {"app": "payment-service", "env": "local"}},
+  {"targets": ["host.docker.internal:19000"], "labels": {"app": "mall-gateway", "env": "local"}}
+]

@@ -2,6 +2,11 @@
 # Argo CD 发现变更后同步（PreSync 跑 Flyway），Argo Rollouts 按 5% → 25% → 100% 放量并自动分析。
 # 构建镜像与写 GitOps 需要镜像仓库和 GitOps 仓库的凭据，只在仓库变量 DEPLOY_ENABLED=true 时执行；
 # 本仓库是演示仓库，没有配这些凭据，push 到 main 时只跑 verify。
+# 要真的发布，需要在仓库里配置：
+#   变量（Settings → Variables）：DEPLOY_ENABLED=true、REGISTRY（镜像仓库地址，如 registry.example.com）、GITOPS_REPO（GitOps 仓库，owner/name）
+#   密钥（Settings → Secrets）：REGISTRY_USERNAME、REGISTRY_PASSWORD（推镜像）、GITOPS_TOKEN（对 GitOps 仓库有写权限的令牌）
+#   GitOps 仓库的 prod/ 目录下要有与 deploy/k8s 同名的清单（mall-app.yaml、inventory-service.yaml、payment-service.yaml、
+#   mall-gateway.yaml、flyway-presync-job.yaml），下面的 yq 按这些文件名改镜像
 # 回滚：Rollouts 自动中止后 GitOps 仓库里还是新版本，由发布人 revert 那次提交，Argo CD 不会再把它推上去。
 on:
   push:

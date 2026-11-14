@@ -31,29 +31,6 @@ jobs:
       - uses: gitleaks/gitleaks-action@v2   # 密钥扫描，防止误提交
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-  # Kubernetes 清单：kubeconform 按 API 版本的 JSON Schema 校验 deploy/k8s（CRD 用社区 schema 目录，没有的跳过）
-  k8s-manifests:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v7
-      - name: kubeconform
-        run: |
-          docker run --rm -v "$PWD":/w ghcr.io/yannh/kubeconform:v0.6.7 \
-            -strict -summary -ignore-missing-schemas \
-            -ignore-filename-pattern 'kustomization\.yaml' \
-            -schema-location default \
-            -schema-location 'https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json' \
-            /w/deploy/k8s
-  # Prometheus 规则与 Alertmanager 配置：promtool / amtool 语法与表达式检查
-  observability-config:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v7
-      - name: promtool check rules
-        run: |
-          docker run --rm -v "$PWD":/w --entrypoint promtool prom/prometheus:v3.5.0 \
-            check rules /w/deploy/observability/prometheus/rules/components.yml /w/deploy/observability/prometheus/rules/place-order-slo.yml
-      - name: amtool check-config
-        run: |
-          docker run --rm -v "$PWD":/w --entrypoint amtool prom/alertmanager:v0.28.1 \
-            check-config /w/deploy/observability/alertmanager/alertmanager.yml
+  # Kubernetes 清单、Prometheus 规则、Alertmanager 配置的静态检查：和另一个流水线共用 static-checks.yml
+  static-checks:
+    uses: ./.github/workflows/static-checks.yml

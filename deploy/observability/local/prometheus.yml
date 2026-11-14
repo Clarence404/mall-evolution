@@ -1,0 +1,18 @@
+# 本地监控示例：让一套本地的 Prometheus 抓四个服务的管理端口，并加载本仓库的告警规则。
+# 用法见 README「本地监控」：可以把 scrape_configs 里的这个任务和 rule_files 合并进已有的 prometheus.yml
+# （例如配套仓库 mall-assistant 的 monitoring/prometheus/prometheus.yml），也可以把这个文件原样当配置用。
+# 相对路径都相对本文件所在目录。
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+rule_files:
+  - ../prometheus/rules/*.yml        # deploy/observability/prometheus/rules：下单 SLO 与组件告警
+
+scrape_configs:
+  - job_name: mall-evolution
+    metrics_path: /actuator/prometheus   # dev / prod 都开了独立管理端口，Prometheus 匿名抓这里；业务端口上这个路径要登录（401）
+    file_sd_configs:                     # 抓谁写在 JSON 里：改了文件 Prometheus 自己重新读，不用重启
+      - files:
+          - targets/mall-evolution.json
+        refresh_interval: 30s

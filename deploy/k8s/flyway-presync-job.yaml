@@ -1,6 +1,9 @@
 # 数据库变更：Argo CD 同步时先用 PreSync 钩子执行 Flyway，再更新各服务的镜像。三个有库的服务各一个 Job，各连自己的库。
 # 用有 DDL 权限的账号执行；应用 Pod 上 spring.flyway.enabled=false，运行账号只有 DML 权限。
 # 每次表变更都得让新旧代码都能跑（先扩后缩）；超过 5 分钟的大表 DDL 交给 gh-ost 在低峰单独执行，不放进这里。
+# 镜像：flyway/flyway 的版本与应用内的 Flyway（Spring Boot 4.1.2 管理的 12.4.0）对齐，升级 Spring Boot 时一起改；
+# 三个 copy-migrations 的应用镜像标签只是占位，发布流水线（release.yml）会把它们和各服务清单里的镜像一起改成同一次构建的 digest。
+# 三个 Job 引用的 DDL 账号 Secret（mall-app-ddl-secret / inventory-service-ddl-secret / payment-service-ddl-secret）见 secrets.example.yaml。
 apiVersion: batch/v1
 kind: Job
 metadata:
@@ -25,7 +28,7 @@ spec:
           volumeMounts: [{name: migrations, mountPath: /flyway/sql}]
       containers:
         - name: flyway
-          image: flyway/flyway:11
+          image: flyway/flyway:12.4.0
           args: ["-locations=filesystem:/flyway/sql", "-connectRetries=10", "migrate"]
           env:
             - name: FLYWAY_URL
@@ -60,7 +63,7 @@ spec:
           volumeMounts: [{name: migrations, mountPath: /flyway/sql}]
       containers:
         - name: flyway
-          image: flyway/flyway:11
+          image: flyway/flyway:12.4.0
           args: ["-locations=filesystem:/flyway/sql", "-connectRetries=10", "migrate"]
           env:
             - name: FLYWAY_URL
@@ -95,7 +98,7 @@ spec:
           volumeMounts: [{name: migrations, mountPath: /flyway/sql}]
       containers:
         - name: flyway
-          image: flyway/flyway:11
+          image: flyway/flyway:12.4.0
           args: ["-locations=filesystem:/flyway/sql", "-connectRetries=10", "migrate"]
           env:
             - name: FLYWAY_URL

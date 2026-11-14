@@ -3,3 +3,5 @@ mall:
   inventory:
     reservation-expire-interval: 5m   # 大促期间改为 1m，尽快把超时订单的预占还回来
     bucket-rebalance-interval: 5s
+  rocketmq:
+    consumption-threads: 8            # 每个消费组的消费线程数：2 个消费组 × 8 = 16，不超过连接池（40）的一半

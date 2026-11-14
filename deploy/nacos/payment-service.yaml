@@ -1,0 +1,8 @@
+# Nacos：payment-service.yaml。prod profile 把它作为必需配置导入（application-prod.yml 里不带 optional），缺了启动失败
+spring:
+  http:
+    serviceclient:
+      mall-app: {connect-timeout: 200ms, read-timeout: 800ms}   # 建支付单时回查订单；与 application.yml 的默认值相同，线上以这里为准
+mall:
+  rocketmq:
+    consumption-threads: 4   # 退款消费组（payment-refund-consumer）的消费线程数：只有 1 个消费组，不超过连接池（20）的一半

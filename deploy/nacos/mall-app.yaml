@@ -38,6 +38,8 @@ resilience4j:
         max-concurrent-calls: 20
         max-wait-duration: 0
 mall:
+  rocketmq:
+    consumption-threads: 3           # 每个消费组的消费线程数：生产连接池 30，5 个消费组 × 3 = 15，正好一半（本地默认连接池 20，对应 2）
   degrade:
     recommend-enabled: true          # 大促：false，商品详情、购物车的「猜你喜欢」返回运营配置的固定列表
     points-display-enabled: true     # 大促：false，订单详情、我的页面不再实时查积分
