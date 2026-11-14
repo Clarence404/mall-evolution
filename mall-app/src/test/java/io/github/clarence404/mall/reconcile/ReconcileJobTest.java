@@ -64,7 +64,7 @@ class ReconcileJobTest {
 
     @Test
     void republishHittingFailedOutboxRecordIsRecordedAsDiff() {
-        mall.update("INSERT INTO t_outbox VALUES ('payment-succeeded', 'PA', 2)"); // 之前重试 10 次都没发出去
+        mall.update("INSERT INTO t_outbox VALUES ('payment-succeeded', 'PA', 2)"); // 之前重试满 24 小时都没发出去
 
         job.apply(DAY, diff);
 

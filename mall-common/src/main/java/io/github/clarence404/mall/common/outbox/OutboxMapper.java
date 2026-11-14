@@ -60,15 +60,30 @@ public interface OutboxMapper {
     @Update("UPDATE t_outbox SET status = 1 WHERE id = #{id}")
     int markSent(@Param("id") long id);
 
-    /** retry_count + 1，按指数退避推迟 next_retry_at（最长约 4 分钟），第 10 次失败置为失败。 */
+    /**
+     * 发送失败后的回写：retry_count + 1，next_retry_at 推后 backoffSeconds 秒（退避由 {@link OutboxRelay#backoffSeconds} 算好传进来）。
+     *
+     * <p>按时间封顶，不按次数：记录创建后 giveUpSeconds 秒内一直重试；超过这个时间还没发出去才置为失败（status = 2），
+     * 交给 OutboxFailedRecords 告警与人工处理。原先「第 10 次失败就置失败」约 9 分钟就放弃，Broker 抖动十来分钟就会留下一批死记录。
+     *
+     * <p>用 TIMESTAMPADD / TIMESTAMPDIFF 而不是 DATE_ADD … INTERVAL：两者 MySQL 都支持，前者 H2 的 MySQL 模式也认，
+     * 这条 SQL 才能在不需要 Docker 的测试里跑到。
+     */
     @Update("""
             UPDATE t_outbox SET
-                status = CASE WHEN retry_count + 1 >= 10 THEN 2 ELSE 0 END,
-                next_retry_at = DATE_ADD(NOW(3), INTERVAL POW(2, LEAST(retry_count, 8)) SECOND),
+                status = CASE WHEN TIMESTAMPDIFF(SECOND, created_at, NOW(3)) >= #{giveUpSeconds} THEN 2 ELSE 0 END,
+                next_retry_at = TIMESTAMPADD(SECOND, #{backoffSeconds}, NOW(3)),
                 retry_count = retry_count + 1
             WHERE id = #{id}
             """)
-    int markRetry(@Param("id") long id);
+    int markRetry(
+            @Param("id") long id,
+            @Param("backoffSeconds") long backoffSeconds,
+            @Param("giveUpSeconds") long giveUpSeconds);
+
+    /** 消息本身非法（Broker 明确拒收，重试多少次结果都一样）：直接置为失败，不占着重试名额。 */
+    @Update("UPDATE t_outbox SET status = 2, retry_count = retry_count + 1 WHERE id = #{id}")
+    int markFailed(@Param("id") long id);
 
     @Select("SELECT MIN(created_at) FROM t_outbox WHERE status = 0")
     LocalDateTime selectOldestPendingCreatedAt();

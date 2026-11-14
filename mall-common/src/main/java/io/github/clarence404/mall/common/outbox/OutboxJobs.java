@@ -14,7 +14,7 @@ import org.springframework.stereotype.Component;
  *
  * <ul>
  *   <li>{@code outbox.pending.age}：最老一条待发送记录等了多久，超过 1 分钟告警，涨说明中继或 Broker 出了问题
- *   <li>{@code outbox.failed.count}：失败记录数，大于 0 告警
+ *   <li>{@code outbox.failed.count}：失败记录数（重试满 24 小时仍没发出去，或消息本身非法被 Broker 拒收），大于 0 告警，需人工处理
  *   <li>已发送的记录保留 7 天，每天凌晨分批删除
  * </ul>
  */
@@ -33,7 +33,7 @@ class OutboxJobs {
                 .description("t_outbox 最老一条待发送记录的等待时长")
                 .register(registry);
         Gauge.builder("outbox.failed.count", failedCount, AtomicLong::get)
-                .description("t_outbox 失败记录数")
+                .description("t_outbox 失败记录数（重试满 24 小时或消息非法）")
                 .register(registry);
     }
 

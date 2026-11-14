@@ -31,7 +31,7 @@ import org.springframework.transaction.support.TransactionSynchronizationManager
 import org.springframework.transaction.support.TransactionTemplate;
 
 /**
- * 中继在真实 MySQL 上的行为：两个实例同时扫表，FOR UPDATE SKIP LOCKED 保证每条只发一次；Broker 失败按退避重试。
+ * 中继在真实 MySQL 上的行为：两个实例同时扫表，FOR UPDATE SKIP LOCKED 保证每条只发一次；Broker 失败按退避重试、按时间封顶；非法消息立即置失败。
  * Producer 用替身（Testcontainers 没有 RocketMQ 模块）。需要 Docker。
  */
 class OutboxRelayIT extends IntegrationTestBase {
@@ -116,8 +116,9 @@ class OutboxRelayIT extends IntegrationTestBase {
         verify(producer, never()).send(any(Message.class));
     }
 
+    /** Broker 故障：按退避重试，失败多少次都不置失败；创建超过 24 小时还没发出去才置为失败。 */
     @Test
-    void brokerFailureBacksOffAndEventuallyFails() throws Exception {
+    void brokerFailureKeepsRetryingAndOnlyGivesUpAfterTheTimeLimit() throws Exception {
         insertDue(1);
         Producer producer = mock(Producer.class);
         when(producer.send(any(Message.class))).thenThrow(new ClientException("down"));
@@ -132,9 +133,45 @@ class OutboxRelayIT extends IntegrationTestBase {
         assertThat(jdbc.queryForObject("SELECT next_retry_at > NOW(3) FROM t_outbox", Boolean.class))
                 .isTrue();
 
-        jdbc.update("UPDATE t_outbox SET retry_count = 9, next_retry_at = NOW(3) - INTERVAL 1 SECOND");
+        // 已经失败 30 次：原先第 10 次就置失败，现在仍是待发送，下一次重试最多等 4 分钟
+        jdbc.update("UPDATE t_outbox SET retry_count = 30, next_retry_at = NOW(3) - INTERVAL 1 SECOND");
+        relay.relayBatch(10);
+        assertThat(jdbc.queryForObject("SELECT status FROM t_outbox", Integer.class))
+                .isZero();
+        assertThat(jdbc.queryForObject("SELECT retry_count FROM t_outbox", Integer.class))
+                .isEqualTo(31);
+        assertThat(jdbc.queryForObject(
+                        "SELECT TIMESTAMPDIFF(SECOND, NOW(3), next_retry_at) BETWEEN 230 AND 241 FROM t_outbox",
+                        Boolean.class))
+                .isTrue();
+
+        // 创建已超过 24 小时：这次失败后置为失败，不再认领
+        jdbc.update("UPDATE t_outbox SET created_at = NOW(3) - INTERVAL 25 HOUR,"
+                + " next_retry_at = NOW(3) - INTERVAL 1 SECOND");
         relay.relayBatch(10);
         assertThat(jdbc.queryForObject("SELECT status FROM t_outbox", Integer.class))
                 .isEqualTo(2);
+        org.mockito.Mockito.clearInvocations(producer);
+        assertThat(relay.relayBatch(10)).isZero();
+        verify(producer, never()).send(any(Message.class));
+    }
+
+    /** Broker 拒收（消息本身非法）：立即置为失败，同一批里后面的记录照常发出。 */
+    @Test
+    void illegalMessageFailsImmediatelyWithoutBlockingTheRest() throws Exception {
+        insertDue(2);
+        Producer producer = mock(Producer.class);
+        when(producer.send(any(Message.class)))
+                .thenThrow(new org.apache.rocketmq.client.java.exception.BadRequestException(40000, "r", "illegal"))
+                .thenReturn(null);
+        OutboxRelay relay =
+                new OutboxRelay(outboxMapper, ClientServiceProvider.loadService(), producer, transactionTemplate);
+
+        assertThat(relay.relayBatch(10)).isEqualTo(2);
+
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM t_outbox WHERE status = 2", Integer.class))
+                .isEqualTo(1);
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM t_outbox WHERE status = 1", Integer.class))
+                .isEqualTo(1);
     }
 }
