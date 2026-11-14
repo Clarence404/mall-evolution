@@ -1,50 +1,104 @@
 <?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../../jacoco-resources/report.gif" type="image/gif"/><title>StockDisplayService.java</title><link rel="stylesheet" href="../../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../../index.html" class="el_report">mall-app</a> &gt; <a href="../index.html" class="el_bundle">mall-product</a> &gt; <a href="index.source.html" class="el_package">io.github.clarence404.mall.product.stock</a> &gt; <span class="el_source">StockDisplayService.java</span></div><h1>StockDisplayService.java</h1><pre class="source lang-java linenums">package io.github.clarence404.mall.product.stock;
 
+import com.github.benmanes.caffeine.cache.Cache;
+import com.github.benmanes.caffeine.cache.Caffeine;
+import com.github.benmanes.caffeine.cache.Expiry;
 import io.github.clarence404.mall.inventory.api.StockView;
 import java.time.Duration;
 import java.util.List;
-import lombok.RequiredArgsConstructor;
+import java.util.function.LongSupplier;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
 
 /**
- * 库存展示：详情页的「有货」只是提示，放进 Redis 设 10 秒 TTL；真正扣减仍是数据库条件更新，不读这里。
+ * 库存展示：详情页的「有货」只是提示，真正扣减仍是数据库条件更新，不读这里。详情页是最热的读接口，所以分三层：
+ *
+ * &lt;ol&gt;
+ *   &lt;li&gt;本机 Caffeine，写入后 2 秒：热点商品的请求绝大多数在内存里命中，不再每次都同步访问 Redis
+ *   &lt;li&gt;Redis，10 秒 TTL：各实例共用，把对库存服务的调用压到「每个 SKU 每 10 秒一次」的量级
+ *   &lt;li&gt;库存服务（{@link StockQueryService}：重试 1 次 + 熔断 + 舱壁）
+ * &lt;/ol&gt;
+ *
+ * &lt;p&gt;两个保护：
+ *
+ * &lt;ul&gt;
+ *   &lt;li&gt;单飞：同一个 SKU 在本机缓存里未命中时，Caffeine 保证本 JVM 只有一个线程去加载，其余线程等它的结果，
+ *       缓存过期的瞬间不会有一批请求同时打到 Redis 和库存服务
+ *   &lt;li&gt;兜底也缓存：库存服务不可用（超时、熔断打开、舱壁满）时按「有货」展示，这个兜底值在本机缓存 5 秒、不写 Redis——
+ *       故障期间每个 SKU 每台机器 5 秒才试一次，不会让每个详情请求都卡一次超时
+ * &lt;/ul&gt;
  */
-<span class="fc" id="L14">@Slf4j</span>
+<span class="fc" id="L33">@Slf4j</span>
 @Service
-@RequiredArgsConstructor
 public class StockDisplayService {
 
     static final String KEY_PREFIX = &quot;stock:display:&quot;;
-<span class="fc" id="L20">    private static final Duration TTL = Duration.ofSeconds(10);</span>
+<span class="fc" id="L38">    private static final Duration TTL = Duration.ofSeconds(10);</span>
+    /** 本机缓存：正常结果保留 2 秒，展示最多比 Redis 再晚 2 秒，换来热点路径不碰网络。 */
+<span class="fc" id="L40">    private static final Duration LOCAL_TTL = Duration.ofSeconds(2);</span>
+    /** 库存服务不可用时的兜底结果在本机保留 5 秒：比正常值久，故障期间少撞几次。 */
+<span class="fc" id="L42">    private static final Duration FALLBACK_TTL = Duration.ofSeconds(5);</span>
 
     private final StringRedisTemplate redis;
     private final StockQueryService stockQueryService;
+    private final Cache&lt;Long, Hint&gt; local;
+
+    @Autowired
+    public StockDisplayService(StringRedisTemplate redis, StockQueryService stockQueryService) {
+<span class="fc" id="L50">        this(redis, stockQueryService, System::nanoTime);</span>
+<span class="fc" id="L51">    }</span>
+
+    /** 测试用：传入可拨动的时钟（纳秒），不用 sleep 就能验证过期。 */
+<span class="fc" id="L54">    StockDisplayService(StringRedisTemplate redis, StockQueryService stockQueryService, LongSupplier nanoClock) {</span>
+<span class="fc" id="L55">        this.redis = redis;</span>
+<span class="fc" id="L56">        this.stockQueryService = stockQueryService;</span>
+<span class="fc" id="L57">        this.local = Caffeine.newBuilder()</span>
+<span class="fc" id="L58">                .maximumSize(10_000)</span>
+<span class="fc" id="L59">                .ticker(nanoClock::getAsLong)</span>
+<span class="fc bfc" id="L60" title="All 2 branches covered.">                .expireAfter(Expiry.&lt;Long, Hint&gt;creating((skuId, hint) -&gt; hint.fallback() ? FALLBACK_TTL : LOCAL_TTL))</span>
+<span class="fc" id="L61">                .build();</span>
+<span class="fc" id="L62">    }</span>
 
     public boolean inStock(long skuId) {
-<span class="fc" id="L26">        String key = KEY_PREFIX + skuId;</span>
+        // get(key, 加载函数)：同一个 key 并发未命中时只有一个线程执行加载函数（单飞）
+<span class="fc" id="L66">        return local.get(skuId, this::load).inStock();</span>
+    }
+
+    /** 本机未命中：先读 Redis，再问库存服务。任何一步出错都不抛给调用方——详情页不能因为一个提示而失败。 */
+    private Hint load(long skuId) {
+<span class="fc" id="L71">        String key = KEY_PREFIX + skuId;</span>
         try {
-<span class="nc" id="L28">            String cached = redis.opsForValue().get(key);</span>
-<span class="nc bnc" id="L29" title="All 2 branches missed.">            if (cached != null) {</span>
-<span class="nc" id="L30">                return &quot;1&quot;.equals(cached);</span>
+<span class="fc" id="L73">            String cached = redis.opsForValue().get(key);</span>
+<span class="fc bfc" id="L74" title="All 2 branches covered.">            if (cached != null) {</span>
+<span class="fc" id="L75">                return new Hint(&quot;1&quot;.equals(cached), false);</span>
             }
-<span class="fc" id="L32">        } catch (RuntimeException e) {</span>
-<span class="fc" id="L33">            log.warn(&quot;读取库存展示缓存失败，直接查库存，skuId={}&quot;, skuId, e);</span>
-<span class="nc" id="L34">        }</span>
+<span class="fc" id="L77">        } catch (RuntimeException e) {</span>
+<span class="fc" id="L78">            log.warn(&quot;读取库存展示缓存失败，直接查库存，skuId={}&quot;, skuId, e);</span>
+<span class="fc" id="L79">        }</span>
         boolean inStock;
         try {
-<span class="fc" id="L37">            inStock = stockQueryService.listStocks(List.of(skuId)).stream().anyMatch(StockView::inStock);</span>
-<span class="nc" id="L38">        } catch (RuntimeException e) {</span>
-<span class="nc" id="L39">            log.warn(&quot;查询库存服务失败（已重试 1 次），按有货展示，下单时再以预占结果为准，skuId={}&quot;, skuId, e);</span>
-<span class="nc" id="L40">            return true;</span>
-<span class="fc" id="L41">        }</span>
+<span class="fc" id="L82">            inStock = stockQueryService.listStocks(List.of(skuId)).stream().anyMatch(StockView::inStock);</span>
+<span class="fc" id="L83">        } catch (RuntimeException e) {</span>
+            // 超时（已重试 1 次）、熔断打开、舱壁满都走这里：按有货展示，下单时再以预占结果为准
+<span class="fc" id="L85">            log.warn(&quot;查询库存服务失败，按有货展示并在本机缓存 {} 秒，skuId={}，原因：{}&quot;, FALLBACK_TTL.toSeconds(), skuId, e.toString());</span>
+<span class="fc" id="L86">            return new Hint(true, true);</span>
+<span class="fc" id="L87">        }</span>
         try {
-<span class="fc bfc" id="L43" title="All 2 branches covered.">            redis.opsForValue().set(key, inStock ? &quot;1&quot; : &quot;0&quot;, TTL);</span>
-<span class="fc" id="L44">        } catch (RuntimeException e) {</span>
-<span class="fc" id="L45">            log.warn(&quot;回写库存展示缓存失败，skuId={}&quot;, skuId, e);</span>
-<span class="fc" id="L46">        }</span>
-<span class="fc" id="L47">        return inStock;</span>
+<span class="fc bfc" id="L89" title="All 2 branches covered.">            redis.opsForValue().set(key, inStock ? &quot;1&quot; : &quot;0&quot;, TTL);</span>
+<span class="fc" id="L90">        } catch (RuntimeException e) {</span>
+<span class="fc" id="L91">            log.warn(&quot;回写库存展示缓存失败，skuId={}&quot;, skuId, e);</span>
+<span class="fc" id="L92">        }</span>
+<span class="fc" id="L93">        return new Hint(inStock, false);</span>
     }
+
+    /**
+     * 本机缓存里的一条提示。
+     *
+     * @param inStock 是否展示「有货」
+     * @param fallback true 表示这是库存服务不可用时的兜底值（缓存得更久，且不写 Redis）
+     */
+<span class="fc" id="L102">    private record Hint(boolean inStock, boolean fallback) {}</span>
 }
 </pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.13.202504020838</span></div></body></html>

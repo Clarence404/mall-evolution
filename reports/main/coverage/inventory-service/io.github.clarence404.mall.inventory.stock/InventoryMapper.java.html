@@ -39,9 +39,6 @@ public interface InventoryMapper {
             &quot;&quot;&quot;)
     int restockTo(@Param(&quot;skuId&quot;) long skuId, @Param(&quot;target&quot;) int target);
 
-    @Select(&quot;SELECT stock FROM t_inventory WHERE sku_id = #{skuId}&quot;)
-    Integer selectStock(@Param(&quot;skuId&quot;) long skuId);
-
     /** 0 表示不分桶。 */
     @Select(&quot;SELECT bucket_count FROM t_inventory WHERE sku_id = #{skuId}&quot;)
     Integer selectBucketCount(@Param(&quot;skuId&quot;) long skuId);
@@ -57,7 +54,7 @@ public interface InventoryMapper {
     @Update(&quot;UPDATE t_inventory SET stock = stock + #{remaining}, bucket_count = 0 WHERE sku_id = #{skuId}&quot;)
     int unmarkBucketed(@Param(&quot;skuId&quot;) long skuId, @Param(&quot;remaining&quot;) int remaining);
 
-<span class="fc" id="L60">    record StockRow(int stock, int bucketCount) {}</span>
+<span class="fc" id="L57">    record StockRow(int stock, int bucketCount) {}</span>
 
     /** 分桶 SKU 的展示库存是各桶 stock 之和。 */
     @Select(&quot;&quot;&quot;

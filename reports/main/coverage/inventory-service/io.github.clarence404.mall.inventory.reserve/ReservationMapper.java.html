@@ -18,6 +18,16 @@ public interface ReservationMapper {
             &quot;&quot;&quot;)
     List&lt;Reservation&gt; selectByOrderNo(@Param(&quot;orderNo&quot;) String orderNo);
 
+    /**
+     * 按唯一键 (order_no, sku_id) 加锁读一条预占记录（当前读）：release 用它取桶号与数量，
+     * 读到的一定是已提交的最新值，不受事务开始时快照的影响。
+     */
+    @Select(&quot;&quot;&quot;
+            SELECT id, order_no, sku_id, quantity, status, expire_at, bucket_no
+            FROM t_inventory_reservation WHERE order_no = #{orderNo} AND sku_id = #{skuId} FOR UPDATE
+            &quot;&quot;&quot;)
+    Reservation selectForUpdate(@Param(&quot;orderNo&quot;) String orderNo, @Param(&quot;skuId&quot;) long skuId);
+
     /** 并发时撞 uk_order_sku 抛 DuplicateKeyException，整个 reserve 事务回滚。 */
     @Insert(&quot;&quot;&quot;
             INSERT INTO t_inventory_reservation (id, order_no, sku_id, quantity, status, expire_at, bucket_no)
@@ -31,7 +41,7 @@ public interface ReservationMapper {
      * &lt;p&gt;不用 ON DUPLICATE KEY UPDATE id = id：Connector/J 默认返回 found rows，已存在也返回 1。
      */
     default int insertReleasedIfAbsent(String orderNo, ReserveLine line) {
-<span class="fc" id="L34">        return insertIgnoreReleased(Ids.next(), orderNo, line.skuId(), line.quantity());</span>
+<span class="fc" id="L44">        return insertIgnoreReleased(Ids.next(), orderNo, line.skuId(), line.quantity());</span>
     }
 
     @Insert(&quot;&quot;&quot;

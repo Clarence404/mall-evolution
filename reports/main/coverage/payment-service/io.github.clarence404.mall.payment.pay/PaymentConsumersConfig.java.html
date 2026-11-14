@@ -2,6 +2,7 @@
 
 import io.github.clarence404.mall.common.json.Json;
 import io.github.clarence404.mall.common.mq.ConsumerFactory;
+import io.github.clarence404.mall.common.mq.RocketMqProperties;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.rocketmq.client.apis.ClientConfiguration;
 import org.apache.rocketmq.client.apis.ClientException;
@@ -12,28 +13,32 @@ import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
-<span class="nc" id="L15">@Slf4j</span>
+<span class="nc" id="L16">@Slf4j</span>
 @Configuration(proxyBeanMethods = false)
 @ConditionalOnProperty(prefix = &quot;mall.rocketmq&quot;, name = &quot;enabled&quot;, havingValue = &quot;true&quot;)
-<span class="nc" id="L18">class PaymentConsumersConfig {</span>
+<span class="nc" id="L19">class PaymentConsumersConfig {</span>
 
     @Bean(destroyMethod = &quot;close&quot;)
     PushConsumer paymentRefundConsumer(
-            ClientServiceProvider provider, ClientConfiguration clientConfig, RefundService refundService)
+            ClientServiceProvider provider,
+            ClientConfiguration clientConfig,
+            RocketMqProperties props,
+            RefundService refundService)
             throws ClientException {
-<span class="nc" id="L24">        return ConsumerFactory.subscribe(provider, clientConfig, RefundService.GROUP, &quot;order-refund-required&quot;, view -&gt; {</span>
-<span class="nc" id="L25">            RefundRequired m = Json.read(view.getBody(), RefundRequired.class);</span>
-            try {
-<span class="nc" id="L27">                refundService.refund(m.orderNo(), m.paymentNo());</span>
-<span class="nc" id="L28">                return ConsumeResult.SUCCESS;</span>
-<span class="nc" id="L29">            } catch (Exception ex) {</span>
-<span class="nc" id="L30">                log.warn(&quot;发起退款失败，orderNo={}，第 {} 次投递&quot;, m.orderNo(), view.getDeliveryAttempt(), ex);</span>
-<span class="nc" id="L31">                return ConsumeResult.FAILURE;</span>
-            }
-        });
+<span class="nc" id="L28">        return ConsumerFactory.subscribe(</span>
+                provider, clientConfig, props, RefundService.GROUP, &quot;order-refund-required&quot;, view -&gt; {
+<span class="nc" id="L30">                    RefundRequired m = Json.read(view.getBody(), RefundRequired.class);</span>
+                    try {
+<span class="nc" id="L32">                        refundService.refund(m.orderNo(), m.paymentNo());</span>
+<span class="nc" id="L33">                        return ConsumeResult.SUCCESS;</span>
+<span class="nc" id="L34">                    } catch (Exception ex) {</span>
+<span class="nc" id="L35">                        log.warn(&quot;发起退款失败，orderNo={}，第 {} 次投递&quot;, m.orderNo(), view.getDeliveryAttempt(), ex);</span>
+<span class="nc" id="L36">                        return ConsumeResult.FAILURE;</span>
+                    }
+                });
     }
 
     /** 订单侧按 payment-succeeded 原样转发，取订单号和要退的那张支付单号。 */
-<span class="nc" id="L37">    record RefundRequired(String orderNo, String paymentNo) {}</span>
+<span class="nc" id="L42">    record RefundRequired(String orderNo, String paymentNo) {}</span>
 }
 </pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.13.202504020838</span></div></body></html>

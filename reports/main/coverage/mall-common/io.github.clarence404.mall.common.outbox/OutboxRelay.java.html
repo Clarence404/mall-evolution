@@ -5,13 +5,21 @@ import io.opentelemetry.context.Context;
 import io.opentelemetry.context.Scope;
 import io.opentelemetry.context.propagation.TextMapGetter;
 import java.nio.charset.StandardCharsets;
+import java.time.Duration;
 import java.time.ZoneId;
 import java.util.List;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.rocketmq.client.apis.ClientException;
 import org.apache.rocketmq.client.apis.ClientServiceProvider;
+import org.apache.rocketmq.client.apis.message.Message;
 import org.apache.rocketmq.client.apis.message.MessageBuilder;
 import org.apache.rocketmq.client.apis.producer.Producer;
+import org.apache.rocketmq.client.java.exception.BadRequestException;
+import org.apache.rocketmq.client.java.exception.PayloadEmptyException;
+import org.apache.rocketmq.client.java.exception.PayloadTooLargeException;
+import org.apache.rocketmq.client.java.exception.RequestHeaderFieldsTooLargeException;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.dao.TransientDataAccessException;
 import org.springframework.stereotype.Component;
@@ -32,9 +40,20 @@ import org.springframework.transaction.support.TransactionTemplate;
  *   &lt;li&gt;单条语句回写：成功 markSent；失败 markRetry 按退避推迟，本批剩下的记录放回去等下一轮，不再逐条撞超时
  * &lt;/ol&gt;
  *
+ * &lt;p&gt;失败分两类：
+ *
+ * &lt;ul&gt;
+ *   &lt;li&gt;Broker 或网络的问题（超时、5xx、限流、Topic 还没建好……）：一直重试，退避 1、2、4…秒翻倍，封顶 4 分钟一次；
+ *       记录创建满 {@code mall.outbox.give-up-after}（默认 24 小时）还没发出去才置为失败
+ *   &lt;li&gt;消息本身非法（Broker 明确拒收：请求不合法、消息体过大等）：重试多少次结果都一样，立即置为失败，本批其余记录照常发送
+ * &lt;/ul&gt;
+ *
+ * &lt;p&gt;置为失败的记录不会再自动发送：{@code outbox.failed.count} 大于 0 触发 OutboxFailedRecords 告警，排查后由人工把
+ * status 改回 0（同时把 created_at 改成当前时间，重新获得 24 小时的重试窗口）。
+ *
  * &lt;p&gt;发送成功但 markSent 前宕机、或租约到期还没发完，记录会再发一次，由消费端幂等兜住。
  */
-<span class="fc" id="L37">@Slf4j</span>
+<span class="fc" id="L56">@Slf4j</span>
 @Component
 @ConditionalOnProperty(prefix = &quot;mall.rocketmq&quot;, name = &quot;enabled&quot;, havingValue = &quot;true&quot;)
 public class OutboxRelay {
@@ -42,118 +61,170 @@ public class OutboxRelay {
     /** 认领后的租约：一批最多 100 条，每条发送超时 1 秒，2 分钟足够发完。 */
     static final int LEASE_SECONDS = 120;
 
+    /** 退避封顶：最久 4 分钟重试一次。 */
+    static final long MAX_BACKOFF_SECONDS = 240;
+
+    /** 默认的放弃时限：创建满 24 小时还没发出去才置为失败。 */
+<span class="fc" id="L68">    static final Duration DEFAULT_GIVE_UP_AFTER = Duration.ofHours(24);</span>
+
     private final OutboxMapper outboxMapper;
     private final ClientServiceProvider provider;
     private final Producer producer;
     private final TransactionTemplate transactionTemplate;
+    private final long giveUpSeconds;
 
+    @Autowired
     public OutboxRelay(
             OutboxMapper outboxMapper,
             ClientServiceProvider provider,
             Producer producer,
-<span class="fc" id="L54">            TransactionTemplate transactionTemplate) {</span>
-<span class="fc" id="L55">        this.outboxMapper = outboxMapper;</span>
-<span class="fc" id="L56">        this.provider = provider;</span>
-<span class="fc" id="L57">        this.producer = producer;</span>
-<span class="fc" id="L58">        this.transactionTemplate = readCommitted(transactionTemplate);</span>
-<span class="fc" id="L59">    }</span>
+            TransactionTemplate transactionTemplate,
+<span class="fc" id="L82">            @Value(&quot;${mall.outbox.give-up-after:24h}&quot;) Duration giveUpAfter) {</span>
+<span class="fc" id="L83">        this.outboxMapper = outboxMapper;</span>
+<span class="fc" id="L84">        this.provider = provider;</span>
+<span class="fc" id="L85">        this.producer = producer;</span>
+<span class="fc" id="L86">        this.transactionTemplate = readCommitted(transactionTemplate);</span>
+<span class="fc" id="L87">        this.giveUpSeconds = giveUpAfter.toSeconds();</span>
+<span class="fc" id="L88">    }</span>
+
+    /** 测试里手工创建中继时用：放弃时限取默认的 24 小时。 */
+    public OutboxRelay(
+            OutboxMapper outboxMapper,
+            ClientServiceProvider provider,
+            Producer producer,
+            TransactionTemplate transactionTemplate) {
+<span class="fc" id="L96">        this(outboxMapper, provider, producer, transactionTemplate, DEFAULT_GIVE_UP_AFTER);</span>
+<span class="fc" id="L97">    }</span>
+
+    /** 第 n 次失败（n 从 0 数）后等多久再试：1、2、4、8…秒翻倍，到 240 秒（4 分钟）封顶，之后一直是 4 分钟一次。 */
+    static long backoffSeconds(int retryCount) {
+<span class="fc" id="L101">        return Math.min(1L &lt;&lt; Math.min(Math.max(retryCount, 0), 8), MAX_BACKOFF_SECONDS);</span>
+    }
 
     /** 认领用的短事务：读已提交、5 秒超时。没有事务管理器（单元测试的替身）时原样使用。 */
     static TransactionTemplate readCommitted(TransactionTemplate template) {
-<span class="fc bfc" id="L63" title="All 2 branches covered.">        if (template.getTransactionManager() == null) {</span>
-<span class="fc" id="L64">            return template;</span>
+<span class="fc bfc" id="L106" title="All 2 branches covered.">        if (template.getTransactionManager() == null) {</span>
+<span class="fc" id="L107">            return template;</span>
         }
-<span class="fc" id="L66">        TransactionTemplate claim = new TransactionTemplate(template.getTransactionManager());</span>
-<span class="fc" id="L67">        claim.setIsolationLevel(TransactionDefinition.ISOLATION_READ_COMMITTED);</span>
-<span class="fc" id="L68">        claim.setTimeout(5);</span>
-<span class="fc" id="L69">        return claim;</span>
+<span class="fc" id="L109">        TransactionTemplate claim = new TransactionTemplate(template.getTransactionManager());</span>
+<span class="fc" id="L110">        claim.setIsolationLevel(TransactionDefinition.ISOLATION_READ_COMMITTED);</span>
+<span class="fc" id="L111">        claim.setTimeout(5);</span>
+<span class="fc" id="L112">        return claim;</span>
     }
 
     public void relayOne(long id) {
         OutboxRecord r;
         try {
-<span class="fc" id="L75">            r = transactionTemplate.execute(status -&gt; {</span>
-<span class="fc" id="L76">                OutboxRecord pending = outboxMapper.selectPendingForUpdate(id);</span>
-<span class="pc bpc" id="L77" title="1 of 2 branches missed.">                if (pending != null) {</span>
-<span class="nc" id="L78">                    outboxMapper.lease(List.of(id), LEASE_SECONDS);</span>
+<span class="fc" id="L118">            r = transactionTemplate.execute(status -&gt; {</span>
+<span class="fc" id="L119">                OutboxRecord pending = outboxMapper.selectPendingForUpdate(id);</span>
+<span class="pc bpc" id="L120" title="1 of 2 branches missed.">                if (pending != null) {</span>
+<span class="nc" id="L121">                    outboxMapper.lease(List.of(id), LEASE_SECONDS);</span>
                 }
-<span class="fc" id="L80">                return pending;</span>
+<span class="fc" id="L123">                return pending;</span>
             });
-<span class="nc" id="L82">        } catch (TransientDataAccessException e) {</span>
-<span class="nc" id="L83">            log.debug(&quot;认领 outbox 记录时锁冲突，交给扫表兜底，id={}&quot;, id, e);</span>
-<span class="nc" id="L84">            return;</span>
-<span class="fc" id="L85">        }</span>
-<span class="pc bpc" id="L86" title="1 of 2 branches missed.">        if (r != null) {</span>
-<span class="nc" id="L87">            send(r);</span>
+<span class="nc" id="L125">        } catch (TransientDataAccessException e) {</span>
+<span class="nc" id="L126">            log.debug(&quot;认领 outbox 记录时锁冲突，交给扫表兜底，id={}&quot;, id, e);</span>
+<span class="nc" id="L127">            return;</span>
+<span class="fc" id="L128">        }</span>
+<span class="pc bpc" id="L129" title="1 of 2 branches missed.">        if (r != null) {</span>
+<span class="nc" id="L130">            send(r);</span>
         }
-<span class="fc" id="L89">    }</span>
+<span class="fc" id="L132">    }</span>
 
     /** 返回本轮实际发出的条数；小于 limit 说明扫完了或 Broker 出了问题。 */
     public int relayBatch(int limit) {
         List&lt;OutboxRecord&gt; due;
         try {
-<span class="fc" id="L95">            due = transactionTemplate.execute(status -&gt; {</span>
-<span class="fc" id="L96">                List&lt;OutboxRecord&gt; claimed = outboxMapper.selectDueForUpdate(limit);</span>
-<span class="pc bpc" id="L97" title="1 of 2 branches missed.">                if (!claimed.isEmpty()) {</span>
-<span class="fc" id="L98">                    outboxMapper.lease(claimed.stream().map(OutboxRecord::id).toList(), LEASE_SECONDS);</span>
+<span class="fc" id="L138">            due = transactionTemplate.execute(status -&gt; {</span>
+<span class="fc" id="L139">                List&lt;OutboxRecord&gt; claimed = outboxMapper.selectDueForUpdate(limit);</span>
+<span class="pc bpc" id="L140" title="1 of 2 branches missed.">                if (!claimed.isEmpty()) {</span>
+<span class="fc" id="L141">                    outboxMapper.lease(claimed.stream().map(OutboxRecord::id).toList(), LEASE_SECONDS);</span>
                 }
-<span class="fc" id="L100">                return claimed;</span>
+<span class="fc" id="L143">                return claimed;</span>
             });
-<span class="fc" id="L102">        } catch (TransientDataAccessException e) { // 死锁或锁等待超时：事务已回滚、租约没生效，下一轮再认领</span>
-<span class="fc" id="L103">            log.debug(&quot;认领 outbox 记录时锁冲突，本轮跳过&quot;, e);</span>
-<span class="fc" id="L104">            return 0;</span>
-<span class="fc" id="L105">        }</span>
-<span class="pc bpc" id="L106" title="1 of 2 branches missed.">        if (due == null) {</span>
-<span class="nc" id="L107">            return 0;</span>
+<span class="fc" id="L145">        } catch (TransientDataAccessException e) { // 死锁或锁等待超时：事务已回滚、租约没生效，下一轮再认领</span>
+<span class="fc" id="L146">            log.debug(&quot;认领 outbox 记录时锁冲突，本轮跳过&quot;, e);</span>
+<span class="fc" id="L147">            return 0;</span>
+<span class="fc" id="L148">        }</span>
+<span class="pc bpc" id="L149" title="1 of 2 branches missed.">        if (due == null) {</span>
+<span class="nc" id="L150">            return 0;</span>
         }
-<span class="fc bfc" id="L109" title="All 2 branches covered.">        for (int i = 0; i &lt; due.size(); i++) {</span>
-<span class="fc bfc" id="L110" title="All 2 branches covered.">            if (!send(due.get(i))) {</span>
-<span class="fc" id="L111">                List&lt;Long&gt; rest = due.subList(i + 1, due.size()).stream()</span>
-<span class="fc" id="L112">                        .map(OutboxRecord::id)</span>
-<span class="fc" id="L113">                        .toList();</span>
-<span class="pc bpc" id="L114" title="1 of 2 branches missed.">                if (!rest.isEmpty()) {</span>
-<span class="fc" id="L115">                    outboxMapper.releaseLease(rest); // 放回去，下一轮再试</span>
+<span class="fc bfc" id="L152" title="All 2 branches covered.">        for (int i = 0; i &lt; due.size(); i++) {</span>
+<span class="fc bfc" id="L153" title="All 2 branches covered.">            if (!send(due.get(i))) {</span>
+<span class="fc" id="L154">                List&lt;Long&gt; rest = due.subList(i + 1, due.size()).stream()</span>
+<span class="fc" id="L155">                        .map(OutboxRecord::id)</span>
+<span class="fc" id="L156">                        .toList();</span>
+<span class="pc bpc" id="L157" title="1 of 2 branches missed.">                if (!rest.isEmpty()) {</span>
+<span class="fc" id="L158">                    outboxMapper.releaseLease(rest); // 放回去，下一轮再试</span>
                 }
-<span class="fc" id="L117">                return i;</span>
+<span class="fc" id="L160">                return i;</span>
             }
         }
-<span class="fc" id="L120">        return due.size();</span>
+<span class="fc" id="L163">        return due.size();</span>
     }
 
     /** 只返回 r.traceParent() 的 TextMapGetter。 */
-<span class="fc" id="L124">    static final TextMapGetter&lt;OutboxRecord&gt; OUTBOX_GETTER = new TextMapGetter&lt;&gt;() {</span>
+<span class="fc" id="L167">    static final TextMapGetter&lt;OutboxRecord&gt; OUTBOX_GETTER = new TextMapGetter&lt;&gt;() {</span>
         @Override
         public Iterable&lt;String&gt; keys(OutboxRecord carrier) {
-<span class="nc" id="L127">            return List.of(&quot;traceparent&quot;);</span>
+<span class="nc" id="L170">            return List.of(&quot;traceparent&quot;);</span>
         }
 
         @Override
         public String get(OutboxRecord carrier, String key) {
-<span class="pc bpc" id="L132" title="1 of 4 branches missed.">            return carrier == null || !&quot;traceparent&quot;.equals(key) ? null : carrier.traceParent();</span>
+<span class="pc bpc" id="L175" title="1 of 4 branches missed.">            return carrier == null || !&quot;traceparent&quot;.equals(key) ? null : carrier.traceParent();</span>
         }
     };
 
-    /** 在事务外发送一条并回写状态；发送失败返回 false。 */
+    /**
+     * 在事务外发送一条并回写状态。返回 false 表示 Broker 或网络有问题、本批不必再往下试；
+     * 发送成功、或这条消息本身非法（已置为失败）都返回 true，本批继续。
+     */
     boolean send(OutboxRecord r) {
-<span class="fc" id="L138">        MessageBuilder b = provider.newMessageBuilder()</span>
-<span class="fc" id="L139">                .setTopic(r.topic())</span>
-<span class="fc" id="L140">                .setKeys(r.msgKey()) // 控制台按订单号查消息，消费端按它去重</span>
-<span class="fc" id="L141">                .setBody(r.payload().getBytes(StandardCharsets.UTF_8));</span>
-<span class="fc bfc" id="L142" title="All 2 branches covered.">        if (r.deliverAt() != null) { // 超时关单：交给 RocketMQ 定时消息</span>
-<span class="fc" id="L143">            b.setDeliveryTimestamp(</span>
-<span class="fc" id="L144">                    r.deliverAt().atZone(ZoneId.systemDefault()).toInstant().toEpochMilli());</span>
-        }
+        Message message;
+        try {
+<span class="fc" id="L186">            MessageBuilder b = provider.newMessageBuilder()</span>
+<span class="fc" id="L187">                    .setTopic(r.topic())</span>
+<span class="fc" id="L188">                    .setKeys(r.msgKey()) // 控制台按订单号查消息，消费端按它去重</span>
+<span class="fc" id="L189">                    .setBody(r.payload().getBytes(StandardCharsets.UTF_8));</span>
+<span class="fc bfc" id="L190" title="All 2 branches covered.">            if (r.deliverAt() != null) { // 超时关单：交给 RocketMQ 定时消息</span>
+<span class="fc" id="L191">                b.setDeliveryTimestamp(</span>
+<span class="fc" id="L192">                        r.deliverAt().atZone(ZoneId.systemDefault()).toInstant().toEpochMilli());</span>
+            }
+<span class="fc" id="L194">            message = b.build();</span>
+<span class="nc" id="L195">        } catch (IllegalArgumentException | NullPointerException e) { // 客户端校验没过：Topic、Keys 不合法等</span>
+<span class="nc" id="L196">            log.error(&quot;消息不合法，置为失败不再重试，topic={}, key={}&quot;, r.topic(), r.msgKey(), e);</span>
+<span class="nc" id="L197">            outboxMapper.markFailed(r.id());</span>
+<span class="nc" id="L198">            return true;</span>
+<span class="fc" id="L199">        }</span>
         // 在原 Trace 下发送：agent 生成的 producer span 挂回下单请求，traceparent 随消息属性传给消费者
-<span class="fc" id="L147">        Context parent = W3CTraceContextPropagator.getInstance().extract(Context.root(), r, OUTBOX_GETTER);</span>
-<span class="fc" id="L148">        try (Scope ignored = parent.makeCurrent()) {</span>
-<span class="fc" id="L149">            producer.send(b.build()); // 同步发送，Broker 确认后才置 SENT</span>
-<span class="fc" id="L150">        } catch (ClientException e) {</span>
-<span class="fc" id="L151">            log.warn(&quot;消息发送失败，等待重试，topic={}, key={}&quot;, r.topic(), r.msgKey(), e);</span>
-<span class="fc" id="L152">            outboxMapper.markRetry(r.id()); // retry_count + 1，按退避推迟 next_retry_at，第 10 次失败置为失败</span>
-<span class="fc" id="L153">            return false;</span>
-<span class="fc" id="L154">        }</span>
-<span class="fc" id="L155">        outboxMapper.markSent(r.id());</span>
-<span class="fc" id="L156">        return true;</span>
+<span class="fc" id="L201">        Context parent = W3CTraceContextPropagator.getInstance().extract(Context.root(), r, OUTBOX_GETTER);</span>
+<span class="fc" id="L202">        try (Scope ignored = parent.makeCurrent()) {</span>
+<span class="fc" id="L203">            producer.send(message); // 同步发送，Broker 确认后才置 SENT</span>
+<span class="fc" id="L204">        } catch (ClientException e) {</span>
+<span class="fc bfc" id="L205" title="All 2 branches covered.">            if (isIllegalMessage(e)) {</span>
+<span class="fc" id="L206">                log.error(&quot;Broker 拒收这条消息，置为失败不再重试，topic={}, key={}&quot;, r.topic(), r.msgKey(), e);</span>
+<span class="fc" id="L207">                outboxMapper.markFailed(r.id());</span>
+<span class="fc" id="L208">                return true;</span>
+            }
+<span class="fc" id="L210">            log.warn(&quot;消息发送失败，等待重试，topic={}, key={}，已重试 {} 次&quot;, r.topic(), r.msgKey(), r.retryCount(), e);</span>
+            // retry_count + 1，按退避推迟 next_retry_at；创建超过放弃时限（默认 24 小时）才置为失败
+<span class="fc" id="L212">            outboxMapper.markRetry(r.id(), backoffSeconds(r.retryCount()), giveUpSeconds);</span>
+<span class="fc" id="L213">            return false;</span>
+<span class="fc" id="L214">        }</span>
+<span class="fc" id="L215">        outboxMapper.markSent(r.id());</span>
+<span class="fc" id="L216">        return true;</span>
+    }
+
+    /**
+     * 是不是「消息本身非法」：Broker 返回 400 类（请求不合法、消息体为空）或消息体、消息头过大。这几种换个时间再发结果一样。
+     * 其余的（超时、5xx、限流 429、Topic 不存在 404、鉴权失败……）都是环境问题，修好后重试能成功，不在这里。
+     */
+    static boolean isIllegalMessage(ClientException e) {
+<span class="pc bpc" id="L224" title="2 of 8 branches missed.">        return e instanceof BadRequestException</span>
+                || e instanceof PayloadEmptyException
+                || e instanceof PayloadTooLargeException
+                || e instanceof RequestHeaderFieldsTooLargeException;
     }
 }
 </pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.13.202504020838</span></div></body></html>

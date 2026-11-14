@@ -17,16 +17,21 @@ class ProductDetailController {
     private final ProductDetailService productDetailService;
     private final StockDisplayService stockDisplayService;
 
-    /** skuId 先做格式校验（正整数），不存在的 SKU 缓存空值 60 秒，防穿透。 */
+    /**
+     * skuId 先做格式校验（正整数），不存在的 SKU 缓存空值 60 秒，防穿透。
+     *
+     * &lt;p&gt;两部分数据都先读本机缓存：商品信息是 L1 Caffeine + L2 Redis，「有货」提示是本机 2 秒 + Redis 10 秒 + 库存服务
+     * （熔断、舱壁、失败按有货兜底）。Redis 或库存服务出问题时接口照常返回 200。
+     */
     @Operation(operationId = &quot;getProductDetail&quot;)
     @GetMapping(&quot;/api/products/{skuId}&quot;)
     ProductDetailPage detail(@PathVariable @Positive long skuId) {
-<span class="nc" id="L24">        ProductDetailView product = productDetailService</span>
-<span class="nc" id="L25">                .get(skuId)</span>
-<span class="nc" id="L26">                .orElseThrow(() -&gt; new BizException(ProductErrorCode.PRODUCT_NOT_FOUND, &quot;商品 &quot; + skuId + &quot; 不存在&quot;));</span>
-<span class="nc" id="L27">        return new ProductDetailPage(product, stockDisplayService.inStock(skuId));</span>
+<span class="nc" id="L29">        ProductDetailView product = productDetailService</span>
+<span class="nc" id="L30">                .get(skuId)</span>
+<span class="nc" id="L31">                .orElseThrow(() -&gt; new BizException(ProductErrorCode.PRODUCT_NOT_FOUND, &quot;商品 &quot; + skuId + &quot; 不存在&quot;));</span>
+<span class="nc" id="L32">        return new ProductDetailPage(product, stockDisplayService.inStock(skuId));</span>
     }
 
-<span class="nc" id="L30">    record ProductDetailPage(ProductDetailView product, boolean inStock) {}</span>
+<span class="nc" id="L35">    record ProductDetailPage(ProductDetailView product, boolean inStock) {}</span>
 }
 </pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.13.202504020838</span></div></body></html>

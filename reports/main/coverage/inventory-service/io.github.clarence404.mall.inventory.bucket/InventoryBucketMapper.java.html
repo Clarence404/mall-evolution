@@ -19,12 +19,14 @@ public interface InventoryBucketMapper {
             &quot;&quot;&quot;)
     int reserve(@Param(&quot;skuId&quot;) long skuId, @Param(&quot;bucketNo&quot;) int bucketNo, @Param(&quot;quantity&quot;) int quantity);
 
+    /** 释放：回到预占时的那个桶。影响 0 行说明桶不存在，调用方按数据不一致报错。 */
     @Update(&quot;&quot;&quot;
             UPDATE t_inventory_bucket SET stock = stock + #{quantity}, reserved = reserved - #{quantity}
             WHERE sku_id = #{skuId} AND bucket_no = #{bucketNo}
             &quot;&quot;&quot;)
     int unreserve(@Param(&quot;skuId&quot;) long skuId, @Param(&quot;bucketNo&quot;) int bucketNo, @Param(&quot;quantity&quot;) int quantity);
 
+    /** 确认：从预占时那个桶的 reserved 里减掉。影响 0 行说明桶不存在，调用方按数据不一致报错。 */
     @Update(&quot;&quot;&quot;
             UPDATE t_inventory_bucket SET reserved = reserved - #{quantity}
             WHERE sku_id = #{skuId} AND bucket_no = #{bucketNo}
@@ -38,6 +40,16 @@ public interface InventoryBucketMapper {
     @Select(
             &quot;SELECT sku_id, bucket_no, stock, reserved FROM t_inventory_bucket WHERE sku_id = #{skuId} ORDER BY bucket_no&quot;)
     List&lt;Bucket&gt; selectBySku(@Param(&quot;skuId&quot;) long skuId);
+
+    /**
+     * 合并分桶用：把该 SKU 的全部桶行锁住再读。并发的预占要么已经提交（这里读到 reserved != 0），
+     * 要么卡在行锁上等合并提交——不会出现「读完余量之后又被扣走一件」。
+     */
+    @Select(&quot;&quot;&quot;
+            SELECT sku_id, bucket_no, stock, reserved FROM t_inventory_bucket
+            WHERE sku_id = #{skuId} ORDER BY bucket_no FOR UPDATE
+            &quot;&quot;&quot;)
+    List&lt;Bucket&gt; selectBySkuForUpdate(@Param(&quot;skuId&quot;) long skuId);
 
     @Select(&quot;SELECT DISTINCT sku_id FROM t_inventory_bucket&quot;)
     List&lt;Long&gt; selectBucketedSkuIds();
@@ -55,6 +67,6 @@ public interface InventoryBucketMapper {
     @Delete(&quot;DELETE FROM t_inventory_bucket WHERE sku_id = #{skuId}&quot;)
     int deleteBySku(@Param(&quot;skuId&quot;) long skuId);
 
-<span class="fc" id="L58">    record Bucket(long skuId, int bucketNo, int stock, int reserved) {}</span>
+<span class="fc" id="L70">    record Bucket(long skuId, int bucketNo, int stock, int reserved) {}</span>
 }
 </pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.13.202504020838</span></div></body></html>

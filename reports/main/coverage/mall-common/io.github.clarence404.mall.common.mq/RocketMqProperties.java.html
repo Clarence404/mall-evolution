@@ -1,6 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>RocketMqProperties.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">mall-common</a> &gt; <a href="index.source.html" class="el_package">io.github.clarence404.mall.common.mq</a> &gt; <span class="el_source">RocketMqProperties.java</span></div><h1>RocketMqProperties.java</h1><pre class="source lang-java linenums">package io.github.clarence404.mall.common.mq;
 
 import java.time.Duration;
+import java.util.Map;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 
 /**
@@ -8,15 +9,47 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
  *
  * @param enabled 关掉后不创建 Producer 与消费者，业务事务里照常写 t_outbox，恢复后由中继补发
  * @param requestTimeout 同步发送等 Broker 确认的上限，默认 1 秒：Broker 故障时中继线程最多卡这么久，宁可快速失败走退避重试
+ * @param consumptionThreads 每个消费组的消费线程数，默认 4。rocketmq-client-java 5.2.2 不设时每个 PushConsumer 是 20 个线程，
+ *     mall-app 有 5 个消费组就是 100 个线程去抢 20 个数据库连接，所以必须显式给。一个进程里「消费组数 × 线程数」不要超过连接池的一半，
+ *     另一半留给接口请求
+ * @param consumptionThreadsByGroup 个别消费组单独设线程数（键是消费组名），没写的组用 consumptionThreads
  */
 @ConfigurationProperties(prefix = &quot;mall.rocketmq&quot;)
 public record RocketMqProperties(
-        boolean enabled, String endpoints, String accessKey, String secretKey, Duration requestTimeout) {
+        boolean enabled,
+        String endpoints,
+        String accessKey,
+        String secretKey,
+        Duration requestTimeout,
+        Integer consumptionThreads,
+        Map&lt;String, Integer&gt; consumptionThreadsByGroup) {
 
-<span class="nc" id="L16">    public RocketMqProperties {</span>
-<span class="nc bnc" id="L17" title="All 2 branches missed.">        if (requestTimeout == null) {</span>
-<span class="nc" id="L18">            requestTimeout = Duration.ofSeconds(1);</span>
+    /** 没配置时每个消费组的线程数。 */
+    public static final int DEFAULT_CONSUMPTION_THREADS = 4;
+
+<span class="fc" id="L30">    public RocketMqProperties {</span>
+<span class="pc bpc" id="L31" title="1 of 2 branches missed.">        if (requestTimeout == null) {</span>
+<span class="fc" id="L32">            requestTimeout = Duration.ofSeconds(1);</span>
         }
-<span class="nc" id="L20">    }</span>
+<span class="fc bfc" id="L34" title="All 2 branches covered.">        if (consumptionThreads == null) {</span>
+<span class="fc" id="L35">            consumptionThreads = DEFAULT_CONSUMPTION_THREADS;</span>
+        }
+        consumptionThreadsByGroup =
+<span class="fc bfc" id="L38" title="All 2 branches covered.">                consumptionThreadsByGroup == null ? Map.of() : Map.copyOf(consumptionThreadsByGroup);</span>
+<span class="fc" id="L39">        checkThreads(&quot;mall.rocketmq.consumption-threads&quot;, consumptionThreads);</span>
+<span class="fc" id="L40">        consumptionThreadsByGroup.forEach(</span>
+<span class="fc" id="L41">                (group, n) -&gt; checkThreads(&quot;mall.rocketmq.consumption-threads-by-group.&quot; + group, n));</span>
+<span class="fc" id="L42">    }</span>
+
+    /** 某个消费组用几个消费线程：单独配了就用单独的，否则用统一的默认值。 */
+    public int consumptionThreadsFor(String consumerGroup) {
+<span class="fc" id="L46">        return consumptionThreadsByGroup.getOrDefault(consumerGroup, consumptionThreads);</span>
+    }
+
+    private static void checkThreads(String key, Integer n) {
+<span class="pc bpc" id="L50" title="1 of 6 branches missed.">        if (n == null || n &lt; 1 || n &gt; 64) {</span>
+<span class="fc" id="L51">            throw new IllegalArgumentException(key + &quot; 应在 1–64 之间，当前为 &quot; + n);</span>
+        }
+<span class="fc" id="L53">    }</span>
 }
 </pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.13.202504020838</span></div></body></html>

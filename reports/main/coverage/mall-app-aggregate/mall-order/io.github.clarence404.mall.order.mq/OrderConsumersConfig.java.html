@@ -2,6 +2,7 @@
 
 import io.github.clarence404.mall.common.json.Json;
 import io.github.clarence404.mall.common.mq.ConsumerFactory;
+import io.github.clarence404.mall.common.mq.RocketMqProperties;
 import io.github.clarence404.mall.order.cancel.OrderCloseService;
 import io.github.clarence404.mall.order.cancel.OrderTimeoutMessage;
 import io.github.clarence404.mall.order.notify.PaidNotifier;
@@ -27,32 +28,41 @@ import org.springframework.context.annotation.Configuration;
  *
  * &lt;p&gt;四个组都用并发消费，失败按阶梯退避重投，最大投递次数与死信在控制台按组配置（见 deploy/rocketmq/init-topics.sh）。
  */
-<span class="nc" id="L30">@Slf4j</span>
+<span class="nc" id="L31">@Slf4j</span>
 @Configuration(proxyBeanMethods = false)
 @ConditionalOnProperty(prefix = &quot;mall.rocketmq&quot;, name = &quot;enabled&quot;, havingValue = &quot;true&quot;)
-<span class="nc" id="L33">class OrderConsumersConfig {</span>
+<span class="nc" id="L34">class OrderConsumersConfig {</span>
 
     @Bean(destroyMethod = &quot;close&quot;)
-    PushConsumer notifyConsumer(ClientServiceProvider provider, ClientConfiguration clientConfig, PaidNotifier notifier)
+    PushConsumer notifyConsumer(
+            ClientServiceProvider provider,
+            ClientConfiguration clientConfig,
+            RocketMqProperties props,
+            PaidNotifier notifier)
             throws ClientException {
-<span class="nc" id="L38">        return ConsumerFactory.subscribe(</span>
+<span class="nc" id="L43">        return ConsumerFactory.subscribe(</span>
                 provider,
                 clientConfig,
+                props,
                 &quot;notify-consumer&quot;,
                 &quot;order-paid&quot;,
-<span class="nc" id="L43">                listener(OrderPaidEvent.class, notifier::onPaid));</span>
+<span class="nc" id="L49">                listener(OrderPaidEvent.class, notifier::onPaid));</span>
     }
 
     @Bean(destroyMethod = &quot;close&quot;)
     PushConsumer shipmentConsumer(
-            ClientServiceProvider provider, ClientConfiguration clientConfig, ShipmentCreator creator)
+            ClientServiceProvider provider,
+            ClientConfiguration clientConfig,
+            RocketMqProperties props,
+            ShipmentCreator creator)
             throws ClientException {
-<span class="nc" id="L50">        return ConsumerFactory.subscribe(</span>
+<span class="nc" id="L59">        return ConsumerFactory.subscribe(</span>
                 provider,
                 clientConfig,
+                props,
                 &quot;shipment-consumer&quot;,
                 &quot;order-paid&quot;,
-<span class="nc" id="L55">                listener(OrderPaidEvent.class, creator::onPaid));</span>
+<span class="nc" id="L65">                listener(OrderPaidEvent.class, creator::onPaid));</span>
     }
 
     /**
@@ -60,14 +70,18 @@ import org.springframework.context.annotation.Configuration;
      */
     @Bean(destroyMethod = &quot;close&quot;)
     PushConsumer orderPaymentConsumer(
-            ClientServiceProvider provider, ClientConfiguration clientConfig, OrderPaidTxService orderPaidTxService)
+            ClientServiceProvider provider,
+            ClientConfiguration clientConfig,
+            RocketMqProperties props,
+            OrderPaidTxService orderPaidTxService)
             throws ClientException {
-<span class="nc" id="L65">        return ConsumerFactory.subscribe(</span>
+<span class="nc" id="L78">        return ConsumerFactory.subscribe(</span>
                 provider,
                 clientConfig,
+                props,
                 &quot;order-payment-consumer&quot;,
                 &quot;payment-succeeded&quot;,
-<span class="nc" id="L70">                listener(PaymentSucceeded.class, orderPaidTxService::markPaid));</span>
+<span class="nc" id="L84">                listener(PaymentSucceeded.class, orderPaidTxService::markPaid));</span>
     }
 
     /**
@@ -76,30 +90,34 @@ import org.springframework.context.annotation.Configuration;
      */
     @Bean(destroyMethod = &quot;close&quot;)
     PushConsumer orderTimeoutConsumer(
-            ClientServiceProvider provider, ClientConfiguration clientConfig, OrderCloseService closeService)
+            ClientServiceProvider provider,
+            ClientConfiguration clientConfig,
+            RocketMqProperties props,
+            OrderCloseService closeService)
             throws ClientException {
-<span class="nc" id="L81">        return ConsumerFactory.subscribe(</span>
+<span class="nc" id="L98">        return ConsumerFactory.subscribe(</span>
                 provider,
                 clientConfig,
+                props,
                 &quot;order-timeout-consumer&quot;,
                 &quot;order-timeout&quot;,
-<span class="nc" id="L86">                listener(OrderTimeoutMessage.class, m -&gt; closeService.closeIfUnpaid(m.orderNo())));</span>
+<span class="nc" id="L104">                listener(OrderTimeoutMessage.class, m -&gt; closeService.closeIfUnpaid(m.orderNo())));</span>
     }
 
     private static &lt;T&gt; java.util.function.Function&lt;MessageView, ConsumeResult&gt; listener(
             Class&lt;T&gt; type, Consumer&lt;T&gt; handler) {
-<span class="nc" id="L91">        return view -&gt; {</span>
+<span class="nc" id="L109">        return view -&gt; {</span>
             try {
-<span class="nc" id="L93">                handler.accept(Json.read(view.getBody(), type));</span>
-<span class="nc" id="L94">                return ConsumeResult.SUCCESS;</span>
-<span class="nc" id="L95">            } catch (Exception ex) {</span>
-<span class="nc" id="L96">                log.warn(</span>
+<span class="nc" id="L111">                handler.accept(Json.read(view.getBody(), type));</span>
+<span class="nc" id="L112">                return ConsumeResult.SUCCESS;</span>
+<span class="nc" id="L113">            } catch (Exception ex) {</span>
+<span class="nc" id="L114">                log.warn(</span>
                         &quot;消费失败，topic={}，keys={}，第 {} 次投递&quot;,
-<span class="nc" id="L98">                        view.getTopic(),</span>
-<span class="nc" id="L99">                        view.getKeys(),</span>
-<span class="nc" id="L100">                        view.getDeliveryAttempt(),</span>
+<span class="nc" id="L116">                        view.getTopic(),</span>
+<span class="nc" id="L117">                        view.getKeys(),</span>
+<span class="nc" id="L118">                        view.getDeliveryAttempt(),</span>
                         ex);
-<span class="nc" id="L102">                return ConsumeResult.FAILURE;</span>
+<span class="nc" id="L120">                return ConsumeResult.FAILURE;</span>
             }
         };
     }

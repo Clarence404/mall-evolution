@@ -42,40 +42,55 @@ public class InventoryBucketService {
 <span class="fc" id="L42">        log.info(&quot;SKU {} 拆成 {} 个桶，库存 {}&quot;, skuId, bucketCount, stock);</span>
 <span class="fc" id="L43">    }</span>
 
-    /** 等各桶的预占都确认或释放后，把余量并回 t_inventory，bucket_count 置回 0。 */
+    /**
+     * 等各桶的预占都确认或释放后，把余量并回 t_inventory，bucket_count 置回 0。
+     *
+     * &lt;p&gt;先锁主行（挡住并发的 split / merge / rebalance），再把各桶行 SELECT … FOR UPDATE 锁住后读余量：
+     * 预占只更新桶行、不碰主行，只锁主行挡不住它——普通读拿到余量后预占又扣走一件，合并就会按旧余量多并回一件（超卖）。
+     * 桶行锁住之后，并发的预占要么已提交（reserved != 0，这里拒绝合并），要么等到合并提交、发现桶没了按库存不足失败。
+     */
     @Transactional(rollbackFor = Exception.class)
     public void merge(long skuId) {
-<span class="fc" id="L48">        InventoryMapper.StockRow row = inventoryMapper.selectForUpdate(skuId);</span>
-<span class="pc bpc" id="L49" title="2 of 4 branches missed.">        if (row == null || row.bucketCount() == 0) {</span>
-<span class="nc" id="L50">            return;</span>
+<span class="fc" id="L54">        InventoryMapper.StockRow row = inventoryMapper.selectForUpdate(skuId);</span>
+<span class="pc bpc" id="L55" title="2 of 4 branches missed.">        if (row == null || row.bucketCount() == 0) {</span>
+<span class="nc" id="L56">            return;</span>
         }
-<span class="fc" id="L52">        List&lt;Bucket&gt; buckets = bucketMapper.selectBySku(skuId);</span>
-<span class="fc bfc" id="L53" title="All 4 branches covered.">        if (buckets.stream().anyMatch(b -&gt; b.reserved() != 0)) {</span>
-<span class="fc" id="L54">            throw new IllegalStateException(&quot;SKU &quot; + skuId + &quot; 仍有未确认的分桶预占，稍后再合并&quot;);</span>
+<span class="fc" id="L58">        List&lt;Bucket&gt; buckets = bucketMapper.selectBySkuForUpdate(skuId);</span>
+<span class="fc bfc" id="L59" title="All 4 branches covered.">        if (buckets.stream().anyMatch(b -&gt; b.reserved() != 0)) {</span>
+<span class="fc" id="L60">            throw new IllegalStateException(&quot;SKU &quot; + skuId + &quot; 仍有未确认的分桶预占，稍后再合并&quot;);</span>
         }
-<span class="fc" id="L56">        int remaining = buckets.stream().mapToInt(Bucket::stock).sum();</span>
-<span class="fc" id="L57">        bucketMapper.deleteBySku(skuId);</span>
-<span class="fc" id="L58">        inventoryMapper.unmarkBucketed(skuId, remaining);</span>
-<span class="fc" id="L59">        log.info(&quot;SKU {} 合并分桶，余量 {}&quot;, skuId, remaining);</span>
-<span class="fc" id="L60">    }</span>
+<span class="fc" id="L62">        int remaining = buckets.stream().mapToInt(Bucket::stock).sum();</span>
+<span class="fc" id="L63">        bucketMapper.deleteBySku(skuId);</span>
+<span class="fc" id="L64">        inventoryMapper.unmarkBucketed(skuId, remaining);</span>
+<span class="fc" id="L65">        log.info(&quot;SKU {} 合并分桶，余量 {}&quot;, skuId, remaining);</span>
+<span class="fc" id="L66">    }</span>
 
-    /** 把余量最多的桶匀一半给已空的桶，避免「总数还有、每个桶都不够」。 */
+    /**
+     * 把余量最多的桶匀一半给已空的桶，避免「总数还有、每个桶都不够」。
+     *
+     * &lt;p&gt;开头同样先锁主行：和 merge 串行，免得再平衡拿着一个桶的行锁去等合并已锁住的另一个桶（死锁）。
+     * 预占不碰主行，不受这把锁影响。
+     */
     @Transactional(rollbackFor = Exception.class)
     public void rebalance(long skuId) {
-<span class="fc" id="L65">        List&lt;Bucket&gt; buckets = bucketMapper.selectBySku(skuId);</span>
-<span class="fc" id="L66">        Bucket richest =</span>
-<span class="fc" id="L67">                buckets.stream().max(Comparator.comparingInt(Bucket::stock)).orElse(null);</span>
-<span class="pc bpc" id="L68" title="2 of 4 branches missed.">        if (richest == null || richest.stock() &lt; 2) {</span>
-<span class="nc" id="L69">            return;</span>
+<span class="fc" id="L76">        InventoryMapper.StockRow row = inventoryMapper.selectForUpdate(skuId);</span>
+<span class="pc bpc" id="L77" title="2 of 4 branches missed.">        if (row == null || row.bucketCount() == 0) {</span>
+<span class="nc" id="L78">            return; // 刚被合并掉</span>
         }
-<span class="fc bfc" id="L71" title="All 4 branches covered.">        for (Bucket empty : buckets.stream().filter(b -&gt; b.stock() == 0).toList()) {</span>
-<span class="fc" id="L72">            int n = richest.stock() / 2;</span>
-<span class="pc bpc" id="L73" title="2 of 4 branches missed.">            if (n == 0 || bucketMapper.take(skuId, richest.bucketNo(), n) == 0) {</span>
-<span class="nc" id="L74">                return;</span>
+<span class="fc" id="L80">        List&lt;Bucket&gt; buckets = bucketMapper.selectBySku(skuId);</span>
+<span class="fc" id="L81">        Bucket richest =</span>
+<span class="fc" id="L82">                buckets.stream().max(Comparator.comparingInt(Bucket::stock)).orElse(null);</span>
+<span class="pc bpc" id="L83" title="2 of 4 branches missed.">        if (richest == null || richest.stock() &lt; 2) {</span>
+<span class="nc" id="L84">            return;</span>
+        }
+<span class="fc bfc" id="L86" title="All 4 branches covered.">        for (Bucket empty : buckets.stream().filter(b -&gt; b.stock() == 0).toList()) {</span>
+<span class="fc" id="L87">            int n = richest.stock() / 2;</span>
+<span class="pc bpc" id="L88" title="2 of 4 branches missed.">            if (n == 0 || bucketMapper.take(skuId, richest.bucketNo(), n) == 0) {</span>
+<span class="nc" id="L89">                return;</span>
             }
-<span class="fc" id="L76">            bucketMapper.give(skuId, empty.bucketNo(), n);</span>
-<span class="fc" id="L77">            richest = new Bucket(skuId, richest.bucketNo(), richest.stock() - n, richest.reserved());</span>
-<span class="fc" id="L78">        }</span>
-<span class="fc" id="L79">    }</span>
+<span class="fc" id="L91">            bucketMapper.give(skuId, empty.bucketNo(), n);</span>
+<span class="fc" id="L92">            richest = new Bucket(skuId, richest.bucketNo(), richest.stock() - n, richest.reserved());</span>
+<span class="fc" id="L93">        }</span>
+<span class="fc" id="L94">    }</span>
 }
 </pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.13.202504020838</span></div></body></html>

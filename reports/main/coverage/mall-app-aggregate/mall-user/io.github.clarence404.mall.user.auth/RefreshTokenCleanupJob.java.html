@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../../jacoco-resources/report.gif" type="image/gif"/><title>RefreshTokenCleanupJob.java</title><link rel="stylesheet" href="../../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../../index.html" class="el_report">mall-app</a> &gt; <a href="../index.html" class="el_bundle">mall-user</a> &gt; <a href="index.source.html" class="el_package">io.github.clarence404.mall.user.auth</a> &gt; <span class="el_source">RefreshTokenCleanupJob.java</span></div><h1>RefreshTokenCleanupJob.java</h1><pre class="source lang-java linenums">package io.github.clarence404.mall.user.auth;
+
+import java.time.LocalDateTime;
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.scheduling.annotation.Scheduled;
+import org.springframework.stereotype.Component;
+
+/**
+ * 每天凌晨清理过期的刷新令牌。
+ *
+ * &lt;p&gt;刷新令牌只在「刷新时轮换」「登出」「踢下线」时删除；用户登录后不再回来（或流量模拟器这类长期登录的客户端每次都重新登录）
+ * 留下的令牌到期后没人删，表会一直涨。过期令牌已经不能用了，这里只是回收空间。
+ *
+ * &lt;p&gt;多实例同时执行无害：就是一条按 expire_at 的 DELETE，各删各的批次，重复执行的结果相同，不需要抢占或加分布式锁。
+ */
+<span class="fc" id="L17">@Slf4j</span>
+@Component
+@RequiredArgsConstructor
+public class RefreshTokenCleanupJob {
+
+    static final int BATCH = 1000;
+
+    private final RefreshTokenMapper refreshTokenMapper;
+
+    /** 默认每天 03:45，和 outbox（03:00）、消费去重记录（03:30）的清理错开。 */
+    @Scheduled(cron = &quot;${mall.auth.refresh-token-cleanup-cron:0 45 3 * * *}&quot;)
+    public int cleanup() {
+<span class="fc" id="L29">        LocalDateTime now = LocalDateTime.now();</span>
+<span class="fc" id="L30">        int total = 0;</span>
+        int deleted;
+        do { // 分批删：每批一个短事务，不长时间持有大量行锁
+<span class="fc" id="L33">            deleted = refreshTokenMapper.deleteExpiredBefore(now, BATCH);</span>
+<span class="fc" id="L34">            total += deleted;</span>
+<span class="pc bpc" id="L35" title="1 of 2 branches missed.">        } while (deleted == BATCH);</span>
+<span class="fc" id="L36">        log.info(&quot;清理过期的刷新令牌 {} 条&quot;, total);</span>
+<span class="fc" id="L37">        return total;</span>
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.13.202504020838</span></div></body></html>

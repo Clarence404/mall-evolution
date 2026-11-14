@@ -36,7 +36,7 @@ mall-order,io.github.clarence404.mall.order.place,PricingService,82,0,4,0,13,0,5
 mall-order,io.github.clarence404.mall.order.place,OrderLine,0,9,0,0,0,1,0,1,0,1
 mall-order,io.github.clarence404.mall.order.place,PromoProperties,0,32,0,2,0,5,0,3,0,2
 mall-order,io.github.clarence404.mall.order.place,AddressForm,0,12,0,0,0,1,0,1,0,1
-mall-order,io.github.clarence404.mall.order.mq,OrderConsumersConfig,102,0,0,0,19,0,9,0,9,0
+mall-order,io.github.clarence404.mall.order.mq,OrderConsumersConfig,106,0,0,0,19,0,9,0,9,0
 mall-order,io.github.clarence404.mall.order.config,OrderModuleConfig,13,0,0,0,3,0,3,0,3,0
 mall-order,io.github.clarence404.mall.order.paid,OrderPaidTxService,0,104,3,11,0,19,3,7,0,3
 mall-order,io.github.clarence404.mall.order.paid,PaymentSucceeded,0,18,0,0,0,1,0,1,0,1
