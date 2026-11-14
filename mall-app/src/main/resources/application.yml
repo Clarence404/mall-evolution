@@ -4,6 +4,11 @@ spring:
     name: mall-app
   profiles:
     default: dev
+  task:
+    scheduling:                 # 定时任务线程池：默认只有 1 个线程，所有 @Scheduled 排队执行——一个带远程调用的兜底任务卡住，
+      pool:                     # 每秒一次的 outbox 中继和指标刷新就跟着停。给 4 个线程，周期任务互不阻塞
+        size: 4
+      thread-name-prefix: sched-
   datasource:
     driver-class-name: com.mysql.cj.jdbc.Driver
     hikari:
@@ -145,3 +150,7 @@ mall:
     access-key: ${ROCKETMQ_ACCESS_KEY:}
     secret-key: ${ROCKETMQ_SECRET_KEY:}
     request-timeout: 1s   # 同步发送等 Broker 确认的上限；中继在事务外发送，超时只卡中继线程，不占数据库连接
+    # 每个消费组的消费线程数（客户端不设时是 20）。mall-app 有 5 个消费组（notify / shipment / order-payment / order-timeout / points），
+    # 每条消息的处理占一个数据库连接：5 × 2 = 10，正好是连接池（20）的一半，另一半留给接口请求。
+    # 连接池调大后再按「消费组数 × 线程数 ≤ 连接池的一半」放宽；个别组要更多线程用 consumption-threads-by-group.<消费组名> 单独给
+    consumption-threads: 2

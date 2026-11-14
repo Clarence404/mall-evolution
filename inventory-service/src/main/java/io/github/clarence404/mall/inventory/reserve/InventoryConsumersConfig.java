@@ -2,6 +2,7 @@ package io.github.clarence404.mall.inventory.reserve;
 
 import io.github.clarence404.mall.common.json.Json;
 import io.github.clarence404.mall.common.mq.ConsumerFactory;
+import io.github.clarence404.mall.common.mq.RocketMqProperties;
 import io.github.clarence404.mall.inventory.api.ReserveLine;
 import java.util.List;
 import lombok.extern.slf4j.Slf4j;
@@ -24,26 +25,33 @@ class InventoryConsumersConfig {
 
     @Bean(destroyMethod = "close")
     PushConsumer inventoryConfirmConsumer(
-            ClientServiceProvider provider, ClientConfiguration clientConfig, ReservationService reservationService)
+            ClientServiceProvider provider,
+            ClientConfiguration clientConfig,
+            RocketMqProperties props,
+            ReservationService reservationService)
             throws ClientException {
-        return ConsumerFactory.subscribe(provider, clientConfig, "inventory-confirm-consumer", "order-paid", view -> {
-            OrderPaidMessage m = Json.read(view.getBody(), OrderPaidMessage.class);
-            try {
-                reservationService.confirm(m.orderNo());
-                return ConsumeResult.SUCCESS;
-            } catch (Exception ex) {
-                log.warn("确认预占失败，orderNo={}，第 {} 次投递", m.orderNo(), view.getDeliveryAttempt(), ex);
-                return ConsumeResult.FAILURE;
-            }
-        });
+        return ConsumerFactory.subscribe(
+                provider, clientConfig, props, "inventory-confirm-consumer", "order-paid", view -> {
+                    OrderPaidMessage m = Json.read(view.getBody(), OrderPaidMessage.class);
+                    try {
+                        reservationService.confirm(m.orderNo());
+                        return ConsumeResult.SUCCESS;
+                    } catch (Exception ex) {
+                        log.warn("确认预占失败，orderNo={}，第 {} 次投递", m.orderNo(), view.getDeliveryAttempt(), ex);
+                        return ConsumeResult.FAILURE;
+                    }
+                });
     }
 
     @Bean(destroyMethod = "close")
     PushConsumer inventoryReleaseConsumer(
-            ClientServiceProvider provider, ClientConfiguration clientConfig, ReservationService reservationService)
+            ClientServiceProvider provider,
+            ClientConfiguration clientConfig,
+            RocketMqProperties props,
+            ReservationService reservationService)
             throws ClientException {
         return ConsumerFactory.subscribe(
-                provider, clientConfig, "inventory-release-consumer", "order-cancelled", view -> {
+                provider, clientConfig, props, "inventory-release-consumer", "order-cancelled", view -> {
                     OrderCancelledMessage m = Json.read(view.getBody(), OrderCancelledMessage.class);
                     try {
                         reservationService.release(m.orderNo(), m.lines());

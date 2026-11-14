@@ -24,6 +24,9 @@ class AuthTokenH2Test extends H2TestBase {
     @Autowired
     AuthService authService;
 
+    @Autowired
+    io.github.clarence404.mall.user.auth.RefreshTokenCleanupJob cleanupJob;
+
     @Test
     void refreshRotatesTokenAndOldRefreshTokenIsRejected() throws Exception {
         String r1 = login();
@@ -62,6 +65,28 @@ class AuthTokenH2Test extends H2TestBase {
 
         refresh(phone).andExpect(status().isUnauthorized());
         refresh(tablet).andExpect(status().isUnauthorized());
+    }
+
+    /** 每日清理只删已过期的刷新令牌，没过期的照常可用；再跑一遍（或另一个实例也跑）什么都不会多删。 */
+    @Test
+    void cleanupJobDeletesOnlyExpiredRefreshTokens() throws Exception {
+        jdbcTemplate.update("DELETE FROM t_refresh_token");
+        String valid = login();
+        for (int i = 0; i < 3; i++) { // 3 条过期的：昨天、上个月……
+            jdbcTemplate.update(
+                    "INSERT INTO t_refresh_token (id, user_id, token_hash, expire_at)"
+                            + " VALUES (?, 10001, ?, DATEADD('DAY', ?, CURRENT_TIMESTAMP(3)))",
+                    io.github.clarence404.mall.common.id.Ids.next(),
+                    "expired-" + i,
+                    -1 - i * 30);
+        }
+
+        assertThat(cleanupJob.cleanup()).isEqualTo(3);
+
+        assertThat(jdbcTemplate.queryForObject("SELECT COUNT(*) FROM t_refresh_token", Integer.class))
+                .isEqualTo(1);
+        refresh(valid).andExpect(status().isOk()); // 没过期的不受影响
+        assertThat(cleanupJob.cleanup()).isZero(); // 重复执行无害
     }
 
     private String login() throws Exception {

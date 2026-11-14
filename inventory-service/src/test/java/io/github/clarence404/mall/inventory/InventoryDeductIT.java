@@ -147,8 +147,7 @@ class InventoryDeductIT {
             }
             reservationService.release(orderNo, lines);
         }
-        assertThat(jdbc.queryForObject(
-                        "SELECT SUM(stock) FROM t_inventory_bucket WHERE sku_id = 40002", Integer.class))
+        assertThat(jdbc.queryForObject("SELECT SUM(stock) FROM t_inventory_bucket WHERE sku_id = 40002", Integer.class))
                 .isEqualTo(100);
         assertThat(jdbc.queryForObject(
                         "SELECT SUM(reserved) FROM t_inventory_bucket WHERE sku_id = 40002", Integer.class))
@@ -173,8 +172,8 @@ class InventoryDeductIT {
                 List<Future<?>> futures = new ArrayList<>();
                 for (int i = 0; i < 4; i++) {
                     String orderNo = prefix + i;
-                    futures.add(pool.submit(() -> safely(
-                            () -> reservationService.reserve(orderNo, List.of(new ReserveLine(sku, 1)), null))));
+                    futures.add(pool.submit(() ->
+                            safely(() -> reservationService.reserve(orderNo, List.of(new ReserveLine(sku, 1)), null))));
                 }
                 futures.add(pool.submit(() -> safely(() -> {
                     bucketService.merge(sku);
@@ -184,7 +183,8 @@ class InventoryDeductIT {
                     f.get();
                 }
             }
-            Integer sellable = jdbc.queryForObject("SELECT stock FROM t_inventory WHERE sku_id = ?", Integer.class, sku);
+            Integer sellable =
+                    jdbc.queryForObject("SELECT stock FROM t_inventory WHERE sku_id = ?", Integer.class, sku);
             Integer inBuckets = jdbc.queryForObject(
                     "SELECT COALESCE(SUM(stock), 0) FROM t_inventory_bucket WHERE sku_id = ?", Integer.class, sku);
             Integer reserved = jdbc.queryForObject(

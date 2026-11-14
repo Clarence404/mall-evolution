@@ -28,4 +28,11 @@ public interface RefreshTokenMapper {
     /** 改密码、踢下线：删掉该用户全部刷新令牌，访问令牌最多再活 30 分钟。 */
     @Delete("DELETE FROM t_refresh_token WHERE user_id = #{userId}")
     int deleteByUser(@Param("userId") long userId);
+
+    /**
+     * 清理过期的刷新令牌，分批删除（每批 limit 条，走 idx_refresh_expire_at）。
+     * 过期令牌本来就通不过 {@link #selectValidUserId} 的校验，删掉只是不让表无限增长。
+     */
+    @Delete("DELETE FROM t_refresh_token WHERE expire_at < #{before} LIMIT #{limit}")
+    int deleteExpiredBefore(@Param("before") LocalDateTime before, @Param("limit") int limit);
 }

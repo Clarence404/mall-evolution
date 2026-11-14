@@ -4,6 +4,11 @@ spring:
     name: payment-service
   profiles:
     default: dev
+  task:
+    scheduling:                 # 定时任务线程池：默认只有 1 个线程，所有 @Scheduled 排队执行——一个带远程调用的兜底任务卡住，
+      pool:                     # 每秒一次的 outbox 中继和指标刷新就跟着停。给 4 个线程，周期任务互不阻塞
+        size: 4
+      thread-name-prefix: sched-
   datasource:
     driver-class-name: com.mysql.cj.jdbc.Driver
     hikari:
@@ -65,3 +70,4 @@ mall:
     endpoints: ${ROCKETMQ_ENDPOINTS:localhost:8081}
     access-key: ${ROCKETMQ_ACCESS_KEY:}
     secret-key: ${ROCKETMQ_SECRET_KEY:}
+    consumption-threads: 4   # 每个消费组的消费线程数（客户端不设时是 20）：只有退款 1 个消费组，4 个线程，不超过连接池（20）的一半
