@@ -29,11 +29,12 @@ x-demo-health: &demo-health
   timeout: 3s
   retries: 60
   start_period: 30s
-# 镜像里没有 curl：用 bash 的 /dev/tcp 请求就绪探针；dev profile 开了独立管理端口（业务端口 + 10000），健康检查在管理端口上
-x-health-8080: &health-8080 "exec 3<>/dev/tcp/127.0.0.1/18080 && printf 'GET /actuator/health/readiness HTTP/1.0\r\n\r\n' >&3 && grep -q UP <&3"
-x-health-8082: &health-8082 "exec 3<>/dev/tcp/127.0.0.1/18082 && printf 'GET /actuator/health/readiness HTTP/1.0\r\n\r\n' >&3 && grep -q UP <&3"
-x-health-8083: &health-8083 "exec 3<>/dev/tcp/127.0.0.1/18083 && printf 'GET /actuator/health/readiness HTTP/1.0\r\n\r\n' >&3 && grep -q UP <&3"
-x-health-9000: &health-9000 "exec 3<>/dev/tcp/127.0.0.1/19000 && printf 'GET /actuator/health/readiness HTTP/1.0\r\n\r\n' >&3 && grep -q UP <&3"
+# 镜像里没有 curl：用 bash 的 /dev/tcp 请求就绪探针；dev profile 开了独立管理端口（业务端口 + 10000），健康检查在管理端口上。
+# 锚点按实际探测的管理端口命名：18080 mall-app、18082 inventory-service、18083 payment-service、19000 mall-gateway
+x-health-18080: &health-18080 "exec 3<>/dev/tcp/127.0.0.1/18080 && printf 'GET /actuator/health/readiness HTTP/1.0\r\n\r\n' >&3 && grep -q UP <&3"
+x-health-18082: &health-18082 "exec 3<>/dev/tcp/127.0.0.1/18082 && printf 'GET /actuator/health/readiness HTTP/1.0\r\n\r\n' >&3 && grep -q UP <&3"
+x-health-18083: &health-18083 "exec 3<>/dev/tcp/127.0.0.1/18083 && printf 'GET /actuator/health/readiness HTTP/1.0\r\n\r\n' >&3 && grep -q UP <&3"
+x-health-19000: &health-19000 "exec 3<>/dev/tcp/127.0.0.1/19000 && printf 'GET /actuator/health/readiness HTTP/1.0\r\n\r\n' >&3 && grep -q UP <&3"
 
 services:
   mysql:
@@ -118,7 +119,7 @@ services:
     ports:
       - "8848:8848"
       - "9848:9848"
-      - "18080:8080"     # 3.x 控制台端口，避免和 mall-app 的 8080 冲突
+      - "18848:8080"     # 3.x 控制台（容器内 8080）映射到宿主机 18848：不能用 8080（mall-app 业务端口），也不能用 18080（mall-app 在 dev 下的管理端口）
     healthcheck:         # 注册与配置接口可用后才算就绪（demo 里的服务依赖它）
       test: ["CMD-SHELL", "curl -sf 'http://localhost:8848/nacos/v3/admin/core/state' >/dev/null"]
       interval: 5s
@@ -143,7 +144,7 @@ services:
       JAVA_OPTS: -Xms128m -Xmx512m -XX:+UseSerialGC -XX:+ExitOnOutOfMemoryError
     healthcheck:
       <<: *demo-health
-      test: ["CMD", "bash", "-c", *health-8080]
+      test: ["CMD", "bash", "-c", *health-18080]
 
   inventory-service:
     <<: *demo-service
@@ -155,7 +156,7 @@ services:
       MALL_ID_WORKER_ID: "11"
     healthcheck:
       <<: *demo-health
-      test: ["CMD", "bash", "-c", *health-8082]
+      test: ["CMD", "bash", "-c", *health-18082]
 
   payment-service:
     <<: *demo-service
@@ -167,7 +168,7 @@ services:
       MALL_ID_WORKER_ID: "21"
     healthcheck:
       <<: *demo-health
-      test: ["CMD", "bash", "-c", *health-8083]
+      test: ["CMD", "bash", "-c", *health-18083]
 
   mall-gateway:
     image: mall-evolution/demo:latest
@@ -186,7 +187,7 @@ services:
       - "9000:9000"
     healthcheck:
       <<: *demo-health
-      test: ["CMD", "bash", "-c", *health-9000]
+      test: ["CMD", "bash", "-c", *health-19000]
 
 volumes:
   mysql-data:

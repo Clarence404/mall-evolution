@@ -1,8 +1,9 @@
-# 演示环境（docker compose --profile demo）：叠加在 dev 之上，只调节奏，让演示控制台几分钟内能看到效果。生产不启用
-# 连接地址（MySQL、Redis、Nacos、RocketMQ）由 docker-compose.yml 的环境变量覆盖，不写在这里
+# 演示用（demo profile）：叠加在 dev 之上，只调节奏，让演示控制台几分钟内能看到效果。
+# docker compose --profile demo（dev,demo）、IDEA 运行配置（dev,local,demo）和 README 里的 java -jar 命令都会启用它；
+# 生产不启用，而且 prod 与 demo 同时激活会直接启动失败（ProdDemoProfileGuard）。
+# 连接地址（MySQL、Redis、Nacos、RocketMQ）不写在这里：compose 里由环境变量覆盖，本机运行用 dev 的默认值或 config/application-local.yml
 mall:
   order:
-    pay-timeout: 1m
     timeout-scan-interval: 20s   # 兜底扫描也跟着加快
     timeout-scan-after: 90s
   promo:

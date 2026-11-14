@@ -125,11 +125,7 @@ mall:
       secret: ${JWT_SECRET}
       access-token-ttl: 30m
       refresh-token-ttl: 14d
-  pay:
-    mock:
-      secret: ${PAY_MOCK_SECRET}
-  order:
-    pay-timeout: 15m             # 超时 15 分钟未支付取消：下单时写一条 order-timeout 定时消息
+  order:                         # 支付超时在 mall.promo.normal-pay-timeout / activity-pay-timeout；下单时按它写一条 order-timeout 定时消息
     timeout-scan-interval: 10m   # 扫描降级为兜底：每 10 分钟一次
     timeout-scan-after: 20m      # 只处理创建超过 20 分钟仍待支付的订单
   degrade:                       # 降级开关，大促时在 Nacos 里改（见 deploy/nacos/mall-app.yaml）

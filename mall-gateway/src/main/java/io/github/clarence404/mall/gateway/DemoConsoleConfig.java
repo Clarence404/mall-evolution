@@ -22,7 +22,7 @@ import org.springframework.web.reactive.function.server.ServerResponse;
 
 /**
  * 仅演示环境（demo profile）：网关在 {@code /} 托管演示控制台（一个静态页面），并多一条路由把
- * {@code /api/demo/inventory/**} 转到库存服务的 {@code /internal/demo/**}（故障注入开关、库存查看）。
+ * {@code /api/demo/inventory/**} 转到库存服务的 {@code /internal/demo/**}（故障注入开关、库存查看、给流量模拟器用的补货）。
  *
  * <p>生产不启用：没有这个页面，也没有这条路由，网关仍然只路由 {@code /api/**} 的业务接口、拒绝 {@code /internal/**}。
  */

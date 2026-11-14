@@ -19,6 +19,3 @@ mall:
   security:
     jwt:
       secret: test-only-jwt-secret-0123456789abcdef
-  pay:
-    mock:
-      secret: test-only-mock-pay-secret

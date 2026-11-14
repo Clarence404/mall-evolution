@@ -1,3 +1,4 @@
+# 阶段一遗留：只对应 stage-1-monolith 标签（一台测试机上的单体），main 上不再维护，现在没有流水线使用 test profile
 # 测试环境：一台测试机，连接信息由环境变量注入
 spring:
   datasource:
