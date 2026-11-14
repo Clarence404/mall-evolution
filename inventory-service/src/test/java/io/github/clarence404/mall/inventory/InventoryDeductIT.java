@@ -29,8 +29,12 @@ import org.testcontainers.mysql.MySQLContainer;
  * 预占在真实 MySQL 上：stock >= n 不超卖、多 SKU 按 sku_id 升序不死锁、reserve 与 release 并发时由 uk_order_sku 决定先后；
  * 分桶 SKU 上 release 回到同一个桶、合并分桶与预占并发不多出库存。
  * 需要 Docker。
+ *
+ * <p>取连接的超时在这里放宽到 10 秒：库存服务的配置是 250ms 快速失败，而 HikariCP 的连接是启动后在后台一条一条建的，
+ * 上下文刚起来池子里只有几条连接，10 个线程同时来取时后几个要等新连接建好——CI 的机器慢，偶尔等不到 250ms 就超时
+ * （Connection is not available, request timed out after 250ms (total=5, active=5…)），和要验证的并发正确性无关。
  */
-@SpringBootTest
+@SpringBootTest(properties = "spring.datasource.hikari.connection-timeout=10000")
 @ActiveProfiles("it")
 @Testcontainers(disabledWithoutDocker = true)
 class InventoryDeductIT {
