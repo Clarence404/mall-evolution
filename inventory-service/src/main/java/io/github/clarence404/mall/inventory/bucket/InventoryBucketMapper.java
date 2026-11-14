@@ -19,12 +19,14 @@ public interface InventoryBucketMapper {
             """)
     int reserve(@Param("skuId") long skuId, @Param("bucketNo") int bucketNo, @Param("quantity") int quantity);
 
+    /** 释放：回到预占时的那个桶。影响 0 行说明桶不存在，调用方按数据不一致报错。 */
     @Update("""
             UPDATE t_inventory_bucket SET stock = stock + #{quantity}, reserved = reserved - #{quantity}
             WHERE sku_id = #{skuId} AND bucket_no = #{bucketNo}
             """)
     int unreserve(@Param("skuId") long skuId, @Param("bucketNo") int bucketNo, @Param("quantity") int quantity);
 
+    /** 确认：从预占时那个桶的 reserved 里减掉。影响 0 行说明桶不存在，调用方按数据不一致报错。 */
     @Update("""
             UPDATE t_inventory_bucket SET reserved = reserved - #{quantity}
             WHERE sku_id = #{skuId} AND bucket_no = #{bucketNo}
@@ -38,6 +40,16 @@ public interface InventoryBucketMapper {
     @Select(
             "SELECT sku_id, bucket_no, stock, reserved FROM t_inventory_bucket WHERE sku_id = #{skuId} ORDER BY bucket_no")
     List<Bucket> selectBySku(@Param("skuId") long skuId);
+
+    /**
+     * 合并分桶用：把该 SKU 的全部桶行锁住再读。并发的预占要么已经提交（这里读到 reserved != 0），
+     * 要么卡在行锁上等合并提交——不会出现「读完余量之后又被扣走一件」。
+     */
+    @Select("""
+            SELECT sku_id, bucket_no, stock, reserved FROM t_inventory_bucket
+            WHERE sku_id = #{skuId} ORDER BY bucket_no FOR UPDATE
+            """)
+    List<Bucket> selectBySkuForUpdate(@Param("skuId") long skuId);
 
     @Select("SELECT DISTINCT sku_id FROM t_inventory_bucket")
     List<Long> selectBucketedSkuIds();

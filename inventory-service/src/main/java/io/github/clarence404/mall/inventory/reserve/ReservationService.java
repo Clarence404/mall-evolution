@@ -14,9 +14,6 @@ import io.github.clarence404.mall.inventory.stock.InventoryMapper;
 import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.List;
-import java.util.Map;
-import java.util.function.Function;
-import java.util.stream.Collectors;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
@@ -53,11 +50,11 @@ public class ReservationService {
         this.reservationTtl = reservationTtl;
     }
 
-    public ReserveResult reserve(String orderNo, List<ReserveLine> lines) {
-        return reserve(orderNo, lines, null);
-    }
-
-    /** expire_at 比订单支付超时多 15 分钟：普通订单 15 → 30 分钟，活动订单 5 → 20 分钟。 */
+    /**
+     * expire_at 比订单支付超时多 15 分钟：普通订单 15 → 30 分钟，活动订单 5 → 20 分钟。
+     *
+     * @param payTimeoutMinutes 订单的支付超时（分钟）；为 null 时用 mall.inventory.reservation-ttl
+     */
     @Transactional(rollbackFor = Exception.class)
     public ReserveResult reserve(String orderNo, List<ReserveLine> lines, Integer payTimeoutMinutes) {
         List<Reservation> existing = reservationMapper.selectByOrderNo(orderNo);
@@ -86,10 +83,21 @@ public class ReservationService {
         return ReserveResult.OK;
     }
 
+    /**
+     * 释放预占。每个 SKU 三步：
+     *
+     * <ol>
+     *   <li>INSERT IGNORE 一行 RELEASED 占位：插进去了说明从没预占过（空回滚），不动库存
+     *   <li>没插进去说明记录已存在：这时再按 (order_no, sku_id) 加锁读出这条记录，拿它的桶号与数量
+     *   <li>RESERVED → RELEASED 条件更新成功才归还库存，分桶的回到同一个桶
+     * </ol>
+     *
+     * <p>桶号与数量必须在第 1 步之后读：release 与迟到的 reserve 并发时，方法开头读到的可能还是「没有记录」，
+     * 而 INSERT IGNORE 会等 reserve 提交后才返回 0；若沿用开头的快照，分桶 SKU 的库存就会被还到主行
+     * （桶的 reserved 永久多 n、主行 reserved 变负，相加抵消，对账也发现不了）。归还数量也以预占记录为准，不信请求里的数量。
+     */
     @Transactional(rollbackFor = Exception.class)
     public void release(String orderNo, List<ReserveLine> lines) {
-        Map<Long, Reservation> bySku = reservationMapper.selectByOrderNo(orderNo).stream()
-                .collect(Collectors.toMap(Reservation::getSkuId, Function.identity()));
         for (ReserveLine l :
                 lines.stream().sorted(comparing(ReserveLine::skuId)).toList()) {
             // INSERT IGNORE ... status = 3：返回 1 说明从没预占过，返回 0 说明记录已存在
@@ -97,15 +105,18 @@ public class ReservationService {
             if (reservationMapper.insertReleasedIfAbsent(orderNo, l) == 1) {
                 continue; // 空回滚：不动库存，只留下占位，挡住迟到的 reserve
             }
+            // 当前读（FOR UPDATE）：拿到的一定是已提交的那条记录，并锁住它直到本事务结束
+            Reservation current = reservationMapper.selectForUpdate(orderNo, l.skuId());
+            if (current == null) {
+                continue; // 不会发生：INSERT IGNORE 返回 0 说明记录存在，而预占记录从不删除
+            }
             if (reservationMapper.transit(orderNo, l.skuId(), RESERVED, RELEASED) == 1) {
-                Integer bucketNo =
-                        bySku.containsKey(l.skuId()) ? bySku.get(l.skuId()).getBucketNo() : null;
-                if (bucketNo == null) {
-                    inventoryMapper.unreserve(l.skuId(), l.quantity()); // stock +n, reserved -n
-                } else {
-                    bucketMapper.unreserve(l.skuId(), bucketNo, l.quantity()); // 回到同一个桶
+                if (current.getBucketNo() == null) {
+                    inventoryMapper.unreserve(l.skuId(), current.getQuantity()); // stock +n, reserved -n
+                } else if (bucketMapper.unreserve(l.skuId(), current.getBucketNo(), current.getQuantity()) == 0) {
+                    throw bucketMissing(orderNo, current); // 回到同一个桶；桶不在了说明数据已不一致，回滚并报错
                 }
-            } else if (bySku.containsKey(l.skuId()) && bySku.get(l.skuId()).getStatus() == CONFIRMED) {
+            } else if (current.getStatus() == CONFIRMED) {
                 log.error("预占已确认却收到释放，转人工核对，orderNo={}, skuId={}", orderNo, l.skuId());
             } // 其余 0 行：已释放（重复请求）
         }
@@ -118,8 +129,8 @@ public class ReservationService {
             if (reservationMapper.transit(orderNo, r.getSkuId(), RESERVED, CONFIRMED) == 1) {
                 if (r.getBucketNo() == null) {
                     inventoryMapper.confirm(r.getSkuId(), r.getQuantity());
-                } else {
-                    bucketMapper.confirm(r.getSkuId(), r.getBucketNo(), r.getQuantity());
+                } else if (bucketMapper.confirm(r.getSkuId(), r.getBucketNo(), r.getQuantity()) == 0) {
+                    throw bucketMissing(orderNo, r); // 桶不在了：回滚，消息重投后进死信告警，不静默跳过
                 }
             }
         }
@@ -155,6 +166,15 @@ public class ReservationService {
     private int bucketCount(long skuId) {
         Integer n = inventoryMapper.selectBucketCount(skuId);
         return n == null ? 0 : n;
+    }
+
+    /**
+     * 预占记录写着桶号，桶行却不存在。合并分桶前会确认各桶 reserved 为 0，正常流程走不到这里；
+     * 一旦出现就是数据不一致：抛非业务异常让事务回滚（预占保持 RESERVED），由消息重投、死信告警与人工处理接手。
+     */
+    private static IllegalStateException bucketMissing(String orderNo, Reservation r) {
+        return new IllegalStateException(
+                "分桶 " + r.getBucketNo() + " 不存在，无法处理预占，订单 " + orderNo + "，SKU " + r.getSkuId());
     }
 
     private static BizException insufficient(String orderNo, ReserveLine l) {

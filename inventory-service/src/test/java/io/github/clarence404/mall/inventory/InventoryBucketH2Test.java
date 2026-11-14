@@ -54,10 +54,10 @@ class InventoryBucketH2Test {
                 .isEqualTo(10); // 展示 = 各桶之和
 
         for (int i = 0; i < 10; i++) {
-            reservationService.reserve("B" + i, List.of(new ReserveLine(50001L, 1)));
+            reservationService.reserve("B" + i, List.of(new ReserveLine(50001L, 1)), null);
         }
         assertThat(bucketStocks()).containsExactly(0, 0, 0); // 桶空换桶，10 件都卖出去
-        assertThatThrownBy(() -> reservationService.reserve("B10", List.of(new ReserveLine(50001L, 1))))
+        assertThatThrownBy(() -> reservationService.reserve("B10", List.of(new ReserveLine(50001L, 1)), null))
                 .isInstanceOf(BizException.class); // 每个桶都不够才返回 STOCK_INSUFFICIENT
 
         Integer bucketOfB0 = jdbc.queryForObject(
@@ -91,7 +91,7 @@ class InventoryBucketH2Test {
     @Test
     void mergeIsRefusedWhileBucketReservationsAreOutstanding() {
         bucketService.split(50001L, 2);
-        reservationService.reserve("M1", List.of(new ReserveLine(50001L, 1)));
+        reservationService.reserve("M1", List.of(new ReserveLine(50001L, 1)), null);
 
         assertThatThrownBy(() -> bucketService.merge(50001L)).isInstanceOf(IllegalStateException.class);
     }

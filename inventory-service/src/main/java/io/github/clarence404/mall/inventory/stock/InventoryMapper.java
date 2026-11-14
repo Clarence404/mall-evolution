@@ -39,9 +39,6 @@ public interface InventoryMapper {
             """)
     int restockTo(@Param("skuId") long skuId, @Param("target") int target);
 
-    @Select("SELECT stock FROM t_inventory WHERE sku_id = #{skuId}")
-    Integer selectStock(@Param("skuId") long skuId);
-
     /** 0 表示不分桶。 */
     @Select("SELECT bucket_count FROM t_inventory WHERE sku_id = #{skuId}")
     Integer selectBucketCount(@Param("skuId") long skuId);

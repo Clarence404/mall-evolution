@@ -18,6 +18,16 @@ public interface ReservationMapper {
             """)
     List<Reservation> selectByOrderNo(@Param("orderNo") String orderNo);
 
+    /**
+     * 按唯一键 (order_no, sku_id) 加锁读一条预占记录（当前读）：release 用它取桶号与数量，
+     * 读到的一定是已提交的最新值，不受事务开始时快照的影响。
+     */
+    @Select("""
+            SELECT id, order_no, sku_id, quantity, status, expire_at, bucket_no
+            FROM t_inventory_reservation WHERE order_no = #{orderNo} AND sku_id = #{skuId} FOR UPDATE
+            """)
+    Reservation selectForUpdate(@Param("orderNo") String orderNo, @Param("skuId") long skuId);
+
     /** 并发时撞 uk_order_sku 抛 DuplicateKeyException，整个 reserve 事务回滚。 */
     @Insert("""
             INSERT INTO t_inventory_reservation (id, order_no, sku_id, quantity, status, expire_at, bucket_no)

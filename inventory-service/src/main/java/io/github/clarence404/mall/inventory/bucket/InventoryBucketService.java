@@ -42,14 +42,20 @@ public class InventoryBucketService {
         log.info("SKU {} 拆成 {} 个桶，库存 {}", skuId, bucketCount, stock);
     }
 
-    /** 等各桶的预占都确认或释放后，把余量并回 t_inventory，bucket_count 置回 0。 */
+    /**
+     * 等各桶的预占都确认或释放后，把余量并回 t_inventory，bucket_count 置回 0。
+     *
+     * <p>先锁主行（挡住并发的 split / merge / rebalance），再把各桶行 SELECT … FOR UPDATE 锁住后读余量：
+     * 预占只更新桶行、不碰主行，只锁主行挡不住它——普通读拿到余量后预占又扣走一件，合并就会按旧余量多并回一件（超卖）。
+     * 桶行锁住之后，并发的预占要么已提交（reserved != 0，这里拒绝合并），要么等到合并提交、发现桶没了按库存不足失败。
+     */
     @Transactional(rollbackFor = Exception.class)
     public void merge(long skuId) {
         InventoryMapper.StockRow row = inventoryMapper.selectForUpdate(skuId);
         if (row == null || row.bucketCount() == 0) {
             return;
         }
-        List<Bucket> buckets = bucketMapper.selectBySku(skuId);
+        List<Bucket> buckets = bucketMapper.selectBySkuForUpdate(skuId);
         if (buckets.stream().anyMatch(b -> b.reserved() != 0)) {
             throw new IllegalStateException("SKU " + skuId + " 仍有未确认的分桶预占，稍后再合并");
         }
@@ -59,9 +65,18 @@ public class InventoryBucketService {
         log.info("SKU {} 合并分桶，余量 {}", skuId, remaining);
     }
 
-    /** 把余量最多的桶匀一半给已空的桶，避免「总数还有、每个桶都不够」。 */
+    /**
+     * 把余量最多的桶匀一半给已空的桶，避免「总数还有、每个桶都不够」。
+     *
+     * <p>开头同样先锁主行：和 merge 串行，免得再平衡拿着一个桶的行锁去等合并已锁住的另一个桶（死锁）。
+     * 预占不碰主行，不受这把锁影响。
+     */
     @Transactional(rollbackFor = Exception.class)
     public void rebalance(long skuId) {
+        InventoryMapper.StockRow row = inventoryMapper.selectForUpdate(skuId);
+        if (row == null || row.bucketCount() == 0) {
+            return; // 刚被合并掉
+        }
         List<Bucket> buckets = bucketMapper.selectBySku(skuId);
         Bucket richest =
                 buckets.stream().max(Comparator.comparingInt(Bucket::stock)).orElse(null);
