@@ -17,7 +17,12 @@ class ProductDetailController {
     private final ProductDetailService productDetailService;
     private final StockDisplayService stockDisplayService;
 
-    /** skuId 先做格式校验（正整数），不存在的 SKU 缓存空值 60 秒，防穿透。 */
+    /**
+     * skuId 先做格式校验（正整数），不存在的 SKU 缓存空值 60 秒，防穿透。
+     *
+     * <p>两部分数据都先读本机缓存：商品信息是 L1 Caffeine + L2 Redis，「有货」提示是本机 2 秒 + Redis 10 秒 + 库存服务
+     * （熔断、舱壁、失败按有货兜底）。Redis 或库存服务出问题时接口照常返回 200。
+     */
     @Operation(operationId = "getProductDetail")
     @GetMapping("/api/products/{skuId}")
     ProductDetailPage detail(@PathVariable @Positive long skuId) {

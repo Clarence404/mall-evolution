@@ -91,6 +91,8 @@ resilience4j:
         permitted-number-of-calls-in-half-open-state: 20
         record-failure-predicate: io.github.clarence404.mall.common.remote.RemoteFailurePredicate   # 只记超时与 5xx
       payment-query: {sliding-window-type: TIME_BASED, sliding-window-size: 10, minimum-number-of-calls: 50, failure-rate-threshold: 50, wait-duration-in-open-state: 10s, record-failure-predicate: io.github.clarence404.mall.common.remote.RemoteFailurePredicate}
+      # 详情页「有货」提示的只读查询：单独一个实例，不和下单的 inventory-reserve 共用。失败时详情页按有货兜底，所以阈值放得宽、恢复探测慢一点
+      inventory-stock-query: {sliding-window-type: TIME_BASED, sliding-window-size: 10, minimum-number-of-calls: 20, failure-rate-threshold: 50, slow-call-duration-threshold: 300ms, slow-call-rate-threshold: 60, wait-duration-in-open-state: 10s, permitted-number-of-calls-in-half-open-state: 5, record-failure-predicate: io.github.clarence404.mall.common.remote.RemoteFailurePredicate}
   bulkhead:
     instances:
       inventory-reserve:
@@ -98,6 +100,9 @@ resilience4j:
         max-wait-duration: 0                      # 拿不到许可立即拒绝，不排队
       payment-query:                              # 只读查询也显式给舱壁，不吃 Resilience4j 的默认值（25）
         max-concurrent-calls: 20                  # 支付状态查询比预占少得多，20 足够；满了直接降级为「状态确认中」
+        max-wait-duration: 0
+      inventory-stock-query:                      # 有本机 2 秒 + Redis 10 秒两层缓存挡着，真正打到库存服务的很少；满了按「有货」兜底
+        max-concurrent-calls: 20
         max-wait-duration: 0
 
 springdoc:

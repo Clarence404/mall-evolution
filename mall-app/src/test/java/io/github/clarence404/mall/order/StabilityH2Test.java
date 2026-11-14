@@ -63,6 +63,7 @@ class StabilityH2Test extends H2TestBase {
     @AfterEach
     void resetProtections() {
         circuitBreakerRegistry.circuitBreaker("inventory-reserve").reset();
+        circuitBreakerRegistry.circuitBreaker("inventory-stock-query").reset();
         degrade.setOrderListMonths(0);
     }
 
@@ -122,6 +123,35 @@ class StabilityH2Test extends H2TestBase {
                 .andExpect(jsonPath("$.code").value("SYSTEM_BUSY"));
         verify(inventoryApi, never()).reserve(any()); // 熔断打开的 5 秒里，请求在 mall-app 内就失败返回
         verify(inventoryApi, never()).release(any());
+    }
+
+    /** 详情页查库存展示也有自己的熔断与舱壁（inventory-stock-query），不和下单的 inventory-reserve 共用。 */
+    @Test
+    void stockQueryCircuitBreakerAndBulkheadAreConfigured() {
+        CircuitBreakerConfig cb =
+                circuitBreakerRegistry.circuitBreaker("inventory-stock-query").getCircuitBreakerConfig();
+        assertThat(cb.getSlidingWindowType()).isEqualTo(CircuitBreakerConfig.SlidingWindowType.TIME_BASED);
+        assertThat(cb.getMinimumNumberOfCalls()).isEqualTo(20);
+        assertThat(cb.getRecordExceptionPredicate().test(new ResourceAccessException("timeout")))
+                .isTrue();
+        assertThat(bulkheadRegistry
+                        .bulkhead("inventory-stock-query")
+                        .getBulkheadConfig()
+                        .getMaxConcurrentCalls())
+                .isEqualTo(20);
+    }
+
+    /** 库存服务持续出错、熔断打开后：详情页不再去调库存服务，照样返回 200，「有货」按兜底值展示。 */
+    @Test
+    void openStockQueryCircuitStopsCallingInventoryAndDetailStillWorks() throws Exception {
+        circuitBreakerRegistry.circuitBreaker("inventory-stock-query").transitionToOpenState();
+
+        mvc.perform(get("/api/products/20002"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.product.skuId").value("20002"))
+                .andExpect(jsonPath("$.inStock").value(true));
+
+        verify(inventoryApi, never()).listStocks(any());
     }
 
     @Test

@@ -58,6 +58,7 @@ groups:
 
   - name: stability
     rules:
+      # 只看下单与支付查询两个熔断器；inventory-stock-query（详情页「有货」提示）打开时详情页按有货兜底，不单独告警
       - alert: CircuitBreakerOpen
         expr: max by (application, name) (resilience4j_circuitbreaker_state{name=~"inventory-reserve|payment-query",state="open"}) == 1
         labels: {severity: page, team: trade}
