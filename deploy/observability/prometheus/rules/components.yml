@@ -30,12 +30,17 @@ groups:
         annotations:
           summary: "{{ $labels.application }} 的 t_outbox 最老待发送记录已等待 {{ $value }} 秒"
       # 失败记录不会再自动发送：重试满 24 小时（mall.outbox.give-up-after）仍没发出去，或消息本身非法被 Broker 拒收。
-      # 排查后人工把 status 改回 0、created_at 改成当前时间即可重新投递
+      # 排查后用运营账号（ADMIN）调重投接口放回待发送，不用再手工改库（application 标签说明是哪个服务的表）：
+      #   GET  /api/admin/outbox/failed                  先看有哪些（topic、msg_key、失败次数与时间，不含消息体）
+      #   POST /api/admin/outbox/failed/redrive          批量重投，请求体可选 {"topic":"…","limit":100}，一次最多 500 条
+      #   POST /api/admin/outbox/failed/{id}/redrive     只重投一条
+      # mall-app 经网关调；inventory-service、payment-service 网关不路由，在集群内直接调服务地址，同样带 ADMIN 令牌。
+      # 重投后放弃计时从重投时刻重新算。消息本身非法的记录重投后会再次立即失败（告警不会消失）：先修数据或代码
       - alert: OutboxFailedRecords
         expr: max by (application) (outbox_failed_count) > 0
         labels: {severity: ticket, team: trade}
         annotations:
-          summary: "{{ $labels.application }} 的 t_outbox 有 {{ $value }} 条失败记录（重试满 24 小时或消息非法），需人工处理"
+          summary: "{{ $labels.application }} 的 t_outbox 有 {{ $value }} 条失败记录（重试满 24 小时或消息非法），排查后调 /api/admin/outbox/failed/redrive 重投"
       - alert: ConsumerDeadLetter                 # notify-consumer 的死信不告警：通知类消息过时即作废
         expr: sum by (group) (rocketmq_group_diff{group=~"%DLQ%.*",group!="%DLQ%notify-consumer"}) > 0
         labels: {severity: ticket, team: trade}

@@ -54,7 +54,7 @@ class OutboxRetryH2Test extends H2TestBase {
         assertThat(secondsUntilNextRetry()).isBetween(236L, 241L);
     }
 
-    /** 创建超过 24 小时还没发出去：置为失败，交给 OutboxFailedRecords 告警与人工处理。 */
+    /** 创建超过 24 小时还没发出去：置为失败，交给 OutboxFailedRecords 告警，排查后调重投接口（见 OutboxRedriveH2Test）。 */
     @Test
     void givesUpOnceTheRecordIsOlderThanTheTimeLimit() {
         jdbcTemplate.update("UPDATE t_outbox SET created_at = DATEADD('HOUR', -25, CURRENT_TIMESTAMP(3))");

@@ -190,8 +190,8 @@ IDEA 里直接选运行配置「5. 流量模拟（演示账号）」，停止按
 | 层 | 命名 | 需要 Docker | 覆盖 |
 |----|------|------------|------|
 | 单元测试 | `*Test` | 否 | 下单幂等、预占结果三分类、去重消费、关单、中继投递（退避封顶、按时间放弃、非法消息立即置失败）与 traceparent、熔断谓词、对账比对、「有货」提示的本机缓存与兜底、消费线程数显式设置、prod 与 demo 互斥；prod 配置下业务端口与管理端口分开（四个服务各一个 `ProdManagementPortConfigTest`）、管理端口过滤链的端口匹配（`ManagementPortMatchTest`）；流量模拟器的速率曲线、权重、库存保护、退避、配额、高峰间隔、签名（`simulator` 模块） |
-| H2 全上下文测试 | `*H2Test`、`ApplicationContextSmokeTest`，以及网关不连数据库的全上下文测试 `Gateway*Test`、`DemoConsoleTest` | 否 | H2 的 MySQL 兼容模式跑全部 Flyway 迁移与真实 SQL：下单与重放、取消、支付消息、库存预占的空回滚与悬挂、分桶（含 release / 合并与预占并发的固定顺序复现）、熔断打开返回 503、详情页库存查询熔断后仍 200、下单频控、outbox 重试回写、过期刷新令牌清理、`API-Version` 请求头；管理端口只放行 health / info / prometheus、业务端口上 `/actuator/prometheus` 仍 401（`ManagementPortSecurityH2Test`，网关是 `GatewayManagementPortTest`）；定时任务线程数与消费线程预算；同时导出 `mall-app/target/openapi.json` 供契约比对 |
-| 集成测试 | `*IT`、`*ApiTests` | 是 | Testcontainers 起 MySQL 8.4 / Redis 8：雪花机器号租约（两实例不同号、租约丢失拒绝发号）、并发同键只下一单、不超卖、交叉下单不死锁、reserve 与 release 竞态（含分桶 SKU 回到同一个桶）、合并分桶与预占并发不多出库存、`FOR UPDATE SKIP LOCKED` 加租约的中继不重发、中继失败按时间封顶、两级缓存失效、预热后注册到真实 Nacos 3.1 且端口正确 |
+| H2 全上下文测试 | `*H2Test`、`ApplicationContextSmokeTest`，以及网关不连数据库的全上下文测试 `Gateway*Test`、`DemoConsoleTest` | 否 | H2 的 MySQL 兼容模式跑全部 Flyway 迁移与真实 SQL：下单与重放、取消、支付消息、库存预占的空回滚与悬挂、分桶（含 release / 合并与预占并发的固定顺序复现）、熔断打开返回 503、详情页库存查询熔断后仍 200、下单频控、outbox 重试回写、outbox 失败记录重投（`OutboxRedriveH2Test`，库存与支付各有 `OutboxAdminH2Test`）、过期刷新令牌清理、`API-Version` 请求头；管理端口只放行 health / info / prometheus、业务端口上 `/actuator/prometheus` 仍 401（`ManagementPortSecurityH2Test`，网关是 `GatewayManagementPortTest`）；定时任务线程数与消费线程预算；同时导出 `mall-app/target/openapi.json` 供契约比对 |
+| 集成测试 | `*IT`、`*ApiTests` | 是 | Testcontainers 起 MySQL 8.4 / Redis 8：雪花机器号租约（两实例不同号、租约丢失拒绝发号）、并发同键只下一单、不超卖、交叉下单不死锁、reserve 与 release 竞态（含分桶 SKU 回到同一个桶）、合并分桶与预占并发不多出库存、`FOR UPDATE SKIP LOCKED` 加租约的中继不重发、中继失败按时间封顶、失败记录重投后重新发出且放弃计时重新起算、两级缓存失效、预热后注册到真实 Nacos 3.1 且端口正确 |
 
 没有 Docker 的机器上集成测试会自动跳过（`@Testcontainers(disabledWithoutDocker = true)`），并发、锁、隔离级别相关的结论以集成测试为准。PR 检查（`.github/workflows/pr.yml`）除了 verify 还有三项：用 oasdiff 把导出的 openapi.json 与目标分支（main）上的 `api/openapi.json` 比对，删字段、改类型这类破坏性变更直接失败（契约基线只含 mall-app 的接口，见「接口一览」）；用 gitleaks 扫描密钥，规则在仓库根目录的 `.gitleaks.toml`——沿用默认规则，只放行 `application-dev.yml`、`application-it.yml`、演示数据、`TestTokens.java`、`docker-compose.yml` 里的本地占位值，新增占位值的文件要加到那里的放行列表；Kubernetes 清单（kubeconform）、Prometheus 规则与本地抓取示例（promtool）、Alertmanager 配置（amtool）的静态检查，这一项和 verify 流水线共用 `.github/workflows/static-checks.yml`。
 
@@ -214,6 +214,7 @@ IDEA 里直接选运行配置「5. 流量模拟（演示账号）」，停止按
 | `GET /api/products/{skuId}`、`GET /api/products/{skuId}/recommendations` | mall-app | 匿名；商品详情（两级缓存 + 「有货」提示）、猜你喜欢（可降级为固定列表） |
 | `PUT /api/admin/products/{skuId}` | mall-app | 需 ADMIN：改名称、价格、上下架，改完自动失效缓存 |
 | `POST /api/admin/products/{skuId}/cache-evict` | mall-app | 需 ADMIN：改价后页面上没生效时，手动清掉这个 SKU 的两级缓存（本机 Caffeine 经广播、Redis 直接删），返回 204 |
+| `GET /api/admin/outbox/failed`、`POST /api/admin/outbox/failed/redrive`、`POST /api/admin/outbox/failed/{id}/redrive` | 三个服务（mall-common），经网关只到 mall-app | 需 ADMIN：本地消息表失败记录的查看与重新投递，见下方「失败消息重投」 |
 | `POST /api/orders` | mall-app | 下单，必须带 `Idempotency-Key`；网关对它单独限流（每用户每秒 1 次、突发 3） |
 | `GET /api/orders`、`GET /api/orders/{orderNo}` | mall-app | 我的订单（游标分页）、订单详情 |
 | `PATCH /api/orders/{orderNo}/address` | mall-app | 发货前改地址：只传要改的字段（receiver / phone / detail），按 `version` 乐观锁；已发货或同时被别人改过返回 409 `ORDER_STATUS_CONFLICT` |
@@ -224,6 +225,13 @@ IDEA 里直接选运行配置「5. 流量模拟（演示账号）」，停止按
 
 - **接口版本**：mall-app 的接口从请求头 `API-Version` 读版本，不带按 `1.0` 处理，老客户端不用改；不认识的版本返回 400（`ApiVersionH2Test`）
 - **契约基线** `api/openapi.json` 只含 mall-app 的对外接口（`/internal/**` 已排除）；payment-service 的 `/api/payments/**` 和 inventory-service 没有导出契约，也不在 PR 的兼容性检查范围内
+- **失败消息重投**（`OutboxFailedRecords` 告警后的处理办法，代替原先的手工改库）：`t_outbox` 里重试满 24 小时仍没发出去、或消息本身非法的记录会被置为失败，不再自动发送。排查后用运营账号调：
+  - `GET /api/admin/outbox/failed?topic=&cursor=&size=20`：列出失败记录（新的在前，游标分页，每页最多 50），只返回 `id`、`topic`、`msgKey`、`retryCount`、`deliverAt`、`createdAt`、`failedAt`，不返回消息体
+  - `POST /api/admin/outbox/failed/redrive`：批量重投，请求体可不传，或 `{"topic":"order-paid","limit":100}`（`topic` 不传表示全部失败记录；`limit` 默认 100、最大 500，超过返回 400）；返回 `{"redriven":2,"remaining":1}`，`remaining` 大于 0 就再调一次
+  - `POST /api/admin/outbox/failed/{id}/redrive`：只重投一条；记录不存在返回 404 `OUTBOX_RECORD_NOT_FOUND`，存在但已不是失败状态返回 `redriven: 0`（幂等，不报错）
+  - 重投 = 状态放回待发送、重试次数清零、立即可被中继认领（每秒扫表一次），并把 `retry_since` 写成当前时间：「满 24 小时放弃」从重投时刻重新算，`created_at` 不动。只对失败记录生效，待发送、已发送的不会被改；操作人与条数记日志，不记消息体
+  - **消息本身非法**（Broker 拒收、消息体过大等）而失败的记录，重投后会再次立即失败，这是预期：先修数据或代码。列表里 `retryCount` 很小的多半是这一类
+  - 接口在 mall-common，三个服务各管自己的 `t_outbox`，告警的 `application` 标签说明该调哪个：mall-app 经网关兜底路由可达（沿用每用户限流）；inventory-service、payment-service 网关不路由，在集群内直接调服务地址（如 `kubectl port-forward` 后 `curl -X POST -H "Authorization: Bearer <ADMIN 令牌>" localhost:8080/api/admin/outbox/failed/redrive`），令牌用网关登录拿到的即可。没有为它新增网关路由
 - **内部接口**（`/internal/**`，网关不路由，只在集群内可达）：
 
 | 接口 | 所在服务 | 用途 |
@@ -289,7 +297,7 @@ mall-evolution/
   - `deploy/argocd/mall-evolution.yaml`：依赖 Argo CD，`repoURL` 是占位的 GitOps 仓库地址
 - **发布流水线 `.github/workflows/release.yml`**：push 到 main 时默认只跑 verify。要真的构建镜像并写 GitOps 仓库，需要配置仓库变量 `DEPLOY_ENABLED=true`、`REGISTRY`、`GITOPS_REPO` 和密钥 `REGISTRY_USERNAME`、`REGISTRY_PASSWORD`、`GITOPS_TOKEN`；GitOps 仓库的 `prod/` 下要有与 `deploy/k8s` 同名的清单
 - **阶段一遗留**：`deploy/env.example`、`deploy/mall-evolution.service`、`deploy/deploy.sh` 和 mall-app 的 `application-test.yml` 只对应 `stage-1-monolith` 标签（那时只有 mall-app 一个进程、部署在云主机上），文件头都标了，main 上不再维护；当时的部署流水线 `.github/workflows/main.yml` 已从 main 删除（它每次 push 都会再跑一遍 verify 并尝试部署测试机），想看就 `git checkout stage-1-monolith`
-- **运行参数里值得知道的几项**（默认值在各服务的 `application.yml`，线上以 Nacos 为准）：`spring.task.scheduling.pool.size`（定时任务线程数，默认 4）、`mall.rocketmq.consumption-threads`（每个消费组的消费线程数，按「消费组数 × 线程数不超过连接池一半」取值，可用 `consumption-threads-by-group.<组名>` 单独给）、`mall.outbox.give-up-after`（本地消息重试多久后置为失败，默认 24 小时；置失败的记录要人工把 `status` 改回 0、`created_at` 改成当前时间才会重新投递）
+- **运行参数里值得知道的几项**（默认值在各服务的 `application.yml`，线上以 Nacos 为准）：`spring.task.scheduling.pool.size`（定时任务线程数，默认 4）、`mall.rocketmq.consumption-threads`（每个消费组的消费线程数，按「消费组数 × 线程数不超过连接池一半」取值，可用 `consumption-threads-by-group.<组名>` 单独给）、`mall.outbox.give-up-after`（本地消息重试多久后置为失败，默认 24 小时；置失败的记录排查后调重投接口 `POST /api/admin/outbox/failed/redrive` 放回待发送，见「接口一览」的失败消息重投）
 
 ## 复盘：四个阶段的决策怎么落在代码里
 

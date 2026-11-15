@@ -44,12 +44,14 @@ import org.springframework.transaction.support.TransactionTemplate;
  *
  * <ul>
  *   <li>Broker 或网络的问题（超时、5xx、限流、Topic 还没建好……）：一直重试，退避 1、2、4…秒翻倍，封顶 4 分钟一次；
- *       记录创建满 {@code mall.outbox.give-up-after}（默认 24 小时）还没发出去才置为失败
+ *       记录创建（重投过的从重投时刻算）满 {@code mall.outbox.give-up-after}（默认 24 小时）还没发出去才置为失败
  *   <li>消息本身非法（Broker 明确拒收：请求不合法、消息体过大等）：重试多少次结果都一样，立即置为失败，本批其余记录照常发送
  * </ul>
  *
- * <p>置为失败的记录不会再自动发送：{@code outbox.failed.count} 大于 0 触发 OutboxFailedRecords 告警，排查后由人工把
- * status 改回 0（同时把 created_at 改成当前时间，重新获得 24 小时的重试窗口）。
+ * <p>置为失败的记录不会再自动发送：{@code outbox.failed.count} 大于 0 触发 OutboxFailedRecords 告警，排查后由运营账号调
+ * 重投接口（{@link OutboxAdminController}，{@code POST /api/admin/outbox/failed/redrive}）放回待发送，不用再手工改库。
+ * 重投把 retry_since 写成当前时间，放弃时限从重投时刻重新算（created_at 不动）。因「消息本身非法」失败的记录重投后
+ * 会再次立即失败，这是预期：要先修数据或修代码，重投只解决「环境当时不行、现在好了」的那一类。
  *
  * <p>发送成功但 markSent 前宕机、或租约到期还没发完，记录会再发一次，由消费端幂等兜住。
  */
@@ -208,7 +210,7 @@ public class OutboxRelay {
                 return true;
             }
             log.warn("消息发送失败，等待重试，topic={}, key={}，已重试 {} 次", r.topic(), r.msgKey(), r.retryCount(), e);
-            // retry_count + 1，按退避推迟 next_retry_at；创建超过放弃时限（默认 24 小时）才置为失败
+            // retry_count + 1，按退避推迟 next_retry_at；创建（或最近一次重投）超过放弃时限（默认 24 小时）才置为失败
             outboxMapper.markRetry(r.id(), backoffSeconds(r.retryCount()), giveUpSeconds);
             return false;
         }

@@ -122,7 +122,8 @@ class ReconcileJob implements DisposableBean {
      * 补发走正常消费路径：写进本服务的 t_outbox（消息键是支付单号），由中继投递，消费端照常幂等。
      *
      * <p>撞唯一键说明这条消息以前写过：已发送或待发送就跳过；原记录已经是失败（status = 2，重试满 24 小时都没发出去或消息非法）时，
-     * 补发其实没生效，写入差错表交给人工，而不是当成「已补发过」悄悄放过。
+     * 补发其实没生效，写入差错表交给人工，而不是当成「已补发过」悄悄放过。人工排查后调重投接口
+     * （POST /api/admin/outbox/failed/redrive，见 OutboxAdminController）把那条失败记录放回待发送即可。
      */
     private void republish(LocalDate day, Diff d, String topic) {
         PaymentRow p = (PaymentRow) d.detail();

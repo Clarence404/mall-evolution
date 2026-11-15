@@ -288,6 +288,66 @@
         }
       }
     },
+    "/api/admin/outbox/failed/{id}/redrive": {
+      "post": {
+        "tags": [
+          "outbox-admin-controller"
+        ],
+        "operationId": "adminRedriveFailedOutbox",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/OutboxRedriveResult"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/admin/outbox/failed/redrive": {
+      "post": {
+        "tags": [
+          "outbox-admin-controller"
+        ],
+        "operationId": "adminRedriveFailedOutboxBatch",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RedriveRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/OutboxRedriveResult"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/orders/{orderNo}/address": {
       "patch": {
         "tags": [
@@ -467,6 +527,54 @@
               "*/*": {
                 "schema": {
                   "$ref": "#/components/schemas/PaymentStatusView"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/admin/outbox/failed": {
+      "get": {
+        "tags": [
+          "outbox-admin-controller"
+        ],
+        "operationId": "adminListFailedOutbox",
+        "parameters": [
+          {
+            "name": "topic",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "size",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "default": 20
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/CursorResultFailedOutboxView"
                 }
               }
             }
@@ -718,6 +826,35 @@
           "phone"
         ]
       },
+      "OutboxRedriveResult": {
+        "type": "object",
+        "properties": {
+          "redriven": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "remaining": {
+            "type": "integer",
+            "format": "int64"
+          }
+        }
+      },
+      "RedriveRequest": {
+        "type": "object",
+        "properties": {
+          "topic": {
+            "type": "string",
+            "maxLength": 64,
+            "minLength": 0
+          },
+          "limit": {
+            "type": "integer",
+            "format": "int32",
+            "maximum": 500,
+            "minimum": 1
+          }
+        }
+      },
       "Profile": {
         "type": "object",
         "properties": {
@@ -809,6 +946,53 @@
             "type": "string"
           },
           "paidAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "CursorResultFailedOutboxView": {
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/FailedOutboxView"
+            }
+          },
+          "nextCursor": {
+            "type": "string"
+          },
+          "hasMore": {
+            "type": "boolean"
+          }
+        }
+      },
+      "FailedOutboxView": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "topic": {
+            "type": "string"
+          },
+          "msgKey": {
+            "type": "string"
+          },
+          "retryCount": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "deliverAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "failedAt": {
             "type": "string",
             "format": "date-time"
           }

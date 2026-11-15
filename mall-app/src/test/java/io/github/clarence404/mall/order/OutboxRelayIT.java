@@ -9,7 +9,9 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import io.github.clarence404.mall.common.id.Ids;
+import io.github.clarence404.mall.common.outbox.OutboxAdminService;
 import io.github.clarence404.mall.common.outbox.OutboxMapper;
+import io.github.clarence404.mall.common.outbox.OutboxRedriveResult;
 import io.github.clarence404.mall.common.outbox.OutboxRelay;
 import io.github.clarence404.mall.support.IntegrationTestBase;
 import java.util.ArrayList;
@@ -31,7 +33,8 @@ import org.springframework.transaction.support.TransactionSynchronizationManager
 import org.springframework.transaction.support.TransactionTemplate;
 
 /**
- * 中继在真实 MySQL 上的行为：两个实例同时扫表，FOR UPDATE SKIP LOCKED 保证每条只发一次；Broker 失败按退避重试、按时间封顶；非法消息立即置失败。
+ * 中继在真实 MySQL 上的行为：两个实例同时扫表，FOR UPDATE SKIP LOCKED 保证每条只发一次；Broker 失败按退避重试、按时间封顶；非法消息立即置失败；
+ * 失败记录经重投接口背后的 OutboxAdminService 放回待发送后被中继重新发出，放弃计时从重投时刻重新算。
  * Producer 用替身（Testcontainers 没有 RocketMQ 模块）。需要 Docker。
  */
 class OutboxRelayIT extends IntegrationTestBase {
@@ -44,6 +47,9 @@ class OutboxRelayIT extends IntegrationTestBase {
 
     @Autowired
     JdbcTemplate jdbc;
+
+    @Autowired
+    OutboxAdminService outboxAdminService;
 
     @BeforeEach
     void clean() {
@@ -173,5 +179,60 @@ class OutboxRelayIT extends IntegrationTestBase {
                 .isEqualTo(1);
         assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM t_outbox WHERE status = 1", Integer.class))
                 .isEqualTo(1);
+    }
+
+    /**
+     * 重投（真实 MySQL 上的 SQL）：30 小时前创建、已置失败的记录，批量重投只动失败的那几条并遵守上限；
+     * 重投后 Broker 仍然故障也不会立刻又置失败（计时从重投时刻算，created_at 不变）；Broker 恢复后被中继发出。
+     */
+    @Test
+    void redrivenFailedRecordsAreSentAgainAndGetAFreshGiveUpWindow() throws Exception {
+        insertDue(4);
+        jdbc.update("UPDATE t_outbox SET created_at = NOW(3) - INTERVAL 30 HOUR, retry_count = 40,"
+                + " next_retry_at = NOW(3) - INTERVAL 6 HOUR");
+        jdbc.update("UPDATE t_outbox SET status = 2 WHERE msg_key IN ('K0', 'K1', 'K2')"); // K3 留作待发送
+        jdbc.update("UPDATE t_outbox SET status = 1 WHERE msg_key = 'K3'"); // 改成已发送：重投不能把它放回去
+
+        // 上限 2：只重投最老的 2 条，还剩 1 条
+        OutboxRedriveResult first = outboxAdminService.redriveBatch("order-paid", 2, 10009L);
+        assertThat(first.redriven()).isEqualTo(2);
+        assertThat(first.remaining()).isEqualTo(1);
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM t_outbox WHERE status = 0", Integer.class))
+                .isEqualTo(2);
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM t_outbox WHERE status = 1", Integer.class))
+                .isEqualTo(1);
+
+        // Broker 还没好：重投的两条发送失败，但没有因为「创建已超过 24 小时」马上又被置失败
+        Producer down = mock(Producer.class);
+        when(down.send(any(Message.class))).thenThrow(new ClientException("down"));
+        new OutboxRelay(outboxMapper, ClientServiceProvider.loadService(), down, transactionTemplate).relayBatch(10);
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM t_outbox WHERE status = 2", Integer.class))
+                .isEqualTo(1); // 仍然只有没重投的那一条
+        assertThat(jdbc.queryForObject(
+                        "SELECT COUNT(*) FROM t_outbox WHERE created_at > NOW(3) - INTERVAL 29 HOUR", Integer.class))
+                .isZero(); // created_at 没被改
+
+        // Broker 恢复：把剩下的一条也重投，三条都被发出，已发送的 K3 没有重发
+        assertThat(outboxAdminService.redriveBatch(null, null, 10009L).redriven())
+                .isEqualTo(1);
+        jdbc.update("UPDATE t_outbox SET next_retry_at = NOW(3) - INTERVAL 1 SECOND WHERE status = 0");
+        ConcurrentLinkedQueue<String> sentKeys = new ConcurrentLinkedQueue<>();
+        Producer up = mock(Producer.class);
+        when(up.send(any(Message.class))).thenAnswer(inv -> {
+            sentKeys.add(inv.<Message>getArgument(0).getKeys().iterator().next());
+            return null;
+        });
+        new OutboxRelay(outboxMapper, ClientServiceProvider.loadService(), up, transactionTemplate).relayBatch(10);
+
+        assertThat(sentKeys).containsExactlyInAnyOrder("K0", "K1", "K2");
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM t_outbox WHERE status = 1", Integer.class))
+                .isEqualTo(4);
+
+        // 距重投超过 24 小时仍发不出去的，照样会被放弃：计时只是换了起点，没有被取消
+        jdbc.update("UPDATE t_outbox SET status = 0, retry_since = NOW(3) - INTERVAL 25 HOUR,"
+                + " next_retry_at = NOW(3) - INTERVAL 1 SECOND WHERE msg_key = 'K0'");
+        new OutboxRelay(outboxMapper, ClientServiceProvider.loadService(), down, transactionTemplate).relayBatch(10);
+        assertThat(jdbc.queryForObject("SELECT status FROM t_outbox WHERE msg_key = 'K0'", Integer.class))
+                .isEqualTo(2);
     }
 }
