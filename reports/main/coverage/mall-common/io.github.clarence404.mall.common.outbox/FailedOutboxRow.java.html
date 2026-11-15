@@ -1,0 +1,50 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>FailedOutboxRow.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">mall-common</a> &gt; <a href="index.source.html" class="el_package">io.github.clarence404.mall.common.outbox</a> &gt; <span class="el_source">FailedOutboxRow.java</span></div><h1>FailedOutboxRow.java</h1><pre class="source lang-java linenums">package io.github.clarence404.mall.common.outbox;
+
+import java.time.LocalDateTime;
+
+/**
+ * 失败记录列表查询的一行（{@link OutboxMapper#selectFailed}）。
+ *
+ * &lt;p&gt;和 {@link OutboxRecord} 分开：这里没有 payload 字段，SQL 也不查它——列表是给人看的，
+ * 消息体可能带业务数据，不该出现在后台接口的响应里。MyBatis 直接读写字段，访问方法沿用 record 风格。
+ */
+<span class="nc" id="L11">public class FailedOutboxRow {</span>
+
+    private long id;
+    private String topic;
+    private String msgKey;
+    private int retryCount;
+    private LocalDateTime deliverAt;
+    private LocalDateTime createdAt;
+    /** 被置为失败的时间（即这行最后一次更新的 updated_at）。 */
+    private LocalDateTime failedAt;
+
+    public long id() {
+<span class="nc" id="L23">        return id;</span>
+    }
+
+    public String topic() {
+<span class="nc" id="L27">        return topic;</span>
+    }
+
+    public String msgKey() {
+<span class="nc" id="L31">        return msgKey;</span>
+    }
+
+    public int retryCount() {
+<span class="nc" id="L35">        return retryCount;</span>
+    }
+
+    public LocalDateTime deliverAt() {
+<span class="nc" id="L39">        return deliverAt;</span>
+    }
+
+    public LocalDateTime createdAt() {
+<span class="nc" id="L43">        return createdAt;</span>
+    }
+
+    public LocalDateTime failedAt() {
+<span class="nc" id="L47">        return failedAt;</span>
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.13.202504020838</span></div></body></html>

@@ -122,66 +122,67 @@ class ReconcileJob implements DisposableBean {
      * 补发走正常消费路径：写进本服务的 t_outbox（消息键是支付单号），由中继投递，消费端照常幂等。
      *
      * &lt;p&gt;撞唯一键说明这条消息以前写过：已发送或待发送就跳过；原记录已经是失败（status = 2，重试满 24 小时都没发出去或消息非法）时，
-     * 补发其实没生效，写入差错表交给人工，而不是当成「已补发过」悄悄放过。
+     * 补发其实没生效，写入差错表交给人工，而不是当成「已补发过」悄悄放过。人工排查后调重投接口
+     * （POST /api/admin/outbox/failed/redrive，见 OutboxAdminController）把那条失败记录放回待发送即可。
      */
     private void republish(LocalDate day, Diff d, String topic) {
-<span class="fc" id="L128">        PaymentRow p = (PaymentRow) d.detail();</span>
+<span class="fc" id="L129">        PaymentRow p = (PaymentRow) d.detail();</span>
         try {
-<span class="pc" id="L130">            transactionTemplate.executeWithoutResult(s -&gt; outboxWriter.append(</span>
+<span class="pc" id="L131">            transactionTemplate.executeWithoutResult(s -&gt; outboxWriter.append(</span>
                     topic,
-<span class="fc" id="L132">                    p.paymentNo(),</span>
-<span class="fc" id="L133">                    Map.of(</span>
-<span class="fc" id="L134">                            &quot;orderNo&quot;, p.orderNo(),</span>
-<span class="fc" id="L135">                            &quot;paymentNo&quot;, p.paymentNo(),</span>
-<span class="fc" id="L136">                            &quot;userId&quot;, p.userId(),</span>
-<span class="fc" id="L137">                            &quot;amount&quot;, p.amount(),</span>
-<span class="pc bpc" id="L138" title="1 of 2 branches missed.">                            &quot;paidAt&quot;, p.paidAt() == null ? LocalDateTime.now() : p.paidAt()),</span>
+<span class="fc" id="L133">                    p.paymentNo(),</span>
+<span class="fc" id="L134">                    Map.of(</span>
+<span class="fc" id="L135">                            &quot;orderNo&quot;, p.orderNo(),</span>
+<span class="fc" id="L136">                            &quot;paymentNo&quot;, p.paymentNo(),</span>
+<span class="fc" id="L137">                            &quot;userId&quot;, p.userId(),</span>
+<span class="fc" id="L138">                            &quot;amount&quot;, p.amount(),</span>
+<span class="pc bpc" id="L139" title="1 of 2 branches missed.">                            &quot;paidAt&quot;, p.paidAt() == null ? LocalDateTime.now() : p.paidAt()),</span>
                     null));
-<span class="fc" id="L140">        } catch (DuplicateKeyException e) {</span>
-<span class="fc" id="L141">            List&lt;Integer&gt; status = diffTable.queryForList(</span>
-<span class="fc" id="L142">                    &quot;SELECT status FROM t_outbox WHERE topic = ? AND msg_key = ?&quot;, Integer.class, topic, p.paymentNo());</span>
-<span class="fc bfc" id="L143" title="All 2 branches covered.">            if (status.contains(2)) {</span>
-<span class="fc" id="L144">                log.warn(&quot;补发的消息之前已发送失败，写入差错表，topic={}, paymentNo={}&quot;, topic, p.paymentNo());</span>
-<span class="fc" id="L145">                recordDiff(day, d);</span>
+<span class="fc" id="L141">        } catch (DuplicateKeyException e) {</span>
+<span class="fc" id="L142">            List&lt;Integer&gt; status = diffTable.queryForList(</span>
+<span class="fc" id="L143">                    &quot;SELECT status FROM t_outbox WHERE topic = ? AND msg_key = ?&quot;, Integer.class, topic, p.paymentNo());</span>
+<span class="fc bfc" id="L144" title="All 2 branches covered.">            if (status.contains(2)) {</span>
+<span class="fc" id="L145">                log.warn(&quot;补发的消息之前已发送失败，写入差错表，topic={}, paymentNo={}&quot;, topic, p.paymentNo());</span>
+<span class="fc" id="L146">                recordDiff(day, d);</span>
             } else {
-<span class="fc" id="L147">                log.info(&quot;已补发过，跳过，topic={}, paymentNo={}&quot;, topic, p.paymentNo());</span>
+<span class="fc" id="L148">                log.info(&quot;已补发过，跳过，topic={}, paymentNo={}&quot;, topic, p.paymentNo());</span>
             }
-<span class="nc" id="L149">        }</span>
-<span class="fc" id="L150">    }</span>
+<span class="nc" id="L150">        }</span>
+<span class="fc" id="L151">    }</span>
 
     @SuppressWarnings(&quot;unchecked&quot;)
     private static List&lt;ReserveLine&gt; reservedLines(Diff d) {
-<span class="nc" id="L154">        return ((List&lt;ReservationRow&gt;) d.detail())</span>
-<span class="nc" id="L155">                .stream()</span>
-<span class="nc bnc" id="L156" title="All 2 branches missed.">                        .filter(r -&gt; r.status() == ReconcileChecker.RESERVED)</span>
-<span class="nc" id="L157">                        .map(r -&gt; new ReserveLine(r.skuId(), r.quantity()))</span>
-<span class="nc" id="L158">                        .toList();</span>
+<span class="nc" id="L155">        return ((List&lt;ReservationRow&gt;) d.detail())</span>
+<span class="nc" id="L156">                .stream()</span>
+<span class="nc bnc" id="L157" title="All 2 branches missed.">                        .filter(r -&gt; r.status() == ReconcileChecker.RESERVED)</span>
+<span class="nc" id="L158">                        .map(r -&gt; new ReserveLine(r.skuId(), r.quantity()))</span>
+<span class="nc" id="L159">                        .toList();</span>
     }
 
     private void recordDiff(LocalDate day, Diff d) {
-<span class="fc" id="L162">        diffTable.update(</span>
+<span class="fc" id="L163">        diffTable.update(</span>
                 &quot;INSERT INTO t_reconcile_diff (id, biz_date, diff_type, biz_key, detail) VALUES (?, ?, ?, ?, ?)&quot;,
-<span class="fc" id="L164">                Ids.next(),</span>
+<span class="fc" id="L165">                Ids.next(),</span>
                 day,
-<span class="fc" id="L166">                d.type().name(),</span>
-<span class="fc" id="L167">                d.bizKey(),</span>
-<span class="fc" id="L168">                String.valueOf(d.detail()));</span>
-<span class="fc" id="L169">    }</span>
+<span class="fc" id="L167">                d.type().name(),</span>
+<span class="fc" id="L168">                d.bizKey(),</span>
+<span class="fc" id="L169">                String.valueOf(d.detail()));</span>
+<span class="fc" id="L170">    }</span>
 
     private static HikariDataSource readOnly(ReconcileProperties.Source s, String name) {
-<span class="nc" id="L172">        HikariDataSource ds = new HikariDataSource();</span>
-<span class="nc" id="L173">        ds.setPoolName(name);</span>
-<span class="nc" id="L174">        ds.setJdbcUrl(s.url());</span>
-<span class="nc" id="L175">        ds.setUsername(s.username());</span>
-<span class="nc" id="L176">        ds.setPassword(s.password());</span>
-<span class="nc" id="L177">        ds.setReadOnly(true);</span>
-<span class="nc" id="L178">        ds.setMaximumPoolSize(2);</span>
-<span class="nc" id="L179">        return ds;</span>
+<span class="nc" id="L173">        HikariDataSource ds = new HikariDataSource();</span>
+<span class="nc" id="L174">        ds.setPoolName(name);</span>
+<span class="nc" id="L175">        ds.setJdbcUrl(s.url());</span>
+<span class="nc" id="L176">        ds.setUsername(s.username());</span>
+<span class="nc" id="L177">        ds.setPassword(s.password());</span>
+<span class="nc" id="L178">        ds.setReadOnly(true);</span>
+<span class="nc" id="L179">        ds.setMaximumPoolSize(2);</span>
+<span class="nc" id="L180">        return ds;</span>
     }
 
     @Override
     public void destroy() {
-<span class="nc" id="L184">        replicas.forEach(HikariDataSource::close);</span>
-<span class="nc" id="L185">    }</span>
+<span class="nc" id="L185">        replicas.forEach(HikariDataSource::close);</span>
+<span class="nc" id="L186">    }</span>
 }
 </pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.13.202504020838</span></div></body></html>

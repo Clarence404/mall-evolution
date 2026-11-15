@@ -14,50 +14,51 @@ import org.springframework.stereotype.Component;
  *
  * &lt;ul&gt;
  *   &lt;li&gt;{@code outbox.pending.age}：最老一条待发送记录等了多久，超过 1 分钟告警，涨说明中继或 Broker 出了问题
- *   &lt;li&gt;{@code outbox.failed.count}：失败记录数（重试满 24 小时仍没发出去，或消息本身非法被 Broker 拒收），大于 0 告警，需人工处理
+ *   &lt;li&gt;{@code outbox.failed.count}：失败记录数（重试满 24 小时仍没发出去，或消息本身非法被 Broker 拒收），大于 0 告警，
+ *       排查后调重投接口 {@code POST /api/admin/outbox/failed/redrive} 放回待发送（见 {@link OutboxAdminController}）
  *   &lt;li&gt;已发送的记录保留 7 天，每天凌晨分批删除
  * &lt;/ul&gt;
  */
-<span class="nc" id="L21">@Slf4j</span>
+<span class="nc" id="L22">@Slf4j</span>
 @Component
 class OutboxJobs {
 
     private final OutboxMapper outboxMapper;
-<span class="nc" id="L26">    private final AtomicLong pendingAgeSeconds = new AtomicLong();</span>
-<span class="nc" id="L27">    private final AtomicLong failedCount = new AtomicLong();</span>
+<span class="nc" id="L27">    private final AtomicLong pendingAgeSeconds = new AtomicLong();</span>
+<span class="nc" id="L28">    private final AtomicLong failedCount = new AtomicLong();</span>
 
-<span class="nc" id="L29">    OutboxJobs(OutboxMapper outboxMapper, MeterRegistry registry) {</span>
-<span class="nc" id="L30">        this.outboxMapper = outboxMapper;</span>
-<span class="nc" id="L31">        Gauge.builder(&quot;outbox.pending.age&quot;, pendingAgeSeconds, AtomicLong::get)</span>
-<span class="nc" id="L32">                .baseUnit(&quot;seconds&quot;)</span>
-<span class="nc" id="L33">                .description(&quot;t_outbox 最老一条待发送记录的等待时长&quot;)</span>
-<span class="nc" id="L34">                .register(registry);</span>
-<span class="nc" id="L35">        Gauge.builder(&quot;outbox.failed.count&quot;, failedCount, AtomicLong::get)</span>
-<span class="nc" id="L36">                .description(&quot;t_outbox 失败记录数（重试满 24 小时或消息非法）&quot;)</span>
-<span class="nc" id="L37">                .register(registry);</span>
-<span class="nc" id="L38">    }</span>
+<span class="nc" id="L30">    OutboxJobs(OutboxMapper outboxMapper, MeterRegistry registry) {</span>
+<span class="nc" id="L31">        this.outboxMapper = outboxMapper;</span>
+<span class="nc" id="L32">        Gauge.builder(&quot;outbox.pending.age&quot;, pendingAgeSeconds, AtomicLong::get)</span>
+<span class="nc" id="L33">                .baseUnit(&quot;seconds&quot;)</span>
+<span class="nc" id="L34">                .description(&quot;t_outbox 最老一条待发送记录的等待时长（重投过的从重投时刻算）&quot;)</span>
+<span class="nc" id="L35">                .register(registry);</span>
+<span class="nc" id="L36">        Gauge.builder(&quot;outbox.failed.count&quot;, failedCount, AtomicLong::get)</span>
+<span class="nc" id="L37">                .description(&quot;t_outbox 失败记录数（重试满 24 小时或消息非法），排查后调 /api/admin/outbox/failed/redrive 重投&quot;)</span>
+<span class="nc" id="L38">                .register(registry);</span>
+<span class="nc" id="L39">    }</span>
 
     @Scheduled(fixedDelayString = &quot;${mall.outbox.metrics-interval:15s}&quot;)
     void refreshMetrics() {
-<span class="nc" id="L42">        LocalDateTime oldest = outboxMapper.selectOldestPendingCreatedAt();</span>
-<span class="nc" id="L43">        pendingAgeSeconds.set(</span>
-<span class="nc bnc" id="L44" title="All 2 branches missed.">                oldest == null</span>
-<span class="nc" id="L45">                        ? 0</span>
-<span class="nc" id="L46">                        : Math.max(</span>
-<span class="nc" id="L47">                                0, Duration.between(oldest, LocalDateTime.now()).toSeconds()));</span>
-<span class="nc" id="L48">        failedCount.set(outboxMapper.countFailed());</span>
-<span class="nc" id="L49">    }</span>
+<span class="nc" id="L43">        LocalDateTime oldest = outboxMapper.selectOldestPendingCreatedAt();</span>
+<span class="nc" id="L44">        pendingAgeSeconds.set(</span>
+<span class="nc bnc" id="L45" title="All 2 branches missed.">                oldest == null</span>
+<span class="nc" id="L46">                        ? 0</span>
+<span class="nc" id="L47">                        : Math.max(</span>
+<span class="nc" id="L48">                                0, Duration.between(oldest, LocalDateTime.now()).toSeconds()));</span>
+<span class="nc" id="L49">        failedCount.set(outboxMapper.countFailed());</span>
+<span class="nc" id="L50">    }</span>
 
     @Scheduled(cron = &quot;${mall.outbox.cleanup-cron:0 0 3 * * *}&quot;)
     void cleanupSent() {
-<span class="nc" id="L53">        LocalDateTime before = LocalDateTime.now().minusDays(7);</span>
-<span class="nc" id="L54">        int total = 0;</span>
+<span class="nc" id="L54">        LocalDateTime before = LocalDateTime.now().minusDays(7);</span>
+<span class="nc" id="L55">        int total = 0;</span>
         int deleted;
         do {
-<span class="nc" id="L57">            deleted = outboxMapper.deleteSentBefore(before, 1000);</span>
-<span class="nc" id="L58">            total += deleted;</span>
-<span class="nc bnc" id="L59" title="All 2 branches missed.">        } while (deleted == 1000);</span>
-<span class="nc" id="L60">        log.info(&quot;清理 7 天前已发送的 outbox 记录 {} 条&quot;, total);</span>
-<span class="nc" id="L61">    }</span>
+<span class="nc" id="L58">            deleted = outboxMapper.deleteSentBefore(before, 1000);</span>
+<span class="nc" id="L59">            total += deleted;</span>
+<span class="nc bnc" id="L60" title="All 2 branches missed.">        } while (deleted == 1000);</span>
+<span class="nc" id="L61">        log.info(&quot;清理 7 天前已发送的 outbox 记录 {} 条&quot;, total);</span>
+<span class="nc" id="L62">    }</span>
 }
 </pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.13.202504020838</span></div></body></html>
