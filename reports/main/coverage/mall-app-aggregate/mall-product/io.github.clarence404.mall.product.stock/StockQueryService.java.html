@@ -15,7 +15,8 @@ import org.springframework.web.client.ResourceAccessException;
  * mall-app → inventory-service 的只读查询（详情页「有货」提示）。两层保护，由外到内：
  *
  * &lt;ul&gt;
- *   &lt;li&gt;重试：只读查询只在这一层重试，最多 1 次，随机退避 20–80ms（Spring Framework 7 自带注解）。写接口一律不重试
+ *   &lt;li&gt;重试：只读查询只在这一层重试，最多 1 次，随机退避 20–80ms（Spring Framework 7 自带注解）。写接口一律不重试。
+ *       参数可以用 {@code mall.remote.inventory-stock-query.retry.*} 覆盖，默认值就是这组，平时不用配
  *   &lt;li&gt;熔断 + 舱壁（{@value #CIRCUIT_BREAKER}）：库存服务持续超时或 5xx 时熔断打开，请求在本进程内直接失败，不再每次等满超时；
  *       舱壁限制同时在途的查询数，库存服务变慢时不会把 Tomcat 线程占光。用独立的实例，不和下单的 inventory-reserve 共用——
  *       展示查询出问题不该让下单跟着熔断
@@ -32,28 +33,33 @@ public class StockQueryService {
     private final InventoryApi inventoryApi;
     private final CircuitBreaker circuitBreaker;
 
-<span class="fc" id="L35">    public StockQueryService(InventoryApi inventoryApi, CircuitBreakerFactory&lt;?, ?&gt; circuitBreakerFactory) {</span>
-<span class="fc" id="L36">        this.inventoryApi = inventoryApi;</span>
-<span class="fc" id="L37">        this.circuitBreaker = circuitBreakerFactory.create(CIRCUIT_BREAKER);</span>
-<span class="fc" id="L38">    }</span>
+<span class="fc" id="L36">    public StockQueryService(InventoryApi inventoryApi, CircuitBreakerFactory&lt;?, ?&gt; circuitBreakerFactory) {</span>
+<span class="fc" id="L37">        this.inventoryApi = inventoryApi;</span>
+<span class="fc" id="L38">        this.circuitBreaker = circuitBreakerFactory.create(CIRCUIT_BREAKER);</span>
+<span class="fc" id="L39">    }</span>
 
-    @Retryable(includes = ResourceAccessException.class, maxRetries = 1, delay = 20, jitter = 60)
+    @Retryable(
+            includes = ResourceAccessException.class,
+            maxRetriesString = &quot;${mall.remote.inventory-stock-query.retry.max-retries:1}&quot;,
+            delayString = &quot;${mall.remote.inventory-stock-query.retry.delay:20ms}&quot;,
+            jitterString = &quot;${mall.remote.inventory-stock-query.retry.jitter:60ms}&quot;,
+            multiplierString = &quot;${mall.remote.inventory-stock-query.retry.multiplier:1}&quot;)
     public List&lt;StockView&gt; listStocks(List&lt;Long&gt; skuIds) {
-<span class="fc" id="L42">        return circuitBreaker.run(() -&gt; inventoryApi.listStocks(skuIds), StockQueryService::rethrow);</span>
+<span class="fc" id="L48">        return circuitBreaker.run(() -&gt; inventoryApi.listStocks(skuIds), StockQueryService::rethrow);</span>
     }
 
     /** Spring Cloud CircuitBreaker 没有 fallback 时会包一层 NoFallbackAvailableException，这里原样抛出原始异常，重试才认得出超时。 */
     private static &lt;T&gt; T rethrow(Throwable t) {
-<span class="pc bpc" id="L47" title="4 of 6 branches missed.">        while ((t instanceof ExecutionException || t instanceof CompletionException) &amp;&amp; t.getCause() != null) {</span>
-<span class="nc" id="L48">            t = t.getCause(); // 防御：若误配成线程池舱壁，异常会被包一层</span>
+<span class="pc bpc" id="L53" title="4 of 6 branches missed.">        while ((t instanceof ExecutionException || t instanceof CompletionException) &amp;&amp; t.getCause() != null) {</span>
+<span class="nc" id="L54">            t = t.getCause(); // 防御：若误配成线程池舱壁，异常会被包一层</span>
         }
-<span class="pc bpc" id="L50" title="1 of 2 branches missed.">        if (t instanceof RuntimeException re) {</span>
-<span class="fc" id="L51">            throw re;</span>
+<span class="pc bpc" id="L56" title="1 of 2 branches missed.">        if (t instanceof RuntimeException re) {</span>
+<span class="fc" id="L57">            throw re;</span>
         }
-<span class="nc bnc" id="L53" title="All 2 branches missed.">        if (t instanceof Error e) {</span>
-<span class="nc" id="L54">            throw e;</span>
+<span class="nc bnc" id="L59" title="All 2 branches missed.">        if (t instanceof Error e) {</span>
+<span class="nc" id="L60">            throw e;</span>
         }
-<span class="nc" id="L56">        throw new IllegalStateException(t);</span>
+<span class="nc" id="L62">        throw new IllegalStateException(t);</span>
     }
 }
 </pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.13.202504020838</span></div></body></html>

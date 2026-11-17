@@ -12,28 +12,38 @@ import org.springframework.resilience.annotation.Retryable;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.ResourceAccessException;
 
-/** mall-app → payment-service 的只读查询：经 payment-query 熔断器，失败最多重试 1 次并随机退避 20–80ms。 */
+/**
+ * mall-app → payment-service 的只读查询：经 payment-query 熔断器，失败最多重试 1 次并随机退避 20–80ms。
+ *
+ * &lt;p&gt;重试参数可以用 {@code mall.remote.payment-query.retry.*} 覆盖（次数、基础退避、随机抖动、退避倍数），默认值就是上面这组，
+ * 平时不用配；重试风暴实验（experiments/b-retry-storm）用它们复现「不退避、多次重试」的对照组。
+ */
 @Component
 public class PaymentQueryClient {
 
     private final PaymentApi paymentApi;
     private final CircuitBreaker circuitBreaker;
 
-<span class="fc" id="L22">    public PaymentQueryClient(PaymentApi paymentApi, CircuitBreakerFactory&lt;?, ?&gt; circuitBreakerFactory) {</span>
-<span class="fc" id="L23">        this.paymentApi = paymentApi;</span>
-<span class="fc" id="L24">        this.circuitBreaker = circuitBreakerFactory.create(&quot;payment-query&quot;);</span>
-<span class="fc" id="L25">    }</span>
+<span class="fc" id="L27">    public PaymentQueryClient(PaymentApi paymentApi, CircuitBreakerFactory&lt;?, ?&gt; circuitBreakerFactory) {</span>
+<span class="fc" id="L28">        this.paymentApi = paymentApi;</span>
+<span class="fc" id="L29">        this.circuitBreaker = circuitBreakerFactory.create(&quot;payment-query&quot;);</span>
+<span class="fc" id="L30">    }</span>
 
-    @Retryable(includes = ResourceAccessException.class, maxRetries = 1, delay = 20, jitter = 60)
+    @Retryable(
+            includes = ResourceAccessException.class,
+            maxRetriesString = &quot;${mall.remote.payment-query.retry.max-retries:1}&quot;,
+            delayString = &quot;${mall.remote.payment-query.retry.delay:20ms}&quot;,
+            jitterString = &quot;${mall.remote.payment-query.retry.jitter:60ms}&quot;,
+            multiplierString = &quot;${mall.remote.payment-query.retry.multiplier:1}&quot;)
     public PaymentStatusView query(String orderNo) {
-<span class="nc" id="L29">        return circuitBreaker.run(() -&gt; paymentApi.query(orderNo), t -&gt; {</span>
-<span class="nc bnc" id="L30" title="All 4 branches missed.">            if (t instanceof CallNotPermittedException || t instanceof BulkheadFullException) {</span>
-<span class="nc" id="L31">                throw new BizException(CommonErrorCode.SYSTEM_BUSY);</span>
+<span class="nc" id="L39">        return circuitBreaker.run(() -&gt; paymentApi.query(orderNo), t -&gt; {</span>
+<span class="pc bpc" id="L40" title="2 of 4 branches missed.">            if (t instanceof CallNotPermittedException || t instanceof BulkheadFullException) {</span>
+<span class="nc" id="L41">                throw new BizException(CommonErrorCode.SYSTEM_BUSY);</span>
             }
-<span class="nc bnc" id="L33" title="All 2 branches missed.">            if (t instanceof RuntimeException re) {</span>
-<span class="nc" id="L34">                throw re;</span>
+<span class="pc bpc" id="L43" title="1 of 2 branches missed.">            if (t instanceof RuntimeException re) {</span>
+<span class="fc" id="L44">                throw re;</span>
             }
-<span class="nc" id="L36">            throw new IllegalStateException(t);</span>
+<span class="nc" id="L46">            throw new IllegalStateException(t);</span>
         });
     }
 }

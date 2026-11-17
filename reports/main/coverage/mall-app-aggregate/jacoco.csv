@@ -68,7 +68,7 @@ mall-app/mall-order,io.github.clarence404.mall.order.query,OrderQueryController,
 mall-app/mall-order,io.github.clarence404.mall.order.query,OrderView,2,86,1,1,0,14,1,3,0,3
 mall-app/mall-order,io.github.clarence404.mall.order.query,OrderCursor,1,49,0,6,1,11,0,6,0,3
 mall-app/mall-order,io.github.clarence404.mall.order.query,OrderListItemView,0,29,0,0,0,3,0,2,0,2
-mall-app/mall-order,io.github.clarence404.mall.order.query,PaymentQueryClient,38,11,6,0,6,4,6,1,3,1
+mall-app/mall-order,io.github.clarence404.mall.order.query,PaymentQueryClient,24,25,3,3,3,7,5,2,2,2
 mall-app/mall-order,io.github.clarence404.mall.order.query,OrderView.Receiver,0,12,0,0,0,1,0,1,0,1
 mall-app/mall-order,io.github.clarence404.mall.order.query,OrderQueryService,0,101,1,11,0,17,1,7,0,2
 mall-app/mall-order,io.github.clarence404.mall.order.cancel,OrderTimeoutMessage,0,6,0,0,0,1,0,1,0,1

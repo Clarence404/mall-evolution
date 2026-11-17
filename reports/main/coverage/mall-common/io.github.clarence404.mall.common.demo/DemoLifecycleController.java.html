@@ -1,0 +1,60 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>DemoLifecycleController.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">mall-common</a> &gt; <a href="index.source.html" class="el_package">io.github.clarence404.mall.common.demo</a> &gt; <span class="el_source">DemoLifecycleController.java</span></div><h1>DemoLifecycleController.java</h1><pre class="source lang-java linenums">package io.github.clarence404.mall.common.demo;
+
+import java.util.Map;
+import java.util.function.IntConsumer;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.context.annotation.Profile;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.RestController;
+
+/**
+ * 仅演示环境：让本进程「收到 SIGTERM」——滚动发布实验（experiments/c-rolling-restart）用它在 Windows 上逐个停实例。
+ *
+ * &lt;p&gt;Linux 上 {@code kill &lt;pid&gt;} 发的 SIGTERM 会让 JVM 正常退出、执行关闭钩子：Spring Boot 在钩子里关闭容器，
+ * 按 server.shutdown 的设置（graceful / immediate）处理在途请求，再销毁 Bean。Windows 没有 SIGTERM，
+ * {@code Stop-Process} 等同 {@code kill -9}，钩子不会执行，测不出优雅停机的差别。这个接口先把 202 响应发出去，
+ * 再在另一个线程里调 {@code System.exit(0)}，走的就是同一条关闭钩子的路径。
+ *
+ * &lt;p&gt;只在 demo profile 下注册，路径在 /internal/** 下，网关不路由。
+ */
+<span class="fc" id="L22">@Slf4j</span>
+@RestController
+@Profile(&quot;demo&quot;)
+class DemoLifecycleController {
+
+    /** 默认等 200ms 再退出：让这次调用的响应先回到调用方。 */
+    static final int DEFAULT_DELAY_MS = 200;
+
+    private final IntConsumer exiter;
+
+    DemoLifecycleController() {
+<span class="nc" id="L33">        this(System::exit);</span>
+<span class="nc" id="L34">    }</span>
+
+    /** 测试用：替换掉真正的 System.exit。 */
+<span class="fc" id="L37">    DemoLifecycleController(IntConsumer exiter) {</span>
+<span class="fc" id="L38">        this.exiter = exiter;</span>
+<span class="fc" id="L39">    }</span>
+
+    @PostMapping(&quot;/internal/demo/lifecycle/exit&quot;)
+    ResponseEntity&lt;Map&lt;String, Integer&gt;&gt; exit(@RequestParam(defaultValue = &quot;&quot; + DEFAULT_DELAY_MS) int delayMs) {
+<span class="fc" id="L43">        int delay = Math.clamp(delayMs, 0, 5_000);</span>
+<span class="fc" id="L44">        Thread t = new Thread(</span>
+                () -&gt; {
+                    try {
+<span class="fc" id="L47">                        Thread.sleep(delay);</span>
+<span class="nc" id="L48">                    } catch (InterruptedException e) {</span>
+<span class="nc" id="L49">                        Thread.currentThread().interrupt();</span>
+<span class="fc" id="L50">                    }</span>
+<span class="fc" id="L51">                    log.warn(&quot;演示：模拟 SIGTERM，进程即将正常退出（执行关闭钩子）&quot;);</span>
+<span class="fc" id="L52">                    exiter.accept(0);</span>
+<span class="fc" id="L53">                },</span>
+                &quot;demo-exit&quot;);
+<span class="fc" id="L55">        t.setDaemon(false);</span>
+<span class="fc" id="L56">        t.start();</span>
+<span class="fc" id="L57">        return ResponseEntity.accepted().body(Map.of(&quot;exitInMs&quot;, delay));</span>
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.13.202504020838</span></div></body></html>

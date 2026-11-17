@@ -1,0 +1,115 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>DemoFault.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">mall-common</a> &gt; <a href="index.source.html" class="el_package">io.github.clarence404.mall.common.demo.fault</a> &gt; <span class="el_source">DemoFault.java</span></div><h1>DemoFault.java</h1><pre class="source lang-java linenums">package io.github.clarence404.mall.common.demo.fault;
+
+import io.micrometer.core.instrument.Counter;
+import io.micrometer.core.instrument.Gauge;
+import io.micrometer.core.instrument.Meter;
+import io.micrometer.core.instrument.MeterRegistry;
+import java.util.List;
+import java.util.concurrent.Semaphore;
+import java.util.concurrent.ThreadLocalRandom;
+import java.util.concurrent.atomic.AtomicInteger;
+
+/**
+ * 仅演示环境：一条生效中的故障规则，连同它的并发许可和指标。
+ *
+ * &lt;p&gt;指标（实验时用它们看注入的故障到底起了多大作用，规则删除时一起注销）：
+ *
+ * &lt;ul&gt;
+ *   &lt;li&gt;{@code demo_fault_requests_total{rule, outcome}}：命中规则的请求数，outcome 为 failed（被直接判失败）或 passed（放行处理）
+ *   &lt;li&gt;{@code demo_fault_waiting{rule}}：正在排队等并发许可的请求数——maxConcurrent 模拟的瓶颈前积压了多少活
+ *   &lt;li&gt;{@code demo_fault_inflight{rule}}：已拿到许可、正在处理的请求数
+ * &lt;/ul&gt;
+ */
+final class DemoFault {
+
+    /** 同名、并发上限不变的 PUT 只换参数（如把延迟从 40ms 调到 400ms），许可、排队中的请求和指标都沿用。 */
+    private volatile DemoFaultRule rule;
+
+    private final Semaphore permits;
+<span class="fc" id="L29">    private final AtomicInteger inflight = new AtomicInteger();</span>
+    private final Counter failed;
+    private final Counter passed;
+    private final List&lt;Meter&gt; meters;
+
+<span class="fc" id="L34">    DemoFault(DemoFaultRule rule, MeterRegistry registry) {</span>
+<span class="fc" id="L35">        this.rule = rule;</span>
+<span class="fc bfc" id="L36" title="All 2 branches covered.">        this.permits = rule.maxConcurrent() &gt; 0 ? new Semaphore(rule.maxConcurrent(), true) : null;</span>
+<span class="fc" id="L37">        this.failed = Counter.builder(&quot;demo.fault.requests&quot;)</span>
+<span class="fc" id="L38">                .tag(&quot;rule&quot;, rule.name())</span>
+<span class="fc" id="L39">                .tag(&quot;outcome&quot;, &quot;failed&quot;)</span>
+<span class="fc" id="L40">                .register(registry);</span>
+<span class="fc" id="L41">        this.passed = Counter.builder(&quot;demo.fault.requests&quot;)</span>
+<span class="fc" id="L42">                .tag(&quot;rule&quot;, rule.name())</span>
+<span class="fc" id="L43">                .tag(&quot;outcome&quot;, &quot;passed&quot;)</span>
+<span class="fc" id="L44">                .register(registry);</span>
+<span class="fc" id="L45">        Gauge waiting = Gauge.builder(&quot;demo.fault.waiting&quot;, this, DemoFault::waiting)</span>
+<span class="fc" id="L46">                .tag(&quot;rule&quot;, rule.name())</span>
+<span class="fc" id="L47">                .strongReference(true)</span>
+<span class="fc" id="L48">                .register(registry);</span>
+<span class="fc" id="L49">        Gauge running = Gauge.builder(&quot;demo.fault.inflight&quot;, inflight, AtomicInteger::get)</span>
+<span class="fc" id="L50">                .tag(&quot;rule&quot;, rule.name())</span>
+<span class="fc" id="L51">                .strongReference(true)</span>
+<span class="fc" id="L52">                .register(registry);</span>
+<span class="fc" id="L53">        this.meters = List.of(failed, passed, waiting, running);</span>
+<span class="fc" id="L54">    }</span>
+
+    DemoFaultRule rule() {
+<span class="fc" id="L57">        return rule;</span>
+    }
+
+    /** 原地更新参数；只允许并发上限相同（换上限就要换信号量，那是另一条规则）。 */
+    void update(DemoFaultRule newRule) {
+<span class="pc bpc" id="L62" title="1 of 2 branches missed.">        if (newRule.maxConcurrent() != rule.maxConcurrent()) {</span>
+<span class="nc" id="L63">            throw new IllegalArgumentException(&quot;并发上限不同，不能原地更新&quot;);</span>
+        }
+<span class="fc" id="L65">        this.rule = newRule;</span>
+<span class="fc" id="L66">    }</span>
+
+    /** 拿并发许可（没有上限时直接返回）。排队不设超时：模拟的就是「请求在瓶颈前无限排队」。 */
+    void enter() throws InterruptedException {
+<span class="fc bfc" id="L70" title="All 2 branches covered.">        if (permits != null) {</span>
+<span class="fc" id="L71">            permits.acquire();</span>
+        }
+<span class="fc" id="L73">        inflight.incrementAndGet();</span>
+<span class="fc" id="L74">    }</span>
+
+    void exit() {
+<span class="fc" id="L77">        inflight.decrementAndGet();</span>
+<span class="fc bfc" id="L78" title="All 2 branches covered.">        if (permits != null) {</span>
+<span class="fc" id="L79">            permits.release();</span>
+        }
+<span class="fc" id="L81">    }</span>
+
+    /** 这次请求是否按比例直接失败。 */
+    boolean rollFailure() {
+<span class="fc bfc" id="L85" title="All 2 branches covered.">        return rule.failPercent() &gt;= 100</span>
+<span class="pc bpc" id="L86" title="3 of 4 branches missed.">                || (rule.failPercent() &gt; 0 &amp;&amp; ThreadLocalRandom.current().nextInt(100) &lt; rule.failPercent());</span>
+    }
+
+    /** 这次请求是否施加延迟（delayPercent 按比例抽样）。 */
+    boolean rollDelay() {
+<span class="fc" id="L91">        int p = rule.delayPercent();</span>
+<span class="pc bpc" id="L92" title="3 of 6 branches missed.">        return p &gt;= 100 || (p &gt; 0 &amp;&amp; ThreadLocalRandom.current().nextInt(100) &lt; p);</span>
+    }
+
+    void recordFailed() {
+<span class="fc" id="L96">        failed.increment();</span>
+<span class="fc" id="L97">    }</span>
+
+    void recordPassed() {
+<span class="fc" id="L100">        passed.increment();</span>
+<span class="fc" id="L101">    }</span>
+
+    double waiting() {
+<span class="fc bfc" id="L104" title="All 2 branches covered.">        return permits == null ? 0 : permits.getQueueLength();</span>
+    }
+
+    int inflight() {
+<span class="fc" id="L108">        return inflight.get();</span>
+    }
+
+    void unregister(MeterRegistry registry) {
+<span class="fc" id="L112">        meters.forEach(registry::remove);</span>
+<span class="fc" id="L113">    }</span>
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.13.202504020838</span></div></body></html>

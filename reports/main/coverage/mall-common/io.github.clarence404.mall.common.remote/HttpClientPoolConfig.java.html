@@ -1,0 +1,62 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>HttpClientPoolConfig.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">mall-common</a> &gt; <a href="index.source.html" class="el_package">io.github.clarence404.mall.common.remote</a> &gt; <span class="el_source">HttpClientPoolConfig.java</span></div><h1>HttpClientPoolConfig.java</h1><pre class="source lang-java linenums">package io.github.clarence404.mall.common.remote;
+
+import java.util.concurrent.TimeUnit;
+import lombok.extern.slf4j.Slf4j;
+import org.apache.hc.core5.util.Timeout;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnClass;
+import org.springframework.boot.context.properties.EnableConfigurationProperties;
+import org.springframework.boot.http.client.HttpComponentsClientHttpRequestFactoryBuilder;
+import org.springframework.boot.http.client.autoconfigure.ClientHttpRequestFactoryBuilderCustomizer;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+
+/**
+ * 把 {@link HttpClientPoolProperties} 应用到 Spring Boot 构建 HttpClient 5 的过程上：HTTP 接口客户端组（inventory-service、
+ * payment-service、mall-app）都由同一个 ClientHttpRequestFactoryBuilder 构建，这里给它加一个定制器。
+ *
+ * &lt;p&gt;三项都没配时定制器什么也不做，行为与不加这个类完全一样。只在类路径上有 HttpClient 5 和 Spring Boot 的 HTTP 客户端模块时生效
+ * （mall-common 对这两个是可选依赖，三个服务都经 nacos-client、spring-boot-starter-restclient 带着它们）。
+ */
+<span class="fc" id="L20">@Slf4j</span>
+@Configuration(proxyBeanMethods = false)
+@ConditionalOnClass(
+        name = {
+            &quot;org.apache.hc.client5.http.impl.classic.HttpClientBuilder&quot;,
+            &quot;org.springframework.boot.http.client.autoconfigure.ClientHttpRequestFactoryBuilderCustomizer&quot;
+        })
+@EnableConfigurationProperties(HttpClientPoolProperties.class)
+<span class="nc" id="L28">public class HttpClientPoolConfig {</span>
+
+    @Bean
+    ClientHttpRequestFactoryBuilderCustomizer&lt;HttpComponentsClientHttpRequestFactoryBuilder&gt; httpClientPoolCustomizer(
+            HttpClientPoolProperties props) {
+<span class="nc" id="L33">        return builder -&gt; apply(builder, props);</span>
+    }
+
+    static HttpComponentsClientHttpRequestFactoryBuilder apply(
+            HttpComponentsClientHttpRequestFactoryBuilder builder, HttpClientPoolProperties props) {
+<span class="fc bfc" id="L38" title="All 2 branches covered.">        if (props.isEmpty()) {</span>
+<span class="fc" id="L39">            return builder;</span>
+        }
+<span class="fc" id="L41">        log.info(</span>
+                &quot;服务间 HTTP 连接池：每个目标 {} 条、总共 {} 条、取连接最多等 {}（未配置的项保持 HttpClient 5 默认值）&quot;,
+<span class="fc" id="L43">                props.maxConnectionsPerRoute(),</span>
+<span class="fc" id="L44">                props.maxConnectionsTotal(),</span>
+<span class="fc" id="L45">                props.connectionRequestTimeout());</span>
+<span class="fc" id="L46">        HttpComponentsClientHttpRequestFactoryBuilder b = builder.withConnectionManagerCustomizer(pool -&gt; {</span>
+<span class="pc bpc" id="L47" title="1 of 2 branches missed.">            if (props.maxConnectionsPerRoute() != null) {</span>
+<span class="fc" id="L48">                pool.setMaxConnPerRoute(props.maxConnectionsPerRoute());</span>
+            }
+<span class="pc bpc" id="L50" title="1 of 2 branches missed.">            if (props.maxConnectionsTotal() != null) {</span>
+<span class="fc" id="L51">                pool.setMaxConnTotal(props.maxConnectionsTotal());</span>
+            }
+<span class="fc" id="L53">        });</span>
+<span class="pc bpc" id="L54" title="1 of 2 branches missed.">        if (props.connectionRequestTimeout() != null) {</span>
+<span class="fc" id="L55">            long millis = props.connectionRequestTimeout().toMillis();</span>
+<span class="fc" id="L56">            b = b.withDefaultRequestConfigCustomizer(</span>
+<span class="fc" id="L57">                    rc -&gt; rc.setConnectionRequestTimeout(Timeout.of(millis, TimeUnit.MILLISECONDS)));</span>
+        }
+<span class="fc" id="L59">        return b;</span>
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.13.202504020838</span></div></body></html>

@@ -16,4 +16,4 @@ payment-service,io.github.clarence404.mall.payment.pay,PaymentController.Channel
 payment-service,io.github.clarence404.mall.payment.pay,PayErrorCode,0,47,0,0,0,11,0,5,0,5
 payment-service,io.github.clarence404.mall.payment.pay,PaymentConsumersConfig.RefundRequired,9,0,0,0,1,0,1,0,1,0
 payment-service,io.github.clarence404.mall.payment.pay,PayNotify,0,21,0,0,0,1,0,1,0,1
-payment-service,io.github.clarence404.mall.payment.pay,PaymentInternalController,33,5,6,0,9,1,5,1,1,1
+payment-service,io.github.clarence404.mall.payment.pay,PaymentInternalController,19,19,5,1,6,4,4,2,0,2

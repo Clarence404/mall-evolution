@@ -21,9 +21,9 @@ class PaymentInternalController implements PaymentApi {
 
     @Override
     public PaymentStatusView query(String orderNo) {
-<span class="nc" id="L24">        Payment p = paymentMapper.selectLatestByOrderNo(orderNo);</span>
-<span class="nc bnc" id="L25" title="All 2 branches missed.">        if (p == null) {</span>
-<span class="nc" id="L26">            return new PaymentStatusView(orderNo, &quot;NONE&quot;, null);</span>
+<span class="fc" id="L24">        Payment p = paymentMapper.selectLatestByOrderNo(orderNo);</span>
+<span class="pc bpc" id="L25" title="1 of 2 branches missed.">        if (p == null) {</span>
+<span class="fc" id="L26">            return new PaymentStatusView(orderNo, &quot;NONE&quot;, null);</span>
         }
 <span class="nc bnc" id="L28" title="All 4 branches missed.">        String status = switch (p.getStatus()) {</span>
 <span class="nc" id="L29">            case Payment.SUCCESS -&gt; &quot;PAID&quot;;</span>

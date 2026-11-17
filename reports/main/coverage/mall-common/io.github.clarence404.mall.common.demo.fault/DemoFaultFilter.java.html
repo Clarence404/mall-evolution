@@ -1,0 +1,99 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>DemoFaultFilter.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">mall-common</a> &gt; <a href="index.source.html" class="el_package">io.github.clarence404.mall.common.demo.fault</a> &gt; <span class="el_source">DemoFaultFilter.java</span></div><h1>DemoFaultFilter.java</h1><pre class="source lang-java linenums">package io.github.clarence404.mall.common.demo.fault;
+
+import jakarta.servlet.FilterChain;
+import jakarta.servlet.ServletException;
+import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
+import java.io.IOException;
+import java.nio.charset.StandardCharsets;
+import org.springframework.context.annotation.Profile;
+import org.springframework.core.Ordered;
+import org.springframework.core.annotation.Order;
+import org.springframework.http.MediaType;
+import org.springframework.stereotype.Component;
+import org.springframework.web.filter.OncePerRequestFilter;
+import org.springframework.web.util.ContentCachingResponseWrapper;
+
+/**
+ * 仅演示环境：按 {@link DemoFaultRegistry} 里的规则给请求注入故障（排队、变慢、失败、响应迟到）。没有规则时只多一次空 Map 判断。
+ *
+ * &lt;p&gt;排在 Spring Boot 的 HTTP 观测过滤器（HIGHEST_PRECEDENCE + 1）之后、安全过滤链之前：注入的排队、延迟和失败都会计进
+ * http_server_requests 指标（和真实的「服务变慢」在监控上看起来一样），延迟和排队也会占住 Tomcat 线程。
+ * 生产不注册（demo profile 与 prod 互斥，见 ProdDemoProfileGuard）。
+ */
+@Component
+@Profile(&quot;demo&quot;)
+@Order(Ordered.HIGHEST_PRECEDENCE + 10)
+public class DemoFaultFilter extends OncePerRequestFilter {
+
+    /** 被故障规则直接判失败的响应带这个头，值是规则名，抓包或看压测报告时一眼能分出「注入的失败」和「真实的失败」。 */
+    public static final String HEADER = &quot;X-Demo-Fault&quot;;
+
+    private final DemoFaultRegistry registry;
+
+<span class="fc" id="L34">    public DemoFaultFilter(DemoFaultRegistry registry) {</span>
+<span class="fc" id="L35">        this.registry = registry;</span>
+<span class="fc" id="L36">    }</span>
+
+    @Override
+    protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response, FilterChain chain)
+            throws ServletException, IOException {
+<span class="fc" id="L41">        String path = request.getRequestURI().substring(request.getContextPath().length());</span>
+<span class="fc" id="L42">        DemoFault fault = registry.match(request.getMethod(), path);</span>
+<span class="fc bfc" id="L43" title="All 2 branches covered.">        if (fault == null) {</span>
+<span class="fc" id="L44">            chain.doFilter(request, response);</span>
+<span class="fc" id="L45">            return;</span>
+        }
+        try {
+<span class="fc" id="L48">            fault.enter();</span>
+<span class="nc" id="L49">        } catch (InterruptedException e) {</span>
+<span class="nc" id="L50">            Thread.currentThread().interrupt();</span>
+<span class="nc" id="L51">            response.sendError(HttpServletResponse.SC_SERVICE_UNAVAILABLE);</span>
+<span class="nc" id="L52">            return;</span>
+<span class="fc" id="L53">        }</span>
+        try {
+<span class="fc" id="L55">            DemoFaultRule rule = fault.rule();</span>
+<span class="fc" id="L56">            boolean delayed = fault.rollDelay();</span>
+<span class="fc bfc" id="L57" title="All 2 branches covered.">            sleep(delayed ? rule.delayMs() : 0);</span>
+<span class="fc bfc" id="L58" title="All 2 branches covered.">            if (fault.rollFailure()) {</span>
+<span class="fc" id="L59">                fault.recordFailed();</span>
+<span class="fc" id="L60">                writeFailure(response, rule);</span>
+<span class="fc" id="L61">                return;</span>
+            }
+<span class="fc" id="L63">            fault.recordPassed();</span>
+<span class="fc bfc" id="L64" title="All 4 branches covered.">            if (delayed &amp;&amp; rule.responseDelayMs() &gt; 0) {</span>
+                // 先把响应留在内存里，业务处理完再等一会儿才真正发出去：服务端已经成功，调用方却迟迟收不到
+<span class="fc" id="L66">                ContentCachingResponseWrapper held = new ContentCachingResponseWrapper(response);</span>
+<span class="fc" id="L67">                chain.doFilter(request, held);</span>
+<span class="fc" id="L68">                sleep(rule.responseDelayMs());</span>
+<span class="fc" id="L69">                held.copyBodyToResponse();</span>
+<span class="fc" id="L70">            } else {</span>
+<span class="fc" id="L71">                chain.doFilter(request, response);</span>
+            }
+        } finally {
+<span class="fc" id="L74">            fault.exit();</span>
+        }
+<span class="fc" id="L76">    }</span>
+
+    private static void writeFailure(HttpServletResponse response, DemoFaultRule rule) throws IOException {
+<span class="fc" id="L79">        response.setStatus(rule.failStatus());</span>
+<span class="fc" id="L80">        response.setHeader(HEADER, rule.name());</span>
+<span class="fc" id="L81">        response.setContentType(MediaType.APPLICATION_PROBLEM_JSON_VALUE);</span>
+<span class="fc" id="L82">        response.setCharacterEncoding(StandardCharsets.UTF_8.name());</span>
+<span class="fc" id="L83">        response.getWriter()</span>
+<span class="fc" id="L84">                .write(&quot;{\&quot;title\&quot;:\&quot;演示故障\&quot;,\&quot;status\&quot;:&quot; + rule.failStatus()</span>
+<span class="fc" id="L85">                        + &quot;,\&quot;code\&quot;:\&quot;DEMO_FAULT\&quot;,\&quot;detail\&quot;:\&quot;故障规则 &quot; + rule.name() + &quot; 注入的失败\&quot;}&quot;);</span>
+<span class="fc" id="L86">    }</span>
+
+    private static void sleep(int millis) {
+<span class="fc bfc" id="L89" title="All 2 branches covered.">        if (millis &lt;= 0) {</span>
+<span class="fc" id="L90">            return;</span>
+        }
+        try {
+<span class="fc" id="L93">            Thread.sleep(millis);</span>
+<span class="nc" id="L94">        } catch (InterruptedException e) {</span>
+<span class="nc" id="L95">            Thread.currentThread().interrupt();</span>
+<span class="fc" id="L96">        }</span>
+<span class="fc" id="L97">    }</span>
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.13.202504020838</span></div></body></html>
