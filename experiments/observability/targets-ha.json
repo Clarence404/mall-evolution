@@ -1,0 +1,6 @@
+[
+  {"targets": ["host.docker.internal:18080", "host.docker.internal:18180", "host.docker.internal:18280"], "labels": {"app": "mall-app", "env": "ha-experiment"}},
+  {"targets": ["host.docker.internal:18082"], "labels": {"app": "inventory-service", "env": "ha-experiment"}},
+  {"targets": ["host.docker.internal:18083"], "labels": {"app": "payment-service", "env": "ha-experiment"}},
+  {"targets": ["host.docker.internal:19000"], "labels": {"app": "mall-gateway", "env": "ha-experiment"}}
+]

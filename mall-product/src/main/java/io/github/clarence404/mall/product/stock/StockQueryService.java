@@ -15,7 +15,8 @@ import org.springframework.web.client.ResourceAccessException;
  * mall-app → inventory-service 的只读查询（详情页「有货」提示）。两层保护，由外到内：
  *
  * <ul>
- *   <li>重试：只读查询只在这一层重试，最多 1 次，随机退避 20–80ms（Spring Framework 7 自带注解）。写接口一律不重试
+ *   <li>重试：只读查询只在这一层重试，最多 1 次，随机退避 20–80ms（Spring Framework 7 自带注解）。写接口一律不重试。
+ *       参数可以用 {@code mall.remote.inventory-stock-query.retry.*} 覆盖，默认值就是这组，平时不用配
  *   <li>熔断 + 舱壁（{@value #CIRCUIT_BREAKER}）：库存服务持续超时或 5xx 时熔断打开，请求在本进程内直接失败，不再每次等满超时；
  *       舱壁限制同时在途的查询数，库存服务变慢时不会把 Tomcat 线程占光。用独立的实例，不和下单的 inventory-reserve 共用——
  *       展示查询出问题不该让下单跟着熔断
@@ -37,7 +38,12 @@ public class StockQueryService {
         this.circuitBreaker = circuitBreakerFactory.create(CIRCUIT_BREAKER);
     }
 
-    @Retryable(includes = ResourceAccessException.class, maxRetries = 1, delay = 20, jitter = 60)
+    @Retryable(
+            includes = ResourceAccessException.class,
+            maxRetriesString = "${mall.remote.inventory-stock-query.retry.max-retries:1}",
+            delayString = "${mall.remote.inventory-stock-query.retry.delay:20ms}",
+            jitterString = "${mall.remote.inventory-stock-query.retry.jitter:60ms}",
+            multiplierString = "${mall.remote.inventory-stock-query.retry.multiplier:1}")
     public List<StockView> listStocks(List<Long> skuIds) {
         return circuitBreaker.run(() -> inventoryApi.listStocks(skuIds), StockQueryService::rethrow);
     }

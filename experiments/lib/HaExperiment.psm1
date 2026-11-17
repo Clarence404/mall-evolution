@@ -1,0 +1,529 @@
+﻿# 高可用实验的公共函数（Windows PowerShell 5.1 / PowerShell 7 都能跑）。各实验目录下的 run.ps1 导入它。
+# 约定：
+#   - 四个服务用已经打好的 jar（*/target/*.jar），profile 固定 dev,local,demo，工作目录是仓库根目录（这样 config/application-local.yml 才读得到）
+#   - 实验参数写在 .properties 里：[all] / [mall-app] / [inventory-service] / [payment-service] / [mall-gateway] 是服务的启动参数，
+#     [experiment] 是传给 Gatling 的 -D 参数，[script] 是脚本自己用的开关；全部以命令行参数传入，优先级最高，Nacos 里同名配置也盖不住它
+#   - 每一轮的产物都放在 experiments/out/<实验>/<时间>-<变体>/（已在 .gitignore 里）
+
+Set-StrictMode -Version 2
+$ErrorActionPreference = 'Stop'
+
+$script:RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
+$script:ExperimentsRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
+
+# 服务名 → jar 相对路径
+$script:Jars = @{
+    'mall-app'          = 'mall-app\target\mall-app.jar'
+    'inventory-service' = 'inventory-service\target\inventory-service.jar'
+    'payment-service'   = 'payment-service\target\payment-service.jar'
+    'mall-gateway'      = 'mall-gateway\target\mall-gateway.jar'
+}
+
+function Get-HaRepoRoot { $script:RepoRoot }
+
+function Write-HaLog([string]$Message) {
+    Write-Host ("[{0}] {1}" -f (Get-Date -Format 'HH:mm:ss'), $Message)
+}
+
+function Get-EpochMs { [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds() }
+
+# ---------------------------------------------------------------- 参数文件
+
+<#
+读一组 .properties（后面的覆盖前面的），返回 节名 → 有序字典。
+格式：# 开头是注释；[节名]；key=value（值里的「 #」及其后面视为注释）。Overrides 形如 "mall-app:key=value"。
+#>
+function Read-HaProperties {
+    param([string[]]$Files, [string[]]$Overrides = @())
+    $result = @{}
+    foreach ($f in $Files) {
+        if (-not (Test-Path $f)) { continue }
+        $section = 'all'
+        foreach ($raw in (Get-Content -LiteralPath $f -Encoding UTF8)) {
+            $line = $raw.Trim()
+            if ($line -eq '' -or $line.StartsWith('#')) { continue }
+            if ($line -match '^\[(.+)\]$') { $section = $Matches[1].Trim(); continue }
+            $idx = $line.IndexOf('=')
+            if ($idx -lt 1) { throw "参数文件 $f 里这一行看不懂：$raw" }
+            $key = $line.Substring(0, $idx).Trim()
+            $value = $line.Substring($idx + 1)
+            $hash = $value.IndexOf(' #')
+            if ($hash -ge 0) { $value = $value.Substring(0, $hash) }
+            Set-HaProp $result $section $key $value.Trim()
+        }
+    }
+    foreach ($o in $Overrides) {
+        if ($o -notmatch '^([^:]+):([^=]+)=(.*)$') { throw "-Set 的格式是 节名:key=value，实际：$o" }
+        Set-HaProp $result $Matches[1].Trim() $Matches[2].Trim() $Matches[3].Trim()
+    }
+    return $result
+}
+
+function Set-HaProp($Props, [string]$Section, [string]$Key, [string]$Value) {
+    if (-not $Props.ContainsKey($Section)) { $Props[$Section] = [ordered]@{} }
+    $Props[$Section][$Key] = $Value
+}
+
+function Get-HaSection($Props, [string]$Section) {
+    if ($Props.ContainsKey($Section)) { return $Props[$Section] }
+    return [ordered]@{}
+}
+
+function Get-HaScriptValue($Props, [string]$Key, $Default) {
+    $s = Get-HaSection $Props 'script'
+    if ($s.Contains($Key)) { return $s[$Key] }
+    return $Default
+}
+
+# 某个服务最终的启动参数：[all] 打底，[服务名] 覆盖
+function Get-HaServiceArgs($Props, [string]$Module) {
+    $merged = [ordered]@{}
+    foreach ($sec in @('all', $Module)) {
+        $s = Get-HaSection $Props $sec
+        foreach ($k in $s.Keys) { $merged[$k] = $s[$k] }
+    }
+    return $merged
+}
+
+# 把整套参数写进结果目录，方便事后核对这一轮到底是什么配置
+function Save-HaProperties($Props, [string]$File) {
+    $lines = New-Object System.Collections.Generic.List[string]
+    foreach ($sec in ($Props.Keys | Sort-Object)) {
+        $lines.Add("[$sec]")
+        foreach ($k in $Props[$sec].Keys) { $lines.Add("$k=$($Props[$sec][$k])") }
+        $lines.Add('')
+    }
+    [System.IO.File]::WriteAllLines($File, $lines, (New-Object System.Text.UTF8Encoding($false)))
+}
+
+# ---------------------------------------------------------------- 环境
+
+function Resolve-HaJava([string]$JavaHome) {
+    if (-not $JavaHome) { $JavaHome = $env:MALL_JAVA_HOME }
+    if (-not $JavaHome) { $JavaHome = $env:JAVA_HOME }
+    if (-not $JavaHome) { throw '找不到 JDK：用 -JavaHome 指定 JDK 21 的目录，或设置环境变量 MALL_JAVA_HOME / JAVA_HOME' }
+    $java = Join-Path $JavaHome 'bin\java.exe'
+    if (-not (Test-Path $java)) { throw "$java 不存在" }
+    $ver = (& cmd /c "`"$java`" -version 2>&1") -join ' '
+    if ($ver -notmatch 'version "(\d+)') { throw "看不出 JDK 版本：$ver" }
+    if ([int]$Matches[1] -lt 21) { throw "需要 JDK 21+，$JavaHome 是 $($Matches[1])" }
+    return [pscustomobject]@{ Home = $JavaHome; Java = $java; Jcmd = (Join-Path $JavaHome 'bin\jcmd.exe') }
+}
+
+# dev 环境的本地占位 JWT 密钥：config/application-local.yml 里改过就用它，否则用 mall-app 的 application-dev.yml 里那串
+function Get-HaJwtSecret {
+    $candidates = @(
+        (Join-Path $script:RepoRoot 'config\application-local.yml'),
+        (Join-Path $script:RepoRoot 'mall-app\src\main\resources\application-dev.yml'))
+    foreach ($f in $candidates) {
+        if (-not (Test-Path $f)) { continue }
+        $inJwt = $false
+        foreach ($line in (Get-Content -LiteralPath $f -Encoding UTF8)) {
+            if ($line -match '^\s*jwt:\s*$') { $inJwt = $true; continue }
+            if ($inJwt -and $line -match '^\s*secret:\s*([^\s#]+)') { return $Matches[1] }
+        }
+    }
+    throw '找不到 JWT 密钥（mall.security.jwt.secret）'
+}
+
+function Test-HaPortListening([int]$Port) {
+    $c = New-Object System.Net.Sockets.TcpClient
+    try {
+        $iar = $c.BeginConnect('127.0.0.1', $Port, $null, $null)
+        if (-not $iar.AsyncWaitHandle.WaitOne(300)) { return $false }
+        $c.EndConnect($iar)
+        return $true
+    } catch {
+        return $false
+    } finally {
+        $c.Close()
+    }
+}
+
+function Assert-HaPortsFree([int[]]$Ports) {
+    $busy = @($Ports | Where-Object { Test-HaPortListening $_ })
+    if ($busy.Count -gt 0) {
+        throw "这些端口已经有进程在监听：$($busy -join ', ')。实验要自己起服务，先停掉手工起的那些（IDEA 里的运行配置、java -jar）"
+    }
+}
+
+function Assert-HaJars([switch]$Build, $Java) {
+    $missing = @($script:Jars.Values | Where-Object { -not (Test-Path (Join-Path $script:RepoRoot $_)) })
+    if ($Build -or $missing.Count -gt 0) {
+        Write-HaLog '打包四个服务（跳过测试）……'
+        $env:JAVA_HOME = $Java.Home
+        Push-Location $script:RepoRoot
+        try {
+            & .\mvnw.cmd -B -q -DskipTests package -pl mall-app,inventory-service,payment-service,mall-gateway -am
+            if ($LASTEXITCODE -ne 0) { throw 'Maven 打包失败' }
+        } finally {
+            Pop-Location
+        }
+    }
+}
+
+# ---------------------------------------------------------------- 服务
+
+<#
+起一个服务进程。返回对象带 Name、Module、Port、MgmtPort、Process、Args。
+#>
+function Start-HaService {
+    param(
+        [string]$Name, [string]$Module, [int]$Port, [int]$MgmtPort,
+        $Props, [hashtable]$Extra = @{}, [string]$LogDir, $Java, [string]$JvmOpts = '-Xms512m -Xmx1g')
+    $jar = Join-Path $script:RepoRoot $script:Jars[$Module]
+    $argList = New-Object System.Collections.Generic.List[string]
+    foreach ($o in ($JvmOpts -split '\s+' | Where-Object { $_ })) { $argList.Add($o) }
+    $argList.Add('--enable-native-access=ALL-UNNAMED')
+    $argList.Add('-jar'); $argList.Add("`"$jar`"")
+    $argList.Add('--spring.profiles.active=dev,local,demo')
+    $argList.Add("--server.port=$Port")
+    $argList.Add("--management.server.port=$MgmtPort")
+    $all = Get-HaServiceArgs $Props $Module
+    foreach ($k in $Extra.Keys) { $all[$k] = $Extra[$k] }
+    foreach ($k in $all.Keys) { $argList.Add("--$k=$($all[$k])") }
+    $out = Join-Path $LogDir "$Name.log"
+    $err = Join-Path $LogDir "$Name.err.log"
+    $p = Start-Process -FilePath $Java.Java -ArgumentList $argList -WorkingDirectory $script:RepoRoot `
+        -RedirectStandardOutput $out -RedirectStandardError $err -PassThru -NoNewWindow
+    Write-HaLog "启动 $Name（pid $($p.Id)，端口 $Port / 管理端口 $MgmtPort）"
+    return [pscustomobject]@{
+        Name = $Name; Module = $Module; Port = $Port; MgmtPort = $MgmtPort; Process = $p
+        Args = $all; Extra = $Extra; LogDir = $LogDir; Java = $Java
+    }
+}
+
+# 用同样的参数再起一次（滚动发布时用）
+function Restart-HaServiceProcess($Svc, $Props, [string]$Suffix) {
+    $name = "$($Svc.Name)$Suffix"
+    $new = Start-HaService -Name $name -Module $Svc.Module -Port $Svc.Port -MgmtPort $Svc.MgmtPort -Props $Props `
+        -Extra $Svc.Extra -LogDir $Svc.LogDir -Java $Svc.Java
+    $new.Name = $Svc.Name
+    return $new
+}
+
+function Wait-HaReady($Svc, [int]$TimeoutSec = 240) {
+    $url = "http://localhost:$($Svc.MgmtPort)/actuator/health/readiness"
+    $deadline = (Get-Date).AddSeconds($TimeoutSec)
+    while ((Get-Date) -lt $deadline) {
+        if ($Svc.Process.HasExited) { throw "$($Svc.Name) 启动失败，进程已退出，看日志 $($Svc.LogDir)\$($Svc.Name).log" }
+        try {
+            $r = Invoke-WebRequest -UseBasicParsing -Uri $url -TimeoutSec 2
+            if ($r.StatusCode -eq 200) { Write-HaLog "$($Svc.Name) 已就绪"; return }
+        } catch { }
+        Start-Sleep -Milliseconds 500
+    }
+    throw "$($Svc.Name) 在 $TimeoutSec 秒内没有就绪"
+}
+
+function Wait-HaPort([int]$Port, [int]$TimeoutSec = 240) {
+    $deadline = (Get-Date).AddSeconds($TimeoutSec)
+    while ((Get-Date) -lt $deadline) {
+        if (Test-HaPortListening $Port) { return }
+        Start-Sleep -Milliseconds 200
+    }
+    throw "端口 $Port 在 $TimeoutSec 秒内没有开始监听"
+}
+
+<#
+停服务。graceful：调 demo 的「模拟 SIGTERM」接口（JVM 正常退出、执行关闭钩子，等同 Linux 上的 kill <pid>）；
+hard：Stop-Process -Force，等同 kill -9，进程当场消失。
+#>
+function Stop-HaService($Svc, [ValidateSet('graceful', 'hard')][string]$Mode = 'graceful', [int]$TimeoutSec = 90) {
+    if ($Svc.Process.HasExited) { return }
+    if ($Mode -eq 'graceful') {
+        try {
+            Invoke-RestMethod -Method Post -Uri "http://localhost:$($Svc.Port)/internal/demo/lifecycle/exit" -TimeoutSec 5 | Out-Null
+            if ($Svc.Process.WaitForExit($TimeoutSec * 1000)) { return }
+            Write-HaLog "$($Svc.Name) $TimeoutSec 秒内没有退出，强制结束"
+        } catch {
+            Write-HaLog "$($Svc.Name) 的退出接口调不通（$($_.Exception.Message)），强制结束"
+        }
+    }
+    Stop-Process -Id $Svc.Process.Id -Force -ErrorAction SilentlyContinue
+    $Svc.Process.WaitForExit(10000) | Out-Null
+}
+
+# 停机第一步：主动从 Nacos 注销（Kubernetes preStop 调的就是它）
+function Invoke-HaOffline($Svc) {
+    Invoke-WebRequest -UseBasicParsing -Method Post -Uri "http://localhost:$($Svc.Port)/internal/offline" -TimeoutSec 5 | Out-Null
+}
+
+<#
+标准拓扑：库存、支付各 1 个，mall-app MallAppCount 个（端口 8080、8180、8280……，管理端口 +10000，雪花机器号 1、2、3……），网关 1 个。
+按依赖顺序起：先库存与支付，再 mall-app，最后网关；都就绪才返回。
+#>
+function Start-HaTopology($Props, [string]$LogDir, $Java, [int]$MallAppCount = 1) {
+    $ports = @(8082, 18082, 8083, 18083, 9000, 19000)
+    for ($i = 0; $i -lt $MallAppCount; $i++) { $ports += @(8080 + 100 * $i, 18080 + 100 * $i) }
+    Assert-HaPortsFree $ports
+    $t = [ordered]@{ Apps = @() }
+    $t.Inventory = Start-HaService -Name 'inventory-service' -Module 'inventory-service' -Port 8082 -MgmtPort 18082 -Props $Props -LogDir $LogDir -Java $Java
+    $t.Payment = Start-HaService -Name 'payment-service' -Module 'payment-service' -Port 8083 -MgmtPort 18083 -Props $Props -LogDir $LogDir -Java $Java
+    Wait-HaReady $t.Inventory
+    Wait-HaReady $t.Payment
+    for ($i = 0; $i -lt $MallAppCount; $i++) {
+        $extra = @{ 'mall.id.worker-id' = "$($i + 1)" }
+        $t.Apps += Start-HaService -Name "mall-app-$($i + 1)" -Module 'mall-app' -Port (8080 + 100 * $i) -MgmtPort (18080 + 100 * $i) `
+            -Props $Props -Extra $extra -LogDir $LogDir -Java $Java
+    }
+    foreach ($a in $t.Apps) { Wait-HaReady $a }
+    $t.Gateway = Start-HaService -Name 'mall-gateway' -Module 'mall-gateway' -Port 9000 -MgmtPort 19000 -Props $Props -LogDir $LogDir -Java $Java
+    Wait-HaReady $t.Gateway
+    Write-HaLog '等 10 秒，让网关从 Nacos 拿到全部实例'
+    Start-Sleep -Seconds 10
+    return [pscustomobject]$t
+}
+
+function Get-HaAllServices($Topology) {
+    $list = @($Topology.Inventory, $Topology.Payment) + @($Topology.Apps) + @($Topology.Gateway)
+    return @($list | Where-Object { $_ })
+}
+
+function Stop-HaTopology($Topology) {
+    if (-not $Topology) { return }
+    $all = Get-HaAllServices $Topology
+    [array]::Reverse($all)
+    foreach ($s in $all) {
+        try { Stop-HaService $s 'graceful' 60 } catch { Write-HaLog "停 $($s.Name) 出错：$($_.Exception.Message)" }
+    }
+}
+
+# 撤销所有服务上的故障规则（收尾用，出错时也要调）
+function Clear-HaFaults($Topology) {
+    if (-not $Topology) { return }
+    foreach ($s in (Get-HaAllServices $Topology)) {
+        if ($s.Module -eq 'mall-gateway' -or $s.Process.HasExited) { continue }
+        try { Invoke-WebRequest -UseBasicParsing -Method Delete -Uri "http://localhost:$($s.Port)/internal/demo/faults" -TimeoutSec 5 | Out-Null } catch { }
+    }
+}
+
+# 补库存：每个 SKU 补到 Target（只补不减）
+function Invoke-HaRestock([string[]]$Skus, [int]$Target = 100000) {
+    foreach ($sku in $Skus) {
+        Invoke-RestMethod -Method Put -Uri "http://localhost:8082/internal/demo/stocks/$sku/restock?target=$Target" -TimeoutSec 10 | Out-Null
+    }
+    Write-HaLog "已把 SKU $($Skus -join ',') 的库存补到 $Target"
+}
+
+# ---------------------------------------------------------------- 采样、压测、导出
+
+<#
+每秒抓一次各服务管理端口的 /actuator/prometheus，只留实验关心的指标，写成长表 CSV（epoch_ms,target,series,value）。
+独立进程，压测结束后 Stop-HaSampler。Prometheus 只有 15 秒一个点，看「第几秒开始出错」要靠这份。
+#>
+function Start-HaSampler([System.Collections.IDictionary]$Targets, [string]$OutFile, [int]$IntervalMs = 1000) {
+    $spec = ($Targets.Keys | ForEach-Object { "$_=$($Targets[$_])" }) -join ','
+    $sampler = Join-Path $script:ExperimentsRoot 'tools\Sample-Metrics.ps1'
+    $ps = (Get-Process -Id $PID).Path
+    $p = Start-Process -FilePath $ps -ArgumentList @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', "`"$sampler`"",
+        '-Targets', "`"$spec`"", '-OutFile', "`"$OutFile`"", '-IntervalMs', "$IntervalMs") -PassThru -NoNewWindow
+    Write-HaLog "指标采样已启动（pid $($p.Id)）→ $OutFile"
+    return $p
+}
+
+function Stop-HaSampler($Process) {
+    Stop-HaProcessTree $Process
+}
+
+# 连同子进程一起结束（mvnw.cmd 底下还有 Maven 和 Gatling 的 JVM，只停 cmd 会留下孤儿进程）
+function Stop-HaProcessTree($Process) {
+    if ($Process -and -not $Process.HasExited) {
+        & taskkill.exe /T /F /PID $Process.Id 2>&1 | Out-Null
+    }
+}
+
+<#
+在后台跑一个 Gatling 场景（perf 模块），返回进程。[experiment] 节的参数原样作为 -D 传进去。
+结果：Gatling 的 HTML 报告在 <RunDir>\gatling\，逐秒数据 timeline.csv、events.csv、params.csv 在 <RunDir>\ 下。
+#>
+function Start-HaGatling([string]$Simulation, $Props, [hashtable]$SysProps, [string]$RunDir, $Java) {
+    $argList = New-Object System.Collections.Generic.List[string]
+    $argList.Add('-B'); $argList.Add('-pl'); $argList.Add('perf'); $argList.Add('gatling:test')
+    $argList.Add("-Dgatling.simulationClass=io.github.clarence404.mall.perf.ha.$Simulation")
+    $argList.Add("`"-Dgatling.resultsFolder=$RunDir\gatling`"")
+    $argList.Add("`"-Dha.out=$RunDir`"")
+    $exp = Get-HaSection $Props 'experiment'
+    foreach ($k in $exp.Keys) { $argList.Add("`"-D$k=$($exp[$k])`"") }
+    foreach ($k in $SysProps.Keys) { $argList.Add("`"-D$k=$($SysProps[$k])`"") }
+    $env:JAVA_HOME = $Java.Home
+    $mvnw = Join-Path $script:RepoRoot 'mvnw.cmd'
+    $p = Start-Process -FilePath $mvnw -ArgumentList $argList -WorkingDirectory $script:RepoRoot `
+        -RedirectStandardOutput (Join-Path $RunDir 'gatling.log') -RedirectStandardError (Join-Path $RunDir 'gatling.err.log') `
+        -PassThru -NoNewWindow
+    Write-HaLog "压测已启动：$Simulation（pid $($p.Id)），日志 $RunDir\gatling.log"
+    return $p
+}
+
+# 等压测真正开始注入流量（场景的 before() 写出 started.txt），返回开始时刻（epoch 毫秒）
+function Wait-HaGatlingStarted([string]$RunDir, $GatlingProcess, [int]$TimeoutSec = 300) {
+    $marker = Join-Path $RunDir 'started.txt'
+    $deadline = (Get-Date).AddSeconds($TimeoutSec)
+    while ((Get-Date) -lt $deadline) {
+        if (Test-Path $marker) { return [long](Get-Content $marker -Raw).Trim() }
+        if ($GatlingProcess.HasExited) { throw "压测进程提前退出，看 $RunDir\gatling.log" }
+        Start-Sleep -Milliseconds 500
+    }
+    throw "压测在 $TimeoutSec 秒内没有开始"
+}
+
+# 等到压测开始后的第 Seconds 秒
+function Wait-HaUntil([long]$StartedMs, [int]$Seconds) {
+    $wait = $StartedMs + $Seconds * 1000 - (Get-EpochMs)
+    if ($wait -gt 0) { Start-Sleep -Milliseconds $wait }
+}
+
+function Wait-HaGatling($GatlingProcess, [string]$RunDir) {
+    $GatlingProcess.WaitForExit()
+    $code = $GatlingProcess.ExitCode
+    Write-HaLog "压测结束（退出码 $code）"
+    if ($code -ne 0) { Write-HaLog "压测进程退出码非 0，看 $RunDir\gatling.log" }
+}
+
+# 实验过程中的事件（重启、注销……）：epoch_ms,source,event
+function Write-HaEvent([string]$File, [string]$Source, [string]$Event) {
+    $line = "{0},{1},{2}" -f (Get-EpochMs), $Source, $Event
+    if (-not (Test-Path $File)) {
+        [System.IO.File]::WriteAllLines($File, @('epoch_ms,source,event'), (New-Object System.Text.UTF8Encoding($false)))
+    }
+    [System.IO.File]::AppendAllLines($File, [string[]]@($line), (New-Object System.Text.UTF8Encoding($false)))
+    Write-HaLog "$Source：$Event"
+}
+
+<#
+线程栈：jcmd <pid> Thread.print，再把 Tomcat 业务线程（http-nio-<端口>-exec-*）按「卡在哪」分类计数，写成 *.summary.csv。
+分类看的是栈顶附近的帧：空闲、等 HTTP 连接池、等下游响应、等本机缓存的单飞加载、等故障注入的许可、在 sleep（注入的延迟）。
+#>
+function Save-HaThreadDump($Svc, [string]$OutFile, $Java) {
+    & $Java.Jcmd $Svc.Process.Id Thread.print 2>&1 | Out-File -FilePath $OutFile -Encoding utf8
+    $summary = Get-HaThreadSummary $OutFile $Svc.Port
+    $csv = [System.IO.Path]::ChangeExtension($OutFile, '.summary.csv')
+    $lines = @('state,threads') + ($summary.Keys | ForEach-Object { "$_,$($summary[$_])" })
+    [System.IO.File]::WriteAllLines($csv, $lines, (New-Object System.Text.UTF8Encoding($false)))
+    Write-HaLog ("$($Svc.Name) 线程栈：" + (($summary.Keys | ForEach-Object { "$_=$($summary[$_])" }) -join '，'))
+}
+
+function Get-HaThreadSummary([string]$DumpFile, [int]$Port) {
+    $text = Get-Content -LiteralPath $DumpFile -Raw -Encoding UTF8
+    $blocks = $text -split '(?:\r?\n){2,}'
+    $counts = [ordered]@{
+        '等连接池' = 0; '等下游响应' = 0; '等本机缓存加载（单飞）' = 0; '等许可（舱壁 / 注入的并发上限）' = 0
+        'sleep（注入的延迟）' = 0; '空闲' = 0; '其他' = 0
+    }
+    foreach ($b in $blocks) {
+        if ($b -notmatch "`"http-nio-$Port-exec-\d+`"") { continue }
+        $top = (($b -split '\r?\n') | Select-Object -Skip 1 -First 25) -join "`n"
+        if ($top -match 'TaskQueue\.(take|poll)') { $counts['空闲']++ }
+        elseif ($top -match 'PoolingHttpClientConnectionManager|StrictConnPool|LaxConnPool|leaseConnection') { $counts['等连接池']++ }
+        elseif ($top -match 'NioSocketImpl\.(timedRead|read)|SocketInputStream|socketRead|SocketDispatcher\.read') { $counts['等下游响应']++ }
+        elseif ($top -match 'BoundedLocalCache|ConcurrentHashMap\.compute') { $counts['等本机缓存加载（单飞）']++ }
+        elseif ($top -match 'Semaphore') { $counts['等许可（舱壁 / 注入的并发上限）']++ }
+        elseif ($top -match 'Thread\.sleep') { $counts['sleep（注入的延迟）']++ }
+        else { $counts['其他']++ }
+    }
+    return $counts
+}
+
+<#
+从 Prometheus 导出一段时间的曲线（query_range），每条查询一个 CSV：time,series,value。
+QueriesFile 每行「名字 | PromQL」，# 开头是注释。不传 PrometheusUrl 就跳过（只有本地采样的数据）。
+#>
+function Export-HaPrometheus([string]$PrometheusUrl, [string]$QueriesFile, [long]$StartMs, [long]$EndMs, [string]$OutDir, [int]$StepSec = 5) {
+    if (-not $PrometheusUrl) { Write-HaLog '没有传 -PrometheusUrl，跳过 Prometheus 导出'; return }
+    $dir = Join-Path $OutDir 'prometheus'
+    New-Item -ItemType Directory -Force -Path $dir | Out-Null
+    $start = [math]::Floor($StartMs / 1000) - 60
+    $end = [math]::Ceiling($EndMs / 1000) + 60
+    foreach ($raw in (Get-Content -LiteralPath $QueriesFile -Encoding UTF8)) {
+        $line = $raw.Trim()
+        if ($line -eq '' -or $line.StartsWith('#')) { continue }
+        $parts = $line -split '\s*\|\s*', 2
+        $name = $parts[0]; $query = $parts[1]
+        $uri = "$PrometheusUrl/api/v1/query_range?query=$([uri]::EscapeDataString($query))&start=$start&end=$end&step=$StepSec"
+        try {
+            $r = Invoke-RestMethod -Uri $uri -TimeoutSec 30
+            $out = New-Object System.Collections.Generic.List[string]
+            $out.Add('epoch_s,series,value')
+            foreach ($series in $r.data.result) {
+                $labels = ($series.metric.PSObject.Properties | ForEach-Object { "$($_.Name)=$($_.Value)" }) -join ';'
+                foreach ($v in $series.values) { $out.Add(('{0},"{1}",{2}' -f $v[0], $labels, $v[1])) }
+            }
+            [System.IO.File]::WriteAllLines((Join-Path $dir "$name.csv"), $out, (New-Object System.Text.UTF8Encoding($false)))
+        } catch {
+            Write-HaLog "导出 $name 失败：$($_.Exception.Message)"
+        }
+    }
+    Write-HaLog "Prometheus 曲线已导出到 $dir"
+}
+
+# ---------------------------------------------------------------- 一轮实验的骨架
+
+function New-HaRunDir([string]$Experiment, [string]$Variant) {
+    $dir = Join-Path $script:ExperimentsRoot ("out\{0}\{1}-{2}" -f $Experiment, (Get-Date -Format 'yyyyMMdd-HHmmss'), $Variant)
+    New-Item -ItemType Directory -Force -Path (Join-Path $dir 'logs') | Out-Null
+    return $dir
+}
+
+<#
+跑一轮：读参数 → 起服务 → 补库存 → 开采样 → 后台起压测 → 执行 During（实验自己的动作，如抓线程栈、逐个重启）→ 等压测结束 → 导出 → 收尾。
+During 是 scriptblock，参数是一个上下文对象（Topology、Props、RunDir、StartedMs、Java、Gatling、Events）。
+#>
+function Invoke-HaExperiment {
+    param(
+        [string]$Experiment, [string]$Variant, [string]$Simulation,
+        [string[]]$Set = @(), [string]$JavaHome, [string]$PrometheusUrl, [string]$NacosNamespace,
+        [int]$MallAppCount = 1, [scriptblock]$During, [switch]$Build, [switch]$KeepServices,
+        [string[]]$Skus = @('20001', '20002', '20003'))
+
+    $expDir = Join-Path $script:ExperimentsRoot $Experiment
+    $variantFile = Join-Path $expDir "$Variant.properties"
+    if (-not (Test-Path $variantFile)) {
+        $known = (Get-ChildItem $expDir -Filter '*.properties' | Where-Object { $_.Name -ne 'common.properties' } | ForEach-Object { $_.BaseName }) -join ', '
+        throw "没有变体 $Variant，可选：$known"
+    }
+    $props = Read-HaProperties -Files @((Join-Path $script:ExperimentsRoot 'common.properties'), (Join-Path $expDir 'common.properties'), $variantFile) -Overrides $Set
+    $java = Resolve-HaJava $JavaHome
+    Assert-HaJars -Build:$Build -Java $java
+    $runDir = New-HaRunDir $Experiment $Variant
+    Save-HaProperties $props (Join-Path $runDir 'variant.properties')
+    $commit = (& git -C $script:RepoRoot rev-parse --short HEAD) 2>$null
+    "experiment=$Experiment`nvariant=$Variant`ncommit=$commit`nstarted=$(Get-Date -Format o)" | Out-File (Join-Path $runDir 'run-info.txt') -Encoding utf8
+    if ($NacosNamespace) { $env:NACOS_NAMESPACE = $NacosNamespace }
+    Write-HaLog "实验 $Experiment / $Variant，结果目录 $runDir"
+
+    $topology = $null; $sampler = $null; $gatling = $null
+    try {
+        $topology = Start-HaTopology -Props $props -LogDir (Join-Path $runDir 'logs') -Java $java -MallAppCount $MallAppCount
+        Invoke-HaRestock $Skus
+
+        $targets = [ordered]@{}
+        foreach ($s in (Get-HaAllServices $topology)) { $targets[$s.Name] = "http://localhost:$($s.MgmtPort)" }
+        $sampler = Start-HaSampler $targets (Join-Path $runDir 'metrics.csv')
+
+        $sys = @{ 'baseUrl' = 'http://localhost:9000'; 'ha.jwtSecret' = (Get-HaJwtSecret); 'ha.skus' = ($Skus -join ',') }
+        $gatling = Start-HaGatling -Simulation $Simulation -Props $props -SysProps $sys -RunDir $runDir -Java $java
+        $startedMs = Wait-HaGatlingStarted $runDir $gatling
+        Write-HaLog '压测已开始注入流量'
+
+        $ctx = [pscustomobject]@{
+            Topology = $topology; Props = $props; RunDir = $runDir; StartedMs = $startedMs; Java = $java
+            Gatling = $gatling; Events = (Join-Path $runDir 'script-events.csv')
+        }
+        if ($During) { & $During $ctx }
+
+        Wait-HaGatling $gatling $runDir
+        $endMs = Get-EpochMs
+        Stop-HaSampler $sampler; $sampler = $null
+        Export-HaPrometheus $PrometheusUrl (Join-Path $expDir 'queries.txt') $startedMs $endMs $runDir
+        "ended=$(Get-Date -Format o)" | Out-File (Join-Path $runDir 'run-info.txt') -Append -Encoding utf8
+    } finally {
+        Stop-HaSampler $sampler
+        Stop-HaProcessTree $gatling
+        Clear-HaFaults $topology
+        if (-not $KeepServices) { Stop-HaTopology $topology }
+    }
+    Write-HaLog "完成。结果：$runDir（Gatling 报告在 gatling\ 下，逐秒数据 timeline.csv，事件 events.csv / script-events.csv，指标采样 metrics.csv）"
+    return $runDir
+}
+
+Export-ModuleMember -Function *-Ha*, Get-EpochMs

@@ -22,3 +22,6 @@ Thumbs.db
 # 日志
 logs/
 *.log
+
+# 高可用实验每一轮的产物（服务日志、压测报告、采样数据），只在本机留存
+experiments/out/

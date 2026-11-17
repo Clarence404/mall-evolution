@@ -15,6 +15,8 @@
     <properties>
         <gatling.version>3.16.0</gatling.version>
         <gatling-maven-plugin.version>4.21.12</gatling-maven-plugin.version>
+        <!-- 默认跑大促压测；高可用实验用 -Dgatling.simulationClass=io.github.clarence404.mall.perf.ha.XxxSimulation 换成别的场景 -->
+        <gatling.simulationClass>io.github.clarence404.mall.perf.PromoSimulation</gatling.simulationClass>
     </properties>
 
     <dependencies>
@@ -22,6 +24,17 @@
             <groupId>io.gatling.highcharts</groupId>
             <artifactId>gatling-charts-highcharts</artifactId>
             <version>${gatling.version}</version>
+            <scope>test</scope>
+        </dependency>
+        <!-- 高可用实验的辅助类（令牌签发、重试预算、按秒统计）有单元测试，随 ./mvnw verify 跑；Gatling 场景本身只编译不运行 -->
+        <dependency>
+            <groupId>org.junit.jupiter</groupId>
+            <artifactId>junit-jupiter</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.assertj</groupId>
+            <artifactId>assertj-core</artifactId>
             <scope>test</scope>
         </dependency>
     </dependencies>
@@ -33,7 +46,7 @@
                 <artifactId>gatling-maven-plugin</artifactId>
                 <version>${gatling-maven-plugin.version}</version>
                 <configuration>
-                    <simulationClass>io.github.clarence404.mall.perf.PromoSimulation</simulationClass>
+                    <simulationClass>${gatling.simulationClass}</simulationClass>
                 </configuration>
             </plugin>
         </plugins>

@@ -1,0 +1,12 @@
+# 实验 B 从 Prometheus 导出的曲线：名字 | PromQL（导出步长 5 秒）
+poll_rps_by_status      | sum by (status) (rate(http_server_requests_seconds_count{application="mall-app",uri="/api/orders/{orderNo}/payment"}[30s]))
+payment_rps             | sum by (status) (rate(http_server_requests_seconds_count{application="payment-service",uri="/internal/payments/{orderNo}"}[30s]))
+amplification           | sum(rate(http_server_requests_seconds_count{application="payment-service",uri="/internal/payments/{orderNo}"}[30s])) / sum(rate(http_server_requests_seconds_count{application="mall-app",uri="/api/orders/{orderNo}/payment"}[30s]))
+retry_failures          | sum by (method, exception) (rate(remote_retryable_failures_total{application="mall-app"}[30s]))
+retry_exhausted         | sum by (method) (rate(remote_retryable_exhausted_total{application="mall-app"}[30s]))
+fault_waiting           | max by (rule) (demo_fault_waiting{application="payment-service"})
+fault_inflight          | max by (rule) (demo_fault_inflight{application="payment-service"})
+payment_tomcat_busy     | max(tomcat_threads_busy_threads{application="payment-service"})
+cb_state                | max by (name, state) (resilience4j_circuitbreaker_state{application="mall-app",name="payment-query"})
+cb_not_permitted        | sum(rate(resilience4j_circuitbreaker_not_permitted_calls_total{application="mall-app",name="payment-query"}[30s]))
+order_rps_by_status     | sum by (status) (rate(http_server_requests_seconds_count{application="mall-app",uri="/api/orders",method="POST"}[30s]))

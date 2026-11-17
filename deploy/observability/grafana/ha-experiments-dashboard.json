@@ -1,0 +1,966 @@
+{
+  "title": "示例商城 · 高可用实验",
+  "uid": "mall-ha-experiments",
+  "description": "高可用实验（experiments/）配套面板：入口限流、mall-app 线程与连接池、服务间调用的超时 / 熔断 / 舱壁 / 重试、下游与注入的故障、多实例滚动重启。部分面板需要实验的 common.properties 打开的指标（Tomcat MBean、耗时直方图）",
+  "tags": [
+    "mall",
+    "ha",
+    "experiment"
+  ],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "5s",
+  "time": {
+    "from": "now-15m",
+    "to": "now"
+  },
+  "annotations": {
+    "list": []
+  },
+  "templating": {
+    "list": [
+      {
+        "name": "datasource",
+        "label": "数据源",
+        "type": "datasource",
+        "query": "prometheus",
+        "current": {},
+        "hide": 0,
+        "refresh": 1,
+        "regex": ""
+      },
+      {
+        "name": "instance",
+        "label": "mall-app 实例",
+        "type": "query",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "${datasource}"
+        },
+        "query": {
+          "query": "label_values(jvm_info{application=\"mall-app\"}, instance)",
+          "refId": "A"
+        },
+        "definition": "label_values(jvm_info{application=\"mall-app\"}, instance)",
+        "refresh": 2,
+        "includeAll": true,
+        "multi": true,
+        "allValue": ".*",
+        "current": {
+          "text": "All",
+          "value": "$__all"
+        }
+      }
+    ]
+  },
+  "panels": [
+    {
+      "id": 1,
+      "type": "row",
+      "title": "入口：网关",
+      "collapsed": false,
+      "gridPos": {
+        "x": 0,
+        "y": 0,
+        "w": 24,
+        "h": 1
+      },
+      "panels": []
+    },
+    {
+      "id": 2,
+      "type": "timeseries",
+      "title": "网关每秒请求（按状态码）",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 1,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "expr": "sum by (status) (rate(http_server_requests_seconds_count{application=\"mall-gateway\",uri!~\"/actuator.*\"}[$__rate_interval]))",
+          "legendFormat": "{{status}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      },
+      "description": "5xx 是网关自己给出的失败（504 = 后端 3 秒没回、503 = 没有可用实例、500 = 连不上实例），429 是限流"
+    },
+    {
+      "id": 3,
+      "type": "timeseries",
+      "title": "网关限流（按路由的总量限流 / 按用户限流）",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 1,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "expr": "sum by (route) (rate(gateway_route_limited_total{application=\"mall-gateway\"}[$__rate_interval]))",
+          "legendFormat": "总量限流 {{route}}"
+        },
+        {
+          "refId": "B",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "expr": "sum(rate(http_server_requests_seconds_count{application=\"mall-gateway\",status=\"429\"}[$__rate_interval]))",
+          "legendFormat": "全部 429"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      },
+      "description": "实验 D：mall.gateway.route-limits 打开后，超过阈值的匿名请求在网关直接 429"
+    },
+    {
+      "id": 4,
+      "type": "row",
+      "title": "mall-app（实例：$instance）",
+      "collapsed": false,
+      "gridPos": {
+        "x": 0,
+        "y": 9,
+        "w": 24,
+        "h": 1
+      },
+      "panels": []
+    },
+    {
+      "id": 5,
+      "type": "timeseries",
+      "title": "每秒请求（按接口与状态码）",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 10,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "expr": "sum by (method, uri, status) (rate(http_server_requests_seconds_count{application=\"mall-app\",instance=~\"$instance\",uri=~\"/api/.*\"}[$__rate_interval]))",
+          "legendFormat": "{{method}} {{uri}} {{status}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      }
+    },
+    {
+      "id": 6,
+      "type": "timeseries",
+      "title": "P99 耗时（按接口）",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 10,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "expr": "histogram_quantile(0.99, sum by (le, method, uri) (rate(http_server_requests_seconds_bucket{application=\"mall-app\",instance=~\"$instance\",uri=~\"/api/.*\"}[$__rate_interval])))",
+          "legendFormat": "{{method}} {{uri}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      },
+      "description": "需要 management.metrics.distribution.percentiles-histogram.http.server.requests=true（实验的 common.properties 已打开），否则只有 800ms 一个桶"
+    },
+    {
+      "id": 7,
+      "type": "timeseries",
+      "title": "Tomcat 线程",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 18,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "expr": "sum by (instance) (tomcat_threads_busy_threads{application=\"mall-app\",instance=~\"$instance\"})",
+          "legendFormat": "忙 {{instance}}"
+        },
+        {
+          "refId": "B",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "expr": "max by (instance) (tomcat_threads_config_max_threads{application=\"mall-app\",instance=~\"$instance\"})",
+          "legendFormat": "上限 {{instance}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      },
+      "description": "需要 server.tomcat.mbeanregistry.enabled=true（实验的 common.properties 已打开）。忙线程贴着上限 = 新请求在排队"
+    },
+    {
+      "id": 8,
+      "type": "timeseries",
+      "title": "数据库连接池（HikariCP）",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 18,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "expr": "sum by (instance) (hikaricp_connections_active{application=\"mall-app\",instance=~\"$instance\"})",
+          "legendFormat": "使用中 {{instance}}"
+        },
+        {
+          "refId": "B",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "expr": "sum by (instance) (hikaricp_connections_pending{application=\"mall-app\",instance=~\"$instance\"})",
+          "legendFormat": "等连接 {{instance}}"
+        },
+        {
+          "refId": "C",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "expr": "max by (instance) (hikaricp_connections_max{application=\"mall-app\",instance=~\"$instance\"})",
+          "legendFormat": "上限 {{instance}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      }
+    },
+    {
+      "id": 9,
+      "type": "row",
+      "title": "mall-app → 库存 / 支付（服务间调用的保护）",
+      "collapsed": false,
+      "gridPos": {
+        "x": 0,
+        "y": 26,
+        "w": 24,
+        "h": 1
+      },
+      "panels": []
+    },
+    {
+      "id": 10,
+      "type": "timeseries",
+      "title": "每秒下游调用（按接口与结果）",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 27,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "expr": "sum by (uri, outcome) (rate(http_client_requests_seconds_count{application=\"mall-app\",instance=~\"$instance\",uri=~\"/internal/.*\"}[$__rate_interval]))",
+          "legendFormat": "{{uri}} {{outcome}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      },
+      "description": "客户端视角：每一次尝试都算，重试也算"
+    },
+    {
+      "id": 11,
+      "type": "timeseries",
+      "title": "下游调用耗时（平均 / 最大）",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 27,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "expr": "sum by (uri) (rate(http_client_requests_seconds_sum{application=\"mall-app\",instance=~\"$instance\",uri=~\"/internal/.*\"}[$__rate_interval])) / sum by (uri) (rate(http_client_requests_seconds_count{application=\"mall-app\",instance=~\"$instance\",uri=~\"/internal/.*\"}[$__rate_interval]))",
+          "legendFormat": "平均 {{uri}}"
+        },
+        {
+          "refId": "B",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "expr": "max by (uri) (http_client_requests_seconds_max{application=\"mall-app\",instance=~\"$instance\",uri=~\"/internal/.*\"})",
+          "legendFormat": "最大 {{uri}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      },
+      "description": "客户端耗时含「等连接池」；和下游服务端耗时对比，差出来的就是排队等连接的时间"
+    },
+    {
+      "id": 12,
+      "type": "timeseries",
+      "title": "熔断器状态（打开 / 半开）",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 35,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "expr": "max by (name, state) (resilience4j_circuitbreaker_state{application=\"mall-app\",instance=~\"$instance\",state=~\"open|half_open|forced_open\"})",
+          "legendFormat": "{{name}} {{state}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      },
+      "description": "1 = 处于该状态"
+    },
+    {
+      "id": 13,
+      "type": "timeseries",
+      "title": "熔断器失败率 / 慢调用率",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 35,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "expr": "max by (name) (resilience4j_circuitbreaker_failure_rate{application=\"mall-app\",instance=~\"$instance\"})",
+          "legendFormat": "失败率 {{name}}"
+        },
+        {
+          "refId": "B",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "expr": "max by (name) (resilience4j_circuitbreaker_slow_call_rate{application=\"mall-app\",instance=~\"$instance\"})",
+          "legendFormat": "慢调用率 {{name}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      },
+      "description": "-1 表示窗口内调用数还不到 minimum-number-of-calls，熔断器还没开始统计"
+    },
+    {
+      "id": 14,
+      "type": "timeseries",
+      "title": "熔断拒绝与舱壁余量",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 43,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "expr": "sum by (name) (rate(resilience4j_circuitbreaker_not_permitted_calls_total{application=\"mall-app\",instance=~\"$instance\"}[$__rate_interval]))",
+          "legendFormat": "熔断拒绝/秒 {{name}}"
+        },
+        {
+          "refId": "B",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "expr": "min by (name) (resilience4j_bulkhead_available_concurrent_calls{application=\"mall-app\",instance=~\"$instance\"})",
+          "legendFormat": "舱壁剩余许可 {{name}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      }
+    },
+    {
+      "id": 15,
+      "type": "timeseries",
+      "title": "只读查询的重试",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 43,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "expr": "sum by (method) (rate(remote_retryable_failures_total{application=\"mall-app\",instance=~\"$instance\"}[$__rate_interval]))",
+          "legendFormat": "失败的尝试/秒 {{method}}"
+        },
+        {
+          "refId": "B",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "expr": "sum by (method) (rate(remote_retryable_exhausted_total{application=\"mall-app\",instance=~\"$instance\"}[$__rate_interval]))",
+          "legendFormat": "重试用完放弃/秒 {{method}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      },
+      "description": "每一次失败的尝试都算（含第一次），和下游收到的请求数一起看放大倍数"
+    },
+    {
+      "id": 16,
+      "type": "row",
+      "title": "库存服务 / 支付服务",
+      "collapsed": false,
+      "gridPos": {
+        "x": 0,
+        "y": 51,
+        "w": 24,
+        "h": 1
+      },
+      "panels": []
+    },
+    {
+      "id": 17,
+      "type": "timeseries",
+      "title": "下游服务每秒请求（按接口与状态码）",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 52,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "expr": "sum by (application, uri, status) (rate(http_server_requests_seconds_count{application=~\"inventory-service|payment-service\",uri=~\"/internal/(inventory|payments).*\"}[$__rate_interval]))",
+          "legendFormat": "{{application}} {{uri}} {{status}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      },
+      "description": "服务端视角：实际到达的请求数，含重试"
+    },
+    {
+      "id": 18,
+      "type": "timeseries",
+      "title": "支付查询放大倍数",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 52,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "expr": "sum(rate(http_server_requests_seconds_count{application=\"payment-service\",uri=\"/internal/payments/{orderNo}\"}[$__rate_interval])) / sum(rate(http_server_requests_seconds_count{application=\"mall-app\",uri=\"/api/orders/{orderNo}/payment\"}[$__rate_interval]))",
+          "legendFormat": "支付服务收到 / mall-app 收到"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      },
+      "description": "实验 B：mall-app 每收到 1 次查询，支付服务收到几次。客户端（App）的重试另算，见压测报告"
+    },
+    {
+      "id": 19,
+      "type": "timeseries",
+      "title": "注入的故障：排队与在途",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 60,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "expr": "max by (application, rule) (demo_fault_waiting)",
+          "legendFormat": "排队 {{application}} {{rule}}"
+        },
+        {
+          "refId": "B",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "expr": "max by (application, rule) (demo_fault_inflight)",
+          "legendFormat": "在途 {{application}} {{rule}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      },
+      "description": "demo profile 的故障注入（/internal/demo/faults）。排队数持续上涨说明到达速率超过了模拟的容量"
+    },
+    {
+      "id": 20,
+      "type": "timeseries",
+      "title": "下游 Tomcat 线程",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 60,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "expr": "max by (application) (tomcat_threads_busy_threads{application=~\"inventory-service|payment-service\"})",
+          "legendFormat": "忙 {{application}}"
+        },
+        {
+          "refId": "B",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "expr": "max by (application) (tomcat_threads_config_max_threads{application=~\"inventory-service|payment-service\"})",
+          "legendFormat": "上限 {{application}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      }
+    },
+    {
+      "id": 21,
+      "type": "row",
+      "title": "实例（滚动发布）",
+      "collapsed": false,
+      "gridPos": {
+        "x": 0,
+        "y": 68,
+        "w": 24,
+        "h": 1
+      },
+      "panels": []
+    },
+    {
+      "id": 22,
+      "type": "timeseries",
+      "title": "各 mall-app 实例每秒请求",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 69,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "expr": "sum by (instance) (rate(http_server_requests_seconds_count{application=\"mall-app\",uri!~\"/actuator.*\"}[$__rate_interval]))",
+          "legendFormat": "{{instance}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      },
+      "description": "实验 C：某个实例注销后它的曲线多久降到 0，就是「注销后还收到请求的时长」"
+    },
+    {
+      "id": 23,
+      "type": "timeseries",
+      "title": "抓取状态",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 69,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "expr": "up{app=\"mall-app\"}",
+          "legendFormat": "{{instance}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      },
+      "description": "0 = 实例正在重启或已退出"
+    }
+  ]
+}

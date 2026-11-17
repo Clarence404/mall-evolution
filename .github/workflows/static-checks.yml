@@ -29,6 +29,10 @@ jobs:
         run: |
           docker run --rm -v "$PWD":/w --entrypoint promtool prom/prometheus:v3.5.0 \
             check config /w/deploy/observability/local/prometheus.yml
+      - name: promtool check config（高可用实验的 5 秒抓取示例）
+        run: |
+          docker run --rm -v "$PWD":/w --entrypoint promtool prom/prometheus:v3.5.0 \
+            check config /w/experiments/observability/prometheus-ha.yml
       - name: amtool check-config
         run: |
           docker run --rm -v "$PWD":/w --entrypoint amtool prom/alertmanager:v0.28.1 \

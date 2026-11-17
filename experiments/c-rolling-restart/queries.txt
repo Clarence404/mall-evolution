@@ -1,0 +1,6 @@
+# 实验 C 从 Prometheus 导出的曲线：名字 | PromQL。滚动重启时每个实例只有十几秒的窗口，抓取间隔务必改成 5 秒（见 experiments/observability/）
+instance_rps         | sum by (instance) (rate(http_server_requests_seconds_count{application="mall-app",uri!~"/actuator.*"}[15s]))
+instance_up          | up{app="mall-app"}
+gateway_5xx          | sum by (status) (rate(http_server_requests_seconds_count{application="mall-gateway",status=~"5.."}[15s]))
+gateway_rps          | sum by (status) (rate(http_server_requests_seconds_count{application="mall-gateway"}[15s]))
+app_5xx_by_instance  | sum by (instance, uri) (rate(http_server_requests_seconds_count{application="mall-app",status=~"5.."}[15s]))

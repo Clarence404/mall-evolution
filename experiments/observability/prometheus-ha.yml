@@ -1,0 +1,22 @@
+# 高可用实验用的抓取任务示例：和 deploy/observability/local/prometheus.yml 的 mall-evolution 任务相比，
+#   1. 抓取间隔 5 秒（默认 15 秒）：滚动重启、小故障都只有十几秒的窗口，15 秒一个点看不出来
+#   2. 目标多了实验 C 的另外两个 mall-app 实例（管理端口 18180、18280）
+# 用法：把下面这个 job 合并进监控机上 Prometheus 的配置（和原来的 mall-evolution 任务二选一，免得同一个地址被抓两遍），
+# targets-ha.json 放到配置目录下并把 host.docker.internal 改成跑服务那台机器的地址（内网地址不要提交进仓库），
+# 改完 curl -X POST <prometheus>/-/reload。实验做完改回去即可。
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+rule_files:
+  - ../../deploy/observability/prometheus/rules/*.yml
+
+scrape_configs:
+  - job_name: mall-evolution-ha
+    scrape_interval: 5s
+    scrape_timeout: 4s
+    metrics_path: /actuator/prometheus
+    file_sd_configs:
+      - files:
+          - targets-ha.json
+        refresh_interval: 10s

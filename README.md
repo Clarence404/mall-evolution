@@ -168,6 +168,7 @@ IDEA 里直接选运行配置「5. 流量模拟（演示账号）」，停止按
 | `deploy/observability/prometheus/rules/*.yml` | 下单 SLO 与组件告警 | 放到 Prometheus 配置目录并在 `rule_files` 里列出；改完 `curl -X POST localhost:9090/-/reload` |
 | `deploy/observability/local/grafana/provisioning/` | 数据源与面板目录的 provisioning 示例 | `dashboards/mall-evolution.yml` 放进它的 `grafana/provisioning/dashboards/`；已经有 Prometheus 数据源就不用再放 `datasources/` 那份 |
 | `deploy/observability/grafana/business-dashboard.json`、`jvm-http-dashboard.json` | 业务大盘、JVM 与 HTTP 通用面板 | 在 compose 的 grafana 服务上加两行只读挂载，挂到 `/var/lib/grafana/dashboards-evolution/` |
+| `deploy/observability/grafana/ha-experiments-dashboard.json` | 高可用实验面板（线程池、连接池、熔断、舱壁、重试、注入的故障、多实例），见 `experiments/README.md` | 同上，可选 |
 
 几点说明：
 
@@ -189,8 +190,8 @@ IDEA 里直接选运行配置「5. 流量模拟（演示账号）」，停止按
 
 | 层 | 命名 | 需要 Docker | 覆盖 |
 |----|------|------------|------|
-| 单元测试 | `*Test` | 否 | 下单幂等、预占结果三分类、去重消费、关单、中继投递（退避封顶、按时间放弃、非法消息立即置失败）与 traceparent、熔断谓词、对账比对、「有货」提示的本机缓存与兜底、消费线程数显式设置、prod 与 demo 互斥；prod 配置下业务端口与管理端口分开（四个服务各一个 `ProdManagementPortConfigTest`）、管理端口过滤链的端口匹配（`ManagementPortMatchTest`）；流量模拟器的速率曲线、权重、库存保护、退避、配额、高峰间隔、签名（`simulator` 模块） |
-| H2 全上下文测试 | `*H2Test`、`ApplicationContextSmokeTest`，以及网关不连数据库的全上下文测试 `Gateway*Test`、`DemoConsoleTest` | 否 | H2 的 MySQL 兼容模式跑全部 Flyway 迁移与真实 SQL：下单与重放、取消、支付消息、库存预占的空回滚与悬挂、分桶（含 release / 合并与预占并发的固定顺序复现）、熔断打开返回 503、详情页库存查询熔断后仍 200、下单频控、outbox 重试回写、outbox 失败记录重投（`OutboxRedriveH2Test`，库存与支付各有 `OutboxAdminH2Test`）、过期刷新令牌清理、`API-Version` 请求头；管理端口只放行 health / info / prometheus、业务端口上 `/actuator/prometheus` 仍 401（`ManagementPortSecurityH2Test`，网关是 `GatewayManagementPortTest`）；定时任务线程数与消费线程预算；同时导出 `mall-app/target/openapi.json` 供契约比对 |
+| 单元测试 | `*Test` | 否 | 下单幂等、预占结果三分类、去重消费、关单、中继投递（退避封顶、按时间放弃、非法消息立即置失败）与 traceparent、熔断谓词、对账比对、「有货」提示的本机缓存与兜底、消费线程数显式设置、prod 与 demo 互斥；prod 配置下业务端口与管理端口分开（四个服务各一个 `ProdManagementPortConfigTest`）、管理端口过滤链的端口匹配（`ManagementPortMatchTest`）；流量模拟器的速率曲线、权重、库存保护、退避、配额、高峰间隔、签名（`simulator` 模块）；demo 的通用故障注入（规则校验、到期失效、原地更新、延迟 / 失败 / 并发上限 / 响应迟到）、模拟 SIGTERM、降级开关接口，`@Retryable` 的重试计数，服务间 HTTP 连接池开关（`HttpClientPoolConfigTest`，含默认每目标只有 5 条连接的行为记录），网关单机令牌桶（`TokenBucketTest`）；高可用实验的令牌签发、客户端重试策略与预算、逐秒统计（`perf` 模块） |
+| H2 全上下文测试 | `*H2Test`、`ApplicationContextSmokeTest`，以及网关不连数据库的全上下文测试 `Gateway*Test`、`DemoConsoleTest` | 否 | H2 的 MySQL 兼容模式跑全部 Flyway 迁移与真实 SQL：下单与重放、取消、支付消息、库存预占的空回滚与悬挂、分桶（含 release / 合并与预占并发的固定顺序复现）、熔断打开返回 503、详情页库存查询熔断后仍 200、下单频控、outbox 重试回写、outbox 失败记录重投（`OutboxRedriveH2Test`，库存与支付各有 `OutboxAdminH2Test`）、过期刷新令牌清理、`API-Version` 请求头；管理端口只放行 health / info / prometheus、业务端口上 `/actuator/prometheus` 仍 401（`ManagementPortSecurityH2Test`，网关是 `GatewayManagementPortTest`）；定时任务线程数与消费线程预算；只读查询的重试参数可从配置覆盖（`ReadRetryConfigH2Test`）、支付服务的通用故障注入对真实接口生效且不带 demo 时不存在（`DemoFaultsH2Test`、`DemoEndpointsAbsentH2Test`）、网关按路由的总量限流（`GatewayRouteLimitTest`）；同时导出 `mall-app/target/openapi.json` 供契约比对 |
 | 集成测试 | `*IT`、`*ApiTests` | 是 | Testcontainers 起 MySQL 8.4 / Redis 8：雪花机器号租约（两实例不同号、租约丢失拒绝发号）、并发同键只下一单、不超卖、交叉下单不死锁、reserve 与 release 竞态（含分桶 SKU 回到同一个桶）、合并分桶与预占并发不多出库存、`FOR UPDATE SKIP LOCKED` 加租约的中继不重发、中继失败按时间封顶、失败记录重投后重新发出且放弃计时重新起算、两级缓存失效、预热后注册到真实 Nacos 3.1 且端口正确 |
 
 没有 Docker 的机器上集成测试会自动跳过（`@Testcontainers(disabledWithoutDocker = true)`），并发、锁、隔离级别相关的结论以集成测试为准。PR 检查（`.github/workflows/pr.yml`）除了 verify 还有三项：用 oasdiff 把导出的 openapi.json 与目标分支（main）上的 `api/openapi.json` 比对，删字段、改类型这类破坏性变更直接失败（契约基线只含 mall-app 的接口，见「接口一览」）；用 gitleaks 扫描密钥，规则在仓库根目录的 `.gitleaks.toml`——沿用默认规则，只放行 `application-dev.yml`、`application-it.yml`、演示数据、`TestTokens.java`、`docker-compose.yml` 里的本地占位值，新增占位值的文件要加到那里的放行列表；Kubernetes 清单（kubeconform）、Prometheus 规则与本地抓取示例（promtool）、Alertmanager 配置（amtool）的静态检查，这一项和 verify 流水线共用 `.github/workflows/static-checks.yml`。
@@ -242,6 +243,7 @@ IDEA 里直接选运行配置「5. 流量模拟（演示账号）」，停止按
 | `GET /internal/payments/{orderNo}`、`POST /internal/payments/{orderNo}/close` | payment-service | 查询与关闭支付单，契约在 `mall-payment-api` |
 | `POST /internal/offline` | 三个服务（mall-common） | 主动从 Nacos 注销本实例；Kubernetes 的 preStop 先调它再等 15 秒，让调用方先摘掉这个实例 |
 | `/internal/demo/**` | inventory-service（仅 demo profile） | 故障注入、库存查看与补货；网关在 demo profile 下把 `/api/demo/inventory/**` 转过来 |
+| `/internal/demo/faults/**`、`POST /internal/demo/lifecycle/exit`、`/internal/demo/degrade` | 三个服务（mall-common，仅 demo profile） | 高可用实验用：通用故障注入（延迟、按比例失败、并发上限、响应迟到，规则自带有效期）、模拟 SIGTERM（JVM 正常退出、执行关闭钩子）、直接拨降级开关；说明见 `experiments/README.md` |
 
 ## 目录结构
 
@@ -258,8 +260,9 @@ mall-evolution/
 ├── inventory-service/    库存服务：预占、过期回查、热点分桶，独享 mall_inventory
 ├── payment-service/      支付服务：渠道回调、payment-succeeded、关单与退款，独享 mall_payment
 ├── mall-gateway/         入口网关：路由 /api/**、JWT 校验、按「用户 + 路由」限流；demo profile 下托管演示控制台
-├── perf/                 Gatling 压测脚本（说明见 perf/README.md）
+├── perf/                 Gatling 压测脚本：大促压测与高可用实验的场景（说明见 perf/README.md）
 ├── simulator/            流量模拟器：演示账号经网关长期模拟真人浏览、下单、支付，让监控面板一直有数据（只用于本地 / 开发环境）
+├── experiments/          高可用实验：方案（README.md）、各实验的运行脚本与对照组 / 实验组参数，产物在 experiments/out/（不进仓库）
 ├── api/openapi.json      对外接口契约基线（只含 mall-app 的接口）
 ├── deploy/
 │   ├── k8s/              Deployment / Rollout + AnalysisTemplate、Service、Ingress、HPA、Flyway PreSync Job、Secret 模板
@@ -298,6 +301,7 @@ mall-evolution/
 - **发布流水线 `.github/workflows/release.yml`**：push 到 main 时默认只跑 verify。要真的构建镜像并写 GitOps 仓库，需要配置仓库变量 `DEPLOY_ENABLED=true`、`REGISTRY`、`GITOPS_REPO` 和密钥 `REGISTRY_USERNAME`、`REGISTRY_PASSWORD`、`GITOPS_TOKEN`；GitOps 仓库的 `prod/` 下要有与 `deploy/k8s` 同名的清单
 - **阶段一遗留**：`deploy/env.example`、`deploy/mall-evolution.service`、`deploy/deploy.sh` 和 mall-app 的 `application-test.yml` 只对应 `stage-1-monolith` 标签（那时只有 mall-app 一个进程、部署在云主机上），文件头都标了，main 上不再维护；当时的部署流水线 `.github/workflows/main.yml` 已从 main 删除（它每次 push 都会再跑一遍 verify 并尝试部署测试机），想看就 `git checkout stage-1-monolith`
 - **运行参数里值得知道的几项**（默认值在各服务的 `application.yml`，线上以 Nacos 为准）：`spring.task.scheduling.pool.size`（定时任务线程数，默认 4）、`mall.rocketmq.consumption-threads`（每个消费组的消费线程数，按「消费组数 × 线程数不超过连接池一半」取值，可用 `consumption-threads-by-group.<组名>` 单独给）、`mall.outbox.give-up-after`（本地消息重试多久后置为失败，默认 24 小时；置失败的记录排查后调重投接口 `POST /api/admin/outbox/failed/redrive` 放回待发送，见「接口一览」的失败消息重投）
+- **为高可用实验加的几个开关**（默认都不配，行为与以前一样）：`mall.http-client.max-connections-per-route` / `max-connections-total` / `connection-request-timeout`（服务间 HTTP 连接池，见下方已知局限）、`mall.remote.payment-query.retry.*` 与 `mall.remote.inventory-stock-query.retry.*`（只读查询的重试次数、退避、抖动、倍数）、`mall.gateway.route-limits.<路由ID>.permits-per-second` / `burst`（网关按路由的总量限流，单机令牌桶）
 
 ## 复盘：四个阶段的决策怎么落在代码里
 
@@ -321,7 +325,8 @@ mall-evolution/
 
 已知局限（代码审查里发现、这一轮没有处理的，记在这里）：
 
-- **匿名路由没有限流**：网关按「用户 + 路由」限流，登录、商品详情这类匿名接口走单独的路由、不挂限流（没有用户身份可按）；要防刷需要再加按 IP 或全局的限流
+- **匿名路由没有限流**：网关按「用户 + 路由」限流，登录、商品详情这类匿名接口走单独的路由、不挂限流（没有用户身份可按）；现在有了按路由的总量限流开关（`mall.gateway.route-limits`，单机令牌桶），但默认没有打开，阈值等高可用实验 D 测出容量再定；按 IP 的防刷仍没有
+- **服务间 HTTP 连接池是库的默认值**：`RestClient` 的底层是随 nacos-client 间接引进来的 HttpClient 5，Spring Boot 不改它的连接池——每个下游实例最多 5 条连接、取连接最多等 3 分钟，读超时管不到排队等连接这一段，舱壁许可（60、20）也都大于 5（`HttpClientPoolConfigTest` 记录了这个行为）。已经加了 `mall.http-client.*` 开关但默认不配，调成多少等高可用实验 A 的数据
 - **每日对账没有多实例抢占**：`ReconcileJob` 在每个 mall-app 实例上都会按时执行，靠补发与释放的幂等保证结果正确，但会白跑几遍、差错表可能重复记录；应该加一把抢占锁或交给调度平台
 - **`/internal/**` 没有调用方校验**：只靠网关不路由加网络隔离，服务本身对 `/internal/**` 是放行的，集群内任何能连上的调用方都能调
 - **api 模块依赖整个 mall-common**：`mall-inventory-api`、`mall-order-api`、`mall-payment-api` 为了错误码等几个类依赖了 `mall-common`，引用契约的一方会被带进 Web、安全、RocketMQ 等全部依赖；应拆出只含错误码与基础类型的 common-core

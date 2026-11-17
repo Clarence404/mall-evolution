@@ -1,0 +1,11 @@
+# 实验 D 从 Prometheus 导出的曲线：名字 | PromQL（导出步长 5 秒）
+gateway_by_status    | sum by (status) (rate(http_server_requests_seconds_count{application="mall-gateway"}[30s]))
+route_limited        | sum by (route) (rate(gateway_route_limited_total{application="mall-gateway"}[30s]))
+order_rps_by_status  | sum by (status) (rate(http_server_requests_seconds_count{application="mall-app",uri="/api/orders",method="POST"}[30s]))
+order_p99            | histogram_quantile(0.99, sum by (le) (rate(http_server_requests_seconds_bucket{application="mall-app",uri="/api/orders",method="POST"}[30s])))
+browse_rps           | sum by (uri, status) (rate(http_server_requests_seconds_count{application="mall-app",uri=~"/api/products/.*"}[30s]))
+capacity_waiting     | max(demo_fault_waiting{application="mall-app",rule="d-app-capacity"})
+capacity_inflight    | max(demo_fault_inflight{application="mall-app",rule="d-app-capacity"})
+tomcat_busy          | max(tomcat_threads_busy_threads{application="mall-app"})
+hikari_active        | max(hikaricp_connections_active{application="mall-app"})
+cpu                  | max by (application) (process_cpu_usage{application=~"mall-app|mall-gateway"})
