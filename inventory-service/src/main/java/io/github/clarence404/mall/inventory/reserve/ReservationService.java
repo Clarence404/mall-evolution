@@ -15,6 +15,7 @@ import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.List;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -38,6 +39,7 @@ public class ReservationService {
     private final InventoryMapper inventoryMapper;
     private final InventoryBucketMapper bucketMapper;
     private final Duration reservationTtl;
+    private ReserveHold hold = ReserveHold.NONE;
 
     public ReservationService(
             ReservationMapper reservationMapper,
@@ -48,6 +50,12 @@ public class ReservationService {
         this.inventoryMapper = inventoryMapper;
         this.bucketMapper = bucketMapper;
         this.reservationTtl = reservationTtl;
+    }
+
+    /** 只有演示环境（demo profile）注册了实现，用来在持锁期间多停留几毫秒（高并发实验 E 的持锁时间模型）。 */
+    @Autowired(required = false)
+    void setHold(ReserveHold hold) {
+        this.hold = hold;
     }
 
     /**
@@ -80,6 +88,7 @@ public class ReservationService {
                 reservationMapper.insert(r);
             }
         }
+        hold.afterDeduct(); // 正式环境是空操作
         return ReserveResult.OK;
     }
 

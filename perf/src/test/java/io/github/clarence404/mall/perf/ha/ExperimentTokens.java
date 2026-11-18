@@ -47,7 +47,19 @@ public final class ExperimentTokens {
     }
 
     String mint(long userId, Instant now) {
-        String payload = "{\"iss\":\"" + issuer + "\",\"sub\":\"" + userId + "\",\"roles\":[\"USER\"],\"iat\":"
+        return mint(userId, now, "USER");
+    }
+
+    /**
+     * 给一个用户签发带 ADMIN 角色的访问令牌。只有多级缓存实验（F）用：它每隔一段时间调一次运营后台的
+     * 「手动清缓存」接口（POST /api/admin/products/{skuId}/cache-evict），这个接口要求令牌里有 ADMIN 角色。
+     */
+    public String mintAdmin(long userId) {
+        return mint(userId, Instant.now(), "ADMIN");
+    }
+
+    String mint(long userId, Instant now, String role) {
+        String payload = "{\"iss\":\"" + issuer + "\",\"sub\":\"" + userId + "\",\"roles\":[\"" + role + "\"],\"iat\":"
                 + now.getEpochSecond() + ",\"exp\":" + now.plus(ttl).getEpochSecond() + "}";
         String signingInput = HEADER + "." + B64.encodeToString(payload.getBytes(StandardCharsets.UTF_8));
         return signingInput + "." + B64.encodeToString(sign(signingInput));
@@ -86,5 +98,37 @@ public final class ExperimentTokens {
                 return Map.of("userId", firstUserId + i, "token", tokens[i]);
             }
         };
+    }
+
+    /**
+     * Gatling 的 feeder：从 firstUserId 起每次取下一个用户，永不重复，令牌现签（一次 HMAC 几微秒）。
+     *
+     * <p>高并发实验用它：热点库存实验一轮要发二十多万单、而且全打同一个 SKU，用户一重复就会撞上网关「每人每秒 1 单」
+     * 和订单服务「同一 SKU 待支付最多 2 单」；人数事先也说不准（闭环压测的吞吐由被测系统决定），所以不预签、不循环。
+     */
+    public Iterator<Map<String, Object>> sequentialUsers(long firstUserId) {
+        AtomicLong next = new AtomicLong(firstUserId);
+        return new Iterator<>() {
+            @Override
+            public boolean hasNext() {
+                return true;
+            }
+
+            @Override
+            public Map<String, Object> next() {
+                long userId = next.getAndIncrement();
+                return Map.of("userId", userId, "token", mint(userId));
+            }
+        };
+    }
+
+    /**
+     * 按当前时间取一段没用过的用户 ID 起点：10 亿起，每过 1 秒往后挪 1 万个，约 11 天绕回。
+     *
+     * <p>一轮压测每秒用掉的用户远不到 1 万个，下一轮开始时起点早已越过上一轮用到的范围；这样上一轮收尾时还没来得及关掉的待支付订单
+     * （服务被停掉，延时消息要等下次启动才消费）不会算到这一轮的用户头上。
+     */
+    public static long firstUserIdByTime(long nowMillis) {
+        return 1_000_000_000L + (nowMillis / 1000 % 1_000_000L) * 10_000L;
     }
 }

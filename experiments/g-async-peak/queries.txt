@@ -1,0 +1,21 @@
+# 实验 G 从 Prometheus 导出的曲线：名字 | PromQL（导出步长 5 秒）。抓取间隔建议 5 秒，见 experiments/observability/
+# 下单接口：高峰前、中、后的成功率与 P99 应当看不出差别
+order_rps_by_status    | sum by (status) (rate(http_server_requests_seconds_count{application="mall-app",uri="/api/orders",method="POST"}[30s]))
+order_p99              | histogram_quantile(0.99, sum by (le) (rate(http_server_requests_seconds_bucket{application="mall-app",uri="/api/orders",method="POST"}[30s])))
+gateway_status         | sum by (status) (rate(http_server_requests_seconds_count{application="mall-gateway"}[30s]))
+# 消费延迟 mq_consume_delay_seconds：处理完的时刻减去消息的产生时间（定时消息减去定好的投递时间），按消费组分
+consume_rate           | sum by (application, group, result) (rate(mq_consume_delay_seconds_count[30s]))
+consume_delay_avg      | sum by (group) (rate(mq_consume_delay_seconds_sum[30s])) / sum by (group) (rate(mq_consume_delay_seconds_count[30s]))
+consume_delay_p50      | histogram_quantile(0.5, sum by (le, group) (rate(mq_consume_delay_seconds_bucket[30s])))
+consume_delay_p99      | histogram_quantile(0.99, sum by (le, group) (rate(mq_consume_delay_seconds_bucket[30s])))
+consume_delay_max      | max by (group) (mq_consume_delay_seconds_max)
+consume_total          | sum by (application, group, result) (mq_consume_delay_seconds_count)
+# 本地消息表：最老一条待发送记录等了多久（中继跟得上时是 0–1 秒）、失败条数
+outbox_pending_age     | max by (application) (outbox_pending_age_seconds)
+outbox_failed          | max by (application) (outbox_failed_count)
+# 释放预占的服务端：库存服务处理 order-cancelled 时调的不是 HTTP 接口，这里看的是连接池与 CPU 有没有被消费线程占满
+hikari_active          | max by (application) (hikaricp_connections_active{application=~"mall-app|inventory-service"})
+hikari_pending         | max by (application) (hikaricp_connections_pending{application=~"mall-app|inventory-service"})
+tomcat_busy            | max by (application) (tomcat_threads_busy_threads{application=~"mall-app|inventory-service"})
+reserve_server_p99     | histogram_quantile(0.99, sum by (le) (rate(http_server_requests_seconds_bucket{application="inventory-service",uri="/internal/inventory/reserve"}[30s])))
+cpu                    | max by (application) (process_cpu_usage{application=~"mall-app|inventory-service|mall-gateway"})

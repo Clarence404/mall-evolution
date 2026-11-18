@@ -79,8 +79,8 @@ class DemoFaultH2Test {
                 .andExpect(jsonPath("$[0].stock").value(1000));
         mvc.perform(put("/internal/demo/stocks/20001/restock").param("target", "10")) // 只补不减
                 .andExpect(jsonPath("$[0].stock").value(1000));
-        mvc.perform(put("/internal/demo/stocks/20001/restock").param("target", "999999999")) // 上限 10 万
-                .andExpect(jsonPath("$[0].stock").value(100_000));
+        mvc.perform(put("/internal/demo/stocks/20001/restock").param("target", "999999999")) // 上限 100 万
+                .andExpect(jsonPath("$[0].stock").value(1_000_000));
     }
 
     @Test

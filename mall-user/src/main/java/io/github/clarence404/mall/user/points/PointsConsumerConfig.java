@@ -1,6 +1,7 @@
 package io.github.clarence404.mall.user.points;
 
 import io.github.clarence404.mall.common.json.Json;
+import io.github.clarence404.mall.common.mq.ConsumeInstrumentation;
 import io.github.clarence404.mall.common.mq.ConsumerFactory;
 import io.github.clarence404.mall.common.mq.RocketMqProperties;
 import lombok.extern.slf4j.Slf4j;
@@ -29,9 +30,10 @@ class PointsConsumerConfig {
             ClientServiceProvider provider,
             ClientConfiguration clientConfig,
             RocketMqProperties props,
+            ConsumeInstrumentation instrumentation,
             PointsGrantService pointsGrantService)
             throws ClientException {
-        return ConsumerFactory.subscribe(provider, clientConfig, props, GROUP, "order-paid", view -> {
+        return ConsumerFactory.subscribe(provider, clientConfig, props, instrumentation, GROUP, "order-paid", view -> {
             OrderPaidEvent e = Json.read(view.getBody(), OrderPaidEvent.class);
             try {
                 pointsGrantService.grant(e);

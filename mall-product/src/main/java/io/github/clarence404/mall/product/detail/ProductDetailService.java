@@ -44,6 +44,7 @@ public class ProductDetailService {
     private final Counter l2Null;
     private final Counter dbLoad;
     private DetailSourceListener sourceListener = DetailSourceListener.NONE;
+    private DetailCachePolicy policy = DetailCachePolicy.DEFAULT;
 
     public ProductDetailService(
             StringRedisTemplate redis, JsonMapper jsonMapper, ProductMapper productMapper, MeterRegistry registry) {
@@ -63,16 +64,48 @@ public class ProductDetailService {
         this.sourceListener = sourceListener;
     }
 
+    /** 只有演示环境（demo profile）注册了实现，用来逐层关掉缓存或保护（高并发实验 F）；正式环境全部打开。 */
+    @Autowired(required = false)
+    void setPolicy(DetailCachePolicy policy) {
+        this.policy = policy;
+    }
+
     public Optional<ProductDetailView> get(long skuId) {
         DetailSource[] source = {DetailSource.L1}; // 加载函数没被调用，就是 L1 命中
-        // 同一 skuId 并发未命中时，本 JVM 只有一个线程去查 Redis / 数据库
-        Optional<ProductDetailView> view = local.get(skuId, id -> loadFromRemote(id, source));
+        Optional<ProductDetailView> view;
+        if (policy.l1Enabled() && policy.singleFlightEnabled()) {
+            // 同一 skuId 并发未命中时，本 JVM 只有一个线程去查 Redis / 数据库。加载函数返回 null 时 Caffeine 不缓存（只有演示环境关掉空值缓存才会）
+            Optional<ProductDetailView> cached = local.get(skuId, id -> {
+                Optional<ProductDetailView> loaded = loadFromRemote(id, source);
+                return cacheableInL1(loaded) ? loaded : null;
+            });
+            view = cached != null ? cached : Optional.empty();
+        } else if (policy.l1Enabled()) {
+            // 仅演示环境：不单飞。并发未命中的请求各自加载、各自回填
+            view = local.getIfPresent(skuId);
+            if (view == null) {
+                view = loadFromRemote(skuId, source);
+                if (cacheableInL1(view)) {
+                    local.put(skuId, view);
+                }
+            }
+        } else {
+            view = loadFromRemote(skuId, source); // 仅演示环境：不用本机缓存
+        }
         sourceListener.onLookup(skuId, source[0]);
         return view;
     }
 
+    /** 空结果（SKU 不存在）要不要进 L1：正式环境一律缓存。 */
+    private boolean cacheableInL1(Optional<ProductDetailView> view) {
+        return view.isPresent() || policy.nullCacheEnabled();
+    }
+
     private Optional<ProductDetailView> loadFromRemote(long skuId, DetailSource[] source) {
         source[0] = DetailSource.DB;
+        if (!policy.l2Enabled()) {
+            return Optional.ofNullable(selectFromDb(skuId)); // 仅演示环境：不读也不写 Redis
+        }
         String key = KEY_PREFIX + skuId;
         String json;
         try {
@@ -81,8 +114,7 @@ public class ProductDetailService {
             // 缓存出问题宁可回源：连不上、超时（QueryTimeoutException）、命令报错（RedisSystemException）都是
             // DataAccessException，一律直接查库并跳过回写，不把 Redis 故障变成接口 500
             log.warn("读取 Redis 失败，直接回源，skuId={}", skuId, e);
-            dbLoad.increment();
-            return Optional.ofNullable(productMapper.selectDetail(skuId));
+            return Optional.ofNullable(selectFromDb(skuId));
         }
         if (json != null) {
             if (NULL_JSON.equals(json)) {
@@ -101,11 +133,12 @@ public class ProductDetailService {
             }
         }
         l2Miss.increment();
-        dbLoad.increment();
-        ProductDetailView view = productMapper.selectDetail(skuId); // 回源只查 t_product
+        ProductDetailView view = selectFromDb(skuId);
         try {
             if (view == null) {
-                redis.opsForValue().set(key, NULL_JSON, Duration.ofSeconds(60));
+                if (policy.nullCacheEnabled()) { // 只有演示环境会关
+                    redis.opsForValue().set(key, NULL_JSON, Duration.ofSeconds(60));
+                }
                 return Optional.empty();
             }
             Duration ttl = Duration.ofMinutes(30)
@@ -115,6 +148,12 @@ public class ProductDetailService {
             log.warn("回写 Redis 失败，跳过，skuId={}", skuId, e);
         }
         return Optional.ofNullable(view);
+    }
+
+    /** 回源：只查 t_product。 */
+    private ProductDetailView selectFromDb(long skuId) {
+        dbLoad.increment();
+        return policy.aroundDbLoad(() -> productMapper.selectDetail(skuId)); // 正式环境就是直接查
     }
 
     void evictLocal(long skuId) {

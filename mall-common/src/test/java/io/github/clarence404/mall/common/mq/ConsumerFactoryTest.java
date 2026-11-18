@@ -7,12 +7,17 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import java.util.Map;
+import java.util.Optional;
 import org.apache.rocketmq.client.apis.ClientConfiguration;
 import org.apache.rocketmq.client.apis.ClientServiceProvider;
 import org.apache.rocketmq.client.apis.consumer.ConsumeResult;
+import org.apache.rocketmq.client.apis.consumer.MessageListener;
 import org.apache.rocketmq.client.apis.consumer.PushConsumerBuilder;
+import org.apache.rocketmq.client.apis.message.MessageView;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 
 /**
  * 每个消费组都显式设置消费线程数：rocketmq-client-java 5.2.2 不设时是 20（PushConsumerBuilderImpl 的默认值），
@@ -23,6 +28,8 @@ class ConsumerFactoryTest {
     ClientServiceProvider provider = mock(ClientServiceProvider.class);
     PushConsumerBuilder builder = mock(PushConsumerBuilder.class, RETURNS_SELF); // 链式调用都返回自己
     ClientConfiguration clientConfig = mock(ClientConfiguration.class);
+    SimpleMeterRegistry registry = new SimpleMeterRegistry();
+    ConsumeInstrumentation instrumentation = new ConsumeInstrumentation(registry);
 
     @Test
     void consumptionThreadCountIsAlwaysSetExplicitly() throws Exception {
@@ -30,7 +37,13 @@ class ConsumerFactoryTest {
         RocketMqProperties props = props(null, null);
 
         ConsumerFactory.subscribe(
-                provider, clientConfig, props, "points-consumer", "order-paid", v -> ConsumeResult.SUCCESS);
+                provider,
+                clientConfig,
+                props,
+                instrumentation,
+                "points-consumer",
+                "order-paid",
+                v -> ConsumeResult.SUCCESS);
 
         verify(builder).setConsumerGroup("points-consumer");
         verify(builder).setConsumptionThreadCount(4); // 没配置时的默认值，而不是客户端的 20
@@ -46,12 +59,42 @@ class ConsumerFactoryTest {
                 provider,
                 clientConfig,
                 props,
+                instrumentation,
                 "order-payment-consumer",
                 "payment-succeeded",
                 v -> ConsumeResult.SUCCESS);
 
         verify(builder).setConsumptionThreadCount(6);
         assertThat(props.consumptionThreadsFor("notify-consumer")).isEqualTo(2);
+    }
+
+    /** 交给客户端的不是原始监听器，而是包了一层计时的：消费一条消息后，这个消费组的 mq.consume.delay 多一次记录。 */
+    @Test
+    void listenerIsWrappedWithTheConsumeDelayTimer() throws Exception {
+        when(provider.newPushConsumerBuilder()).thenReturn(builder);
+
+        ConsumerFactory.subscribe(
+                provider,
+                clientConfig,
+                props(null, null),
+                instrumentation,
+                "points-consumer",
+                "order-paid",
+                v -> ConsumeResult.SUCCESS);
+
+        ArgumentCaptor<MessageListener> listener = ArgumentCaptor.forClass(MessageListener.class);
+        verify(builder).setMessageListener(listener.capture());
+        MessageView view = mock(MessageView.class);
+        when(view.getBornTimestamp()).thenReturn(System.currentTimeMillis() - 50);
+        when(view.getDeliveryTimestamp()).thenReturn(Optional.empty());
+
+        assertThat(listener.getValue().consume(view)).isEqualTo(ConsumeResult.SUCCESS);
+        assertThat(registry.get("mq.consume.delay")
+                        .tag("group", "points-consumer")
+                        .tag("result", "success")
+                        .timer()
+                        .count())
+                .isEqualTo(1);
     }
 
     @Test

@@ -96,6 +96,20 @@ function Save-HaProperties($Props, [string]$File) {
     [System.IO.File]::WriteAllLines($File, $lines, (New-Object System.Text.UTF8Encoding($false)))
 }
 
+<#
+读某个实验某个变体的整套参数：公共的 common.properties → 实验目录的 common.properties → 变体文件 → -Set。
+Invoke-HaExperiment 用它；run.ps1 要在起服务之前就用到参数时（起几个实例、补多少库存）也调它。
+#>
+function Get-HaVariantProps([string]$Experiment, [string]$Variant, [string[]]$Set = @()) {
+    $expDir = Join-Path $script:ExperimentsRoot $Experiment
+    $variantFile = Join-Path $expDir "$Variant.properties"
+    if (-not (Test-Path $variantFile)) {
+        $known = (Get-ChildItem $expDir -Filter '*.properties' | Where-Object { $_.Name -ne 'common.properties' } | ForEach-Object { $_.BaseName }) -join ', '
+        throw "没有变体 $Variant，可选：$known"
+    }
+    return Read-HaProperties -Files @((Join-Path $script:ExperimentsRoot 'common.properties'), (Join-Path $expDir 'common.properties'), $variantFile) -Overrides $Set
+}
+
 # ---------------------------------------------------------------- 环境
 
 function Resolve-HaJava([string]$JavaHome) {
@@ -314,20 +328,128 @@ function Invoke-HaRestock([string[]]$Skus, [int]$Target = 100000) {
     Write-HaLog "已把 SKU $($Skus -join ',') 的库存补到 $Target"
 }
 
+# 查一个 SKU 的可售库存（分桶的 SKU 是各桶之和）
+function Get-HaStock([string]$Sku) {
+    $r = Invoke-RestMethod -Uri "http://localhost:8082/internal/demo/stocks?skuIds=$Sku" -TimeoutSec 10
+    return [int]@($r)[0].stock
+}
+
+<#
+把分桶的 SKU 并回单行（POST /internal/inventory/buckets/{skuId}/merge）。接口是幂等的：没分桶时直接返回成功。
+各桶还有未释放的预占时库存服务拒绝合并（5xx），这里返回 $false。
+#>
+function Invoke-HaBucketMerge([string]$Sku) {
+    try {
+        Invoke-WebRequest -UseBasicParsing -Method Post -Uri "http://localhost:8082/internal/inventory/buckets/$Sku/merge" -TimeoutSec 15 | Out-Null
+        return $true
+    } catch {
+        return $false
+    }
+}
+
+# 反复尝试并回单行（每 10 秒一次），直到成功或等满 TimeoutSec 秒；返回是否并回去了
+function Wait-HaBucketMerge([string]$Sku, [int]$TimeoutSec) {
+    $deadline = (Get-Date).AddSeconds($TimeoutSec)
+    while ($true) {
+        if (Invoke-HaBucketMerge $Sku) { return $true }
+        if ((Get-Date) -ge $deadline) { return $false }
+        Write-HaLog "SKU $Sku 的分桶还有未释放的预占，暂时并不回去，10 秒后再试"
+        Start-Sleep -Seconds 10
+    }
+}
+
+<#
+释放「卡住」的预占。下单时预占的结果不明（读超时、5xx）mall-app 会立刻调 release；release 也失败的话只记一行日志
+「释放预占失败，交给过期回查，orderNo=…」，这条预占要等库存服务的过期回查才会释放——预占 16 分钟后才过期，回查每 5 分钟一轮、
+一轮 200 条。在那之前库存回不到压测前的数，分桶的 SKU 各桶 reserved 不为 0、也合并不了。
+这里替过期回查提前做同一件事：从 LogDir 下各 mall-app 实例的日志里找出这些订单号，逐个调库存服务的 release（Skus 里每个 SKU 一行、数量 1）。
+release 按 (订单号, SKU) 幂等：已释放的不会重复归还，没预占过的 SKU 只留下一行已释放的占位。返回处理了多少个订单号。
+#>
+function Invoke-HaStuckRelease([string]$LogDir, [string[]]$Skus) {
+    if (-not (Test-Path $LogDir)) { return 0 }
+    $orderNos = @(Get-ChildItem $LogDir -Filter 'mall-app-*.log' | Where-Object { $_.Name -notlike '*.err.log' } |
+        Select-String -Pattern 'PlaceOrderService\s*:.*orderNo=(\d+)' -Encoding UTF8 |
+        ForEach-Object { $_.Matches[0].Groups[1].Value } | Sort-Object -Unique)
+    $lines = ($Skus | ForEach-Object { '{"skuId":' + $_ + ',"quantity":1}' }) -join ','
+    $failed = 0
+    foreach ($orderNo in $orderNos) {
+        $body = '{"orderNo":"' + $orderNo + '","lines":[' + $lines + ']}'
+        try {
+            Invoke-WebRequest -UseBasicParsing -Method Post -Uri 'http://localhost:8082/internal/inventory/release' -ContentType 'application/json' -Body $body -TimeoutSec 10 | Out-Null
+        } catch {
+            $failed++
+        }
+    }
+    if ($failed -gt 0) { Write-HaLog "释放卡住的预占：$failed 个订单号调 release 失败" }
+    return $orderNos.Count
+}
+
+<#
+等实验订单关完、库存还回来：每 5 秒查一次各 SKU 的可售库存之和，回到 Baseline 就返回 0；
+连续 IdleSec 秒没有变化（说明关单已经停了，剩下的是卡住的预占）或等满 TimeoutSec 秒就放弃，返回还差多少件。
+高并发实验一轮下十几万单，demo 下 1 分钟后陆续关单；不等它关完，积压的关单会带进下一轮，分桶的 SKU 也合并不回去。
+#>
+function Wait-HaStockRestored([string[]]$Skus, [long]$Baseline, [int]$TimeoutSec = 1800, [int]$IdleSec = 120, [string]$EventsFile) {
+    $start = Get-Date
+    $last = [long]-1; $lastChange = Get-Date; $lastLog = (Get-Date).AddSeconds(-60); $first = $null
+    while ($true) {
+        $now = [long]0
+        foreach ($sku in $Skus) { $now += Get-HaStock $sku }
+        if ($null -eq $first) { $first = $now }
+        $waited = [int]((Get-Date) - $start).TotalSeconds
+        $missing = $Baseline - $now
+        if ($missing -le 0) {
+            $msg = "库存已回到压测前的 $Baseline（等了 $waited 秒，开始等时还差 $($Baseline - $first) 件）"
+            if ($EventsFile) { Write-HaEvent $EventsFile 'script' $msg } else { Write-HaLog $msg }
+            return 0
+        }
+        if ($now -ne $last) { $last = $now; $lastChange = Get-Date }
+        $idle = [int]((Get-Date) - $lastChange).TotalSeconds
+        if ($waited -ge $TimeoutSec -or $idle -ge $IdleSec) {
+            $why = if ($idle -ge $IdleSec) { "连续 $idle 秒没有变化" } else { "等满了 $TimeoutSec 秒" }
+            $msg = "库存没有回到压测前的 $Baseline：还差 $missing 件，$why（等了 $waited 秒，开始等时还差 $($Baseline - $first) 件）"
+            if ($EventsFile) { Write-HaEvent $EventsFile 'script' $msg } else { Write-HaLog $msg }
+            return $missing
+        }
+        if (((Get-Date) - $lastLog).TotalSeconds -ge 30) {
+            Write-HaLog "等实验订单关单、库存归还：还差 $missing 件（已等 $waited 秒）"
+            $lastLog = Get-Date
+        }
+        Start-Sleep -Seconds 5
+    }
+}
+
 # ---------------------------------------------------------------- 采样、压测、导出
 
 <#
 每秒抓一次各服务管理端口的 /actuator/prometheus，只留实验关心的指标，写成长表 CSV（epoch_ms,target,series,value）。
 独立进程，压测结束后 Stop-HaSampler。Prometheus 只有 15 秒一个点，看「第几秒开始出错」要靠这份。
 #>
-function Start-HaSampler([System.Collections.IDictionary]$Targets, [string]$OutFile, [int]$IntervalMs = 1000) {
+function Start-HaSampler([System.Collections.IDictionary]$Targets, [string]$OutFile, [int]$IntervalMs = 1000, [string]$ExtraPattern) {
     $spec = ($Targets.Keys | ForEach-Object { "$_=$($Targets[$_])" }) -join ','
     $sampler = Join-Path $script:ExperimentsRoot 'tools\Sample-Metrics.ps1'
     $ps = (Get-Process -Id $PID).Path
-    $p = Start-Process -FilePath $ps -ArgumentList @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', "`"$sampler`"",
-        '-Targets', "`"$spec`"", '-OutFile', "`"$OutFile`"", '-IntervalMs', "$IntervalMs") -PassThru -NoNewWindow
+    $argList = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', "`"$sampler`"",
+        '-Targets', "`"$spec`"", '-OutFile', "`"$OutFile`"", '-IntervalMs', "$IntervalMs")
+    if ($ExtraPattern) { $argList += @('-Pattern', "`"$(Get-HaSamplerPattern $ExtraPattern)`"") }
+    $p = Start-Process -FilePath $ps -ArgumentList $argList -PassThru -NoNewWindow
     Write-HaLog "指标采样已启动（pid $($p.Id)）→ $OutFile"
     return $p
+}
+
+<#
+采样脚本默认只留各实验都要看的那批指标（Sample-Metrics.ps1 的 -Pattern 默认值）。个别实验要多留几个（如商品详情缓存的回源次数、
+消息的消费延迟）时，在默认值后面接上自己的：默认的正则从采样脚本的参数定义里读出来，不在这里再抄一份。
+Extra 是不带 ^ 的正则片段（多个用 | 隔开），匹配的是「指标名{标签}」的开头；不能含双引号（要原样放进命令行参数）。
+#>
+function Get-HaSamplerPattern([string]$Extra) {
+    if ($Extra.Contains('"')) { throw "采样的附加正则不能含双引号：$Extra" }
+    $sampler = Join-Path $script:ExperimentsRoot 'tools\Sample-Metrics.ps1'
+    $tokens = $null; $errors = $null
+    $ast = [System.Management.Automation.Language.Parser]::ParseFile($sampler, [ref]$tokens, [ref]$errors)
+    $param = $ast.ParamBlock.Parameters | Where-Object { $_.Name.VariablePath.UserPath -eq 'Pattern' }
+    if (-not $param -or -not $param.DefaultValue) { throw "读不出 $sampler 的 -Pattern 默认值" }
+    return "$($param.DefaultValue.Value)|^(?:$Extra)"
 }
 
 function Stop-HaSampler($Process) {
@@ -481,23 +603,24 @@ function New-HaRunDir([string]$Experiment, [string]$Variant) {
 }
 
 <#
-跑一轮：读参数 → 起服务 → 补库存 → 开采样 → 后台起压测 → 执行 During（实验自己的动作，如抓线程栈、逐个重启）→ 等压测结束 → 导出 → 收尾。
+跑一轮：读参数 → 起服务 → 补库存 → 执行 BeforeLoad → 开采样 → 后台起压测 → 执行 During（实验自己的动作，如抓线程栈、逐个重启）
+→ 等压测结束 → 导出 → 执行 Cleanup → 收尾。
 During 是 scriptblock，参数是一个上下文对象（Topology、Props、RunDir、StartedMs、Java、Gatling、Events）。
+SamplerExtraPattern 可选：逐秒采样（metrics.csv）除默认那批指标外还要留哪些，见 Get-HaSamplerPattern。
+BeforeLoad、Cleanup 可选，参数是同一个上下文对象：BeforeLoad 在服务就绪、库存补完之后、压测开始之前执行（这时 StartedMs 是 0、Gatling 是空），
+出错则这一轮不跑；Cleanup 在停服务之前执行，中途出错或 Ctrl+C 也会执行（服务还活着时才有意义，自己要判断），它出错只记日志。
 #>
 function Invoke-HaExperiment {
     param(
         [string]$Experiment, [string]$Variant, [string]$Simulation,
         [string[]]$Set = @(), [string]$JavaHome, [string]$PrometheusUrl, [string]$NacosNamespace,
         [int]$MallAppCount = 1, [scriptblock]$During, [switch]$Build, [switch]$KeepServices,
-        [string[]]$Skus = @('20001', '20002', '20003'))
+        [string[]]$Skus = @('20001', '20002', '20003'),
+        [scriptblock]$BeforeLoad, [scriptblock]$Cleanup, [int]$RestockTarget = 100000,
+        [string]$SamplerExtraPattern)
 
     $expDir = Join-Path $script:ExperimentsRoot $Experiment
-    $variantFile = Join-Path $expDir "$Variant.properties"
-    if (-not (Test-Path $variantFile)) {
-        $known = (Get-ChildItem $expDir -Filter '*.properties' | Where-Object { $_.Name -ne 'common.properties' } | ForEach-Object { $_.BaseName }) -join ', '
-        throw "没有变体 $Variant，可选：$known"
-    }
-    $props = Read-HaProperties -Files @((Join-Path $script:ExperimentsRoot 'common.properties'), (Join-Path $expDir 'common.properties'), $variantFile) -Overrides $Set
+    $props = Get-HaVariantProps $Experiment $Variant $Set
     $java = Resolve-HaJava $JavaHome
     Assert-HaJars -Build:$Build -Java $java
     $runDir = New-HaRunDir $Experiment $Variant
@@ -507,24 +630,26 @@ function Invoke-HaExperiment {
     if ($NacosNamespace) { $env:NACOS_NAMESPACE = $NacosNamespace }
     Write-HaLog "实验 $Experiment / $Variant，结果目录 $runDir"
 
-    $topology = $null; $sampler = $null; $gatling = $null
+    $topology = $null; $sampler = $null; $gatling = $null; $ctx = $null
     try {
         $topology = Start-HaTopology -Props $props -LogDir (Join-Path $runDir 'logs') -Java $java -MallAppCount $MallAppCount
-        Invoke-HaRestock $Skus
+        Invoke-HaRestock $Skus $RestockTarget
+        $ctx = [pscustomobject]@{
+            Topology = $topology; Props = $props; RunDir = $runDir; StartedMs = [long]0; Java = $java
+            Gatling = $null; Events = (Join-Path $runDir 'script-events.csv')
+        }
+        if ($BeforeLoad) { & $BeforeLoad $ctx }
 
         $targets = [ordered]@{}
         foreach ($s in (Get-HaAllServices $topology)) { $targets[$s.Name] = "http://localhost:$($s.MgmtPort)" }
-        $sampler = Start-HaSampler $targets (Join-Path $runDir 'metrics.csv')
+        $sampler = Start-HaSampler $targets (Join-Path $runDir 'metrics.csv') -ExtraPattern $SamplerExtraPattern
 
         $sys = @{ 'baseUrl' = 'http://localhost:9000'; 'ha.jwtSecret' = (Get-HaJwtSecret); 'ha.skus' = ($Skus -join ',') }
         $gatling = Start-HaGatling -Simulation $Simulation -Props $props -SysProps $sys -RunDir $runDir -Java $java
         $startedMs = Wait-HaGatlingStarted $runDir $gatling
         Write-HaLog '压测已开始注入流量'
 
-        $ctx = [pscustomobject]@{
-            Topology = $topology; Props = $props; RunDir = $runDir; StartedMs = $startedMs; Java = $java
-            Gatling = $gatling; Events = (Join-Path $runDir 'script-events.csv')
-        }
+        $ctx.StartedMs = $startedMs; $ctx.Gatling = $gatling
         if ($During) { & $During $ctx }
 
         Wait-HaGatling $gatling $runDir
@@ -535,6 +660,9 @@ function Invoke-HaExperiment {
     } finally {
         Stop-HaSampler $sampler
         Stop-HaProcessTree $gatling
+        if ($Cleanup -and $ctx) {
+            try { & $Cleanup $ctx } catch { Write-HaLog "收尾动作出错：$($_.Exception.Message)" }
+        }
         Clear-HaFaults $topology
         if (-not $KeepServices) { Stop-HaTopology $topology }
     }

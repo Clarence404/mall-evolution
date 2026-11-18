@@ -1,6 +1,7 @@
 package io.github.clarence404.mall.inventory.reserve;
 
 import io.github.clarence404.mall.common.json.Json;
+import io.github.clarence404.mall.common.mq.ConsumeInstrumentation;
 import io.github.clarence404.mall.common.mq.ConsumerFactory;
 import io.github.clarence404.mall.common.mq.RocketMqProperties;
 import io.github.clarence404.mall.inventory.api.ReserveLine;
@@ -28,10 +29,11 @@ class InventoryConsumersConfig {
             ClientServiceProvider provider,
             ClientConfiguration clientConfig,
             RocketMqProperties props,
+            ConsumeInstrumentation instrumentation,
             ReservationService reservationService)
             throws ClientException {
         return ConsumerFactory.subscribe(
-                provider, clientConfig, props, "inventory-confirm-consumer", "order-paid", view -> {
+                provider, clientConfig, props, instrumentation, "inventory-confirm-consumer", "order-paid", view -> {
                     OrderPaidMessage m = Json.read(view.getBody(), OrderPaidMessage.class);
                     try {
                         reservationService.confirm(m.orderNo());
@@ -48,10 +50,17 @@ class InventoryConsumersConfig {
             ClientServiceProvider provider,
             ClientConfiguration clientConfig,
             RocketMqProperties props,
+            ConsumeInstrumentation instrumentation,
             ReservationService reservationService)
             throws ClientException {
         return ConsumerFactory.subscribe(
-                provider, clientConfig, props, "inventory-release-consumer", "order-cancelled", view -> {
+                provider,
+                clientConfig,
+                props,
+                instrumentation,
+                "inventory-release-consumer",
+                "order-cancelled",
+                view -> {
                     OrderCancelledMessage m = Json.read(view.getBody(), OrderCancelledMessage.class);
                     try {
                         reservationService.release(m.orderNo(), m.lines());

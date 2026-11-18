@@ -1,6 +1,7 @@
 package io.github.clarence404.mall.order.mq;
 
 import io.github.clarence404.mall.common.json.Json;
+import io.github.clarence404.mall.common.mq.ConsumeInstrumentation;
 import io.github.clarence404.mall.common.mq.ConsumerFactory;
 import io.github.clarence404.mall.common.mq.RocketMqProperties;
 import io.github.clarence404.mall.order.cancel.OrderCloseService;
@@ -38,12 +39,14 @@ class OrderConsumersConfig {
             ClientServiceProvider provider,
             ClientConfiguration clientConfig,
             RocketMqProperties props,
+            ConsumeInstrumentation instrumentation,
             PaidNotifier notifier)
             throws ClientException {
         return ConsumerFactory.subscribe(
                 provider,
                 clientConfig,
                 props,
+                instrumentation,
                 "notify-consumer",
                 "order-paid",
                 listener(OrderPaidEvent.class, notifier::onPaid));
@@ -54,12 +57,14 @@ class OrderConsumersConfig {
             ClientServiceProvider provider,
             ClientConfiguration clientConfig,
             RocketMqProperties props,
+            ConsumeInstrumentation instrumentation,
             ShipmentCreator creator)
             throws ClientException {
         return ConsumerFactory.subscribe(
                 provider,
                 clientConfig,
                 props,
+                instrumentation,
                 "shipment-consumer",
                 "order-paid",
                 listener(OrderPaidEvent.class, creator::onPaid));
@@ -73,12 +78,14 @@ class OrderConsumersConfig {
             ClientServiceProvider provider,
             ClientConfiguration clientConfig,
             RocketMqProperties props,
+            ConsumeInstrumentation instrumentation,
             OrderPaidTxService orderPaidTxService)
             throws ClientException {
         return ConsumerFactory.subscribe(
                 provider,
                 clientConfig,
                 props,
+                instrumentation,
                 "order-payment-consumer",
                 "payment-succeeded",
                 listener(PaymentSucceeded.class, orderPaidTxService::markPaid));
@@ -93,12 +100,14 @@ class OrderConsumersConfig {
             ClientServiceProvider provider,
             ClientConfiguration clientConfig,
             RocketMqProperties props,
+            ConsumeInstrumentation instrumentation,
             OrderCloseService closeService)
             throws ClientException {
         return ConsumerFactory.subscribe(
                 provider,
                 clientConfig,
                 props,
+                instrumentation,
                 "order-timeout-consumer",
                 "order-timeout",
                 listener(OrderTimeoutMessage.class, m -> closeService.closeIfUnpaid(m.orderNo())));

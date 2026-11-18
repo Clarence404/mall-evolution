@@ -1,6 +1,7 @@
 package io.github.clarence404.mall.payment.pay;
 
 import io.github.clarence404.mall.common.json.Json;
+import io.github.clarence404.mall.common.mq.ConsumeInstrumentation;
 import io.github.clarence404.mall.common.mq.ConsumerFactory;
 import io.github.clarence404.mall.common.mq.RocketMqProperties;
 import lombok.extern.slf4j.Slf4j;
@@ -23,10 +24,11 @@ class PaymentConsumersConfig {
             ClientServiceProvider provider,
             ClientConfiguration clientConfig,
             RocketMqProperties props,
+            ConsumeInstrumentation instrumentation,
             RefundService refundService)
             throws ClientException {
         return ConsumerFactory.subscribe(
-                provider, clientConfig, props, RefundService.GROUP, "order-refund-required", view -> {
+                provider, clientConfig, props, instrumentation, RefundService.GROUP, "order-refund-required", view -> {
                     RefundRequired m = Json.read(view.getBody(), RefundRequired.class);
                     try {
                         refundService.refund(m.orderNo(), m.paymentNo());

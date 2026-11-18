@@ -175,7 +175,7 @@ IDEA 里直接选运行配置「5. 流量模拟（演示账号）」，停止按
 - **抓取地址**：示例里是 `host.docker.internal:18080 / 18082 / 18083 / 19000`，即 Prometheus 在容器里、四个服务跑在同一台宿主机上；服务在别的机器上时改成那台机器的地址（内网地址只写在部署目录里，不要提交）。Prometheus 匿名抓管理端口的 `/actuator/prometheus`，不需要令牌
 - **`app` 标签怎么打**：在 file_sd 的 `labels` 里给每个地址写 `"app": "<服务名>"`（`mall-app` / `inventory-service` / `payment-service` / `mall-gateway`），JVM 与 HTTP 面板顶部的服务下拉框按它切换；Kubernetes 里这个标签由 `podmonitor.yaml` 从 Pod 的 `app` 标签带过来，两边取值一致。业务大盘和告警规则用的是另一个标签 `application`，它由应用自己打（`management.metrics.tags.application`），不用配
 - **导入面板**：用 provisioning（上表最后两行）时 Grafana 启动后就在 `mall-evolution` 文件夹里；也可以手工导入——Grafana → Dashboards → New → Import，上传 JSON，数据源变量 `datasource` 选 Prometheus。两个面板的 uid 分别是 `mall-business` 和 `mall-jvm-http`
-- **确认抓到了**：Prometheus 的 Status → Targets 里 `mall-evolution` 任务四个地址都是 UP；Alerts 页能看到规则。Redis / RocketMQ 的指标来自各自的 exporter，本地没接时相关告警和面板没有数据，属正常
+- **确认抓到了**：Prometheus 的 Status → Targets 里 `mall-evolution` 任务四个地址都是 UP；Alerts 页能看到规则。Redis / RocketMQ 的指标来自各自的 exporter，本地没接时相关告警和面板没有数据，属正常。各消费组的端到端消费延迟不依赖 exporter，由三个服务自己上报：`mq_consume_delay_seconds_*{group,result}`，一条消息处理完的时刻减去它的产生时间（定时消息减去定好的投递时间），本地起服务就有
 - **想让面板一直有数据**：起上面的「流量模拟器」
 
 ## 构建与测试

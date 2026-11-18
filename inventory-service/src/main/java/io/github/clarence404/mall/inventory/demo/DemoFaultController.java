@@ -28,8 +28,11 @@ class DemoFaultController {
     /** 上限 3 秒：网关的 response-timeout 是 3 秒，再长没有意义。 */
     static final int MAX_DELAY_MS = 3000;
 
-    /** 补货上限：模拟器默认补到 1000，留足余量但防止误填出离谱的数。 */
-    static final int MAX_RESTOCK = 100_000;
+    /**
+     * 补货上限：模拟器默认补到 1000，高可用实验每轮补到 10 万；热点库存实验（experiments/e-hot-stock）一轮要下二十多万单、
+     * 全打同一个 SKU，要补到 30 万，所以上限放到 100 万。仍然设上限，防止误填出离谱的数。
+     */
+    static final int MAX_RESTOCK = 1_000_000;
 
     private final DemoFaults faults;
     private final InventoryService inventoryService;

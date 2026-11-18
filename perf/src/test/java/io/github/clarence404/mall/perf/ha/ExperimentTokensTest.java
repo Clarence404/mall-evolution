@@ -59,6 +59,36 @@ class ExperimentTokensTest {
     }
 
     @Test
+    void sequentialFeederNeverRepeatsAndSignsEachUser() {
+        Iterator<Map<String, Object>> it = tokens.sequentialUsers(1_000_000_000L);
+
+        Map<String, Object> first = it.next();
+        Map<String, Object> second = it.next();
+
+        assertThat(first).containsEntry("userId", 1_000_000_000L);
+        assertThat(second).containsEntry("userId", 1_000_000_001L);
+        assertThat(decode(((String) second.get("token")).split("\\.")[1])).contains("\"sub\":\"1000000001\"");
+        assertThat(it.next()).containsEntry("userId", 1_000_000_002L);
+    }
+
+    @Test
+    void firstUserIdByTimeMovesTenThousandIdsPerSecond() {
+        long t = 1_795_000_100_000L;
+
+        assertThat(ExperimentTokens.firstUserIdByTime(t)).isBetween(1_000_000_000L, 11_000_000_000L);
+        assertThat(ExperimentTokens.firstUserIdByTime(t + 999)).isEqualTo(ExperimentTokens.firstUserIdByTime(t));
+        assertThat(ExperimentTokens.firstUserIdByTime(t + 60_000) - ExperimentTokens.firstUserIdByTime(t))
+                .isEqualTo(600_000); // 一分钟后起点往后挪 60 万个：每秒用掉不到 1 万个用户的压测，两轮不会重叠
+    }
+
+    @Test
+    void adminTokenCarriesTheAdminRoleOnly() {
+        String payload = decode(tokens.mintAdmin(900000000L).split("\\.")[1]);
+
+        assertThat(payload).contains("\"sub\":\"900000000\"").contains("\"roles\":[\"ADMIN\"]");
+    }
+
+    @Test
     void shortSecretIsRejected() {
         assertThatThrownBy(() -> new ExperimentTokens("too-short", "mall-evolution", Duration.ofHours(1)))
                 .isInstanceOf(IllegalArgumentException.class);
