@@ -6,8 +6,10 @@ import org.apache.rocketmq.client.apis.ClientConfigurationBuilder;
 import org.apache.rocketmq.client.apis.ClientException;
 import org.apache.rocketmq.client.apis.ClientServiceProvider;
 import org.apache.rocketmq.client.apis.StaticSessionCredentialsProvider;
+import org.apache.rocketmq.client.apis.consumer.PushConsumer;
 import org.apache.rocketmq.client.apis.producer.Producer;
 import org.mybatis.spring.annotation.MapperScan;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
@@ -24,31 +26,38 @@ import org.springframework.util.StringUtils;
 @MapperScan(
         basePackages = {&quot;io.github.clarence404.mall.common.mq&quot;, &quot;io.github.clarence404.mall.common.outbox&quot;},
         annotationClass = Mapper.class)
-<span class="nc" id="L27">public class RocketMqConfig {</span>
+<span class="nc" id="L29">public class RocketMqConfig {</span>
 
     @Bean
     ClientServiceProvider clientServiceProvider() {
-<span class="nc" id="L31">        return ClientServiceProvider.loadService();</span>
+<span class="nc" id="L33">        return ClientServiceProvider.loadService();</span>
     }
 
     @Bean
     @ConditionalOnProperty(prefix = &quot;mall.rocketmq&quot;, name = &quot;enabled&quot;, havingValue = &quot;true&quot;)
     ClientConfiguration rocketMqClientConfiguration(RocketMqProperties props) {
-<span class="nc" id="L37">        ClientConfigurationBuilder builder = ClientConfiguration.newBuilder()</span>
-<span class="nc" id="L38">                .setEndpoints(props.endpoints())</span>
-<span class="nc" id="L39">                .setRequestTimeout(props.requestTimeout());</span>
-<span class="nc bnc" id="L40" title="All 2 branches missed.">        if (StringUtils.hasText(props.accessKey())) {</span>
-<span class="nc" id="L41">            builder.setCredentialProvider(new StaticSessionCredentialsProvider(props.accessKey(), props.secretKey()));</span>
+<span class="nc" id="L39">        ClientConfigurationBuilder builder = ClientConfiguration.newBuilder()</span>
+<span class="nc" id="L40">                .setEndpoints(props.endpoints())</span>
+<span class="nc" id="L41">                .setRequestTimeout(props.requestTimeout());</span>
+<span class="nc bnc" id="L42" title="All 2 branches missed.">        if (StringUtils.hasText(props.accessKey())) {</span>
+<span class="nc" id="L43">            builder.setCredentialProvider(new StaticSessionCredentialsProvider(props.accessKey(), props.secretKey()));</span>
         }
-<span class="nc" id="L43">        return builder.build();</span>
+<span class="nc" id="L45">        return builder.build();</span>
     }
 
     @Bean(destroyMethod = &quot;close&quot;)
     @ConditionalOnProperty(prefix = &quot;mall.rocketmq&quot;, name = &quot;enabled&quot;, havingValue = &quot;true&quot;)
     Producer rocketMqProducer(ClientServiceProvider provider, ClientConfiguration clientConfig) throws ClientException {
-<span class="nc" id="L49">        return provider.newProducerBuilder()</span>
-<span class="nc" id="L50">                .setClientConfiguration(clientConfig)</span>
-<span class="nc" id="L51">                .build();</span>
+<span class="nc" id="L51">        return provider.newProducerBuilder()</span>
+<span class="nc" id="L52">                .setClientConfiguration(clientConfig)</span>
+<span class="nc" id="L53">                .build();</span>
+    }
+
+    /** 停机时并行关闭本服务的全部消费者，见 {@link ParallelConsumerShutdown}。 */
+    @Bean
+    @ConditionalOnProperty(prefix = &quot;mall.rocketmq&quot;, name = &quot;enabled&quot;, havingValue = &quot;true&quot;)
+    ParallelConsumerShutdown parallelConsumerShutdown(ObjectProvider&lt;PushConsumer&gt; consumers) {
+<span class="nc" id="L60">        return new ParallelConsumerShutdown(consumers);</span>
     }
 }
 </pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.13.202504020838</span></div></body></html>

@@ -9,7 +9,7 @@ inventory-service,io.github.clarence404.mall.inventory.reserve,ReservationExpire
 inventory-service,io.github.clarence404.mall.inventory.reserve,ReservationService,45,310,7,37,9,59,8,26,3,9
 inventory-service,io.github.clarence404.mall.inventory.reserve,InventoryConsumersConfig.OrderCancelledMessage,9,0,0,0,1,0,1,0,1,0
 inventory-service,io.github.clarence404.mall.inventory.reserve,Reservation,0,38,0,2,0,10,0,4,0,3
-inventory-service,io.github.clarence404.mall.inventory,InventoryServiceApplication,5,3,0,0,2,1,1,1,1,1
+inventory-service,io.github.clarence404.mall.inventory,InventoryServiceApplication,9,3,0,0,5,1,1,1,1,1
 inventory-service,io.github.clarence404.mall.inventory.demo,DemoReserveDelayFilter,3,29,2,4,2,7,2,3,0,2
 inventory-service,io.github.clarence404.mall.inventory.demo,DemoFaultController,0,50,0,0,0,9,0,6,0,6
 inventory-service,io.github.clarence404.mall.inventory.demo,DemoFaults,0,10,0,0,0,4,0,3,0,3
@@ -18,4 +18,4 @@ inventory-service,io.github.clarence404.mall.inventory.config,InventoryModuleCon
 inventory-service,io.github.clarence404.mall.inventory.bucket,InventoryBucketService,15,222,12,24,6,33,12,12,0,6
 inventory-service,io.github.clarence404.mall.inventory.bucket,InventoryBucketMapper.Bucket,0,15,0,0,0,1,0,1,0,1
 inventory-service,io.github.clarence404.mall.inventory.bucket,BucketAdminController,15,0,0,0,4,0,2,0,2,0
-inventory-service,io.github.clarence404.mall.inventory.bucket,BucketRebalanceJob,17,13,1,1,5,3,1,2,0,2
+inventory-service,io.github.clarence404.mall.inventory.bucket,BucketRebalanceJob,6,24,0,2,2,6,0,3,0,2

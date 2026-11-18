@@ -1,5 +1,5 @@
 GROUP,PACKAGE,CLASS,INSTRUCTION_MISSED,INSTRUCTION_COVERED,BRANCH_MISSED,BRANCH_COVERED,LINE_MISSED,LINE_COVERED,COMPLEXITY_MISSED,COMPLEXITY_COVERED,METHOD_MISSED,METHOD_COVERED
-mall-common,io.github.clarence404.mall.common.lifecycle,RegisterWhenReady,0,44,2,4,0,13,2,4,0,3
+mall-common,io.github.clarence404.mall.common.lifecycle,RegisterWhenReady,1,102,4,12,1,29,4,8,0,4
 mall-common,io.github.clarence404.mall.common.lifecycle,OfflineController,41,0,4,0,11,0,5,0,3,0
 mall-common,io.github.clarence404.mall.common.degrade,DegradeProperties,0,12,0,0,0,4,0,1,0,1
 mall-common,io.github.clarence404.mall.common.demo.fault,DemoFaultFilter,10,114,0,12,6,40,0,10,0,4
@@ -27,7 +27,8 @@ mall-common,io.github.clarence404.mall.common.id,Ids,0,12,0,0,0,4,0,3,0,3
 mall-common,io.github.clarence404.mall.common.mq,ConsumerFactory,0,26,0,0,0,7,0,1,0,1
 mall-common,io.github.clarence404.mall.common.mq,RocketMqProperties,0,79,2,10,0,14,2,8,0,4
 mall-common,io.github.clarence404.mall.common.mq,ConsumeRecordCleanupJob,29,0,2,0,8,0,3,0,2,0
-mall-common,io.github.clarence404.mall.common.mq,RocketMqConfig,36,0,2,0,11,0,5,0,4,0
+mall-common,io.github.clarence404.mall.common.mq,RocketMqConfig,41,0,2,0,12,0,6,0,5,0
+mall-common,io.github.clarence404.mall.common.mq,ParallelConsumerShutdown,95,0,2,0,30,0,11,0,10,0
 mall-common,io.github.clarence404.mall.common.remote,HttpClientPoolProperties,0,25,2,4,0,2,2,3,0,2
 mall-common,io.github.clarence404.mall.common.remote,HttpClientPoolConfig,10,74,3,5,2,18,6,5,3,4
 mall-common,io.github.clarence404.mall.common.remote,RemoteFailurePredicate,0,23,1,5,0,4,1,4,0,2

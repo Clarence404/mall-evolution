@@ -1,0 +1,84 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>ParallelConsumerShutdown.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">mall-common</a> &gt; <a href="index.source.html" class="el_package">io.github.clarence404.mall.common.mq</a> &gt; <span class="el_source">ParallelConsumerShutdown.java</span></div><h1>ParallelConsumerShutdown.java</h1><pre class="source lang-java linenums">package io.github.clarence404.mall.common.mq;
+
+import java.util.List;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
+import lombok.extern.slf4j.Slf4j;
+import org.apache.rocketmq.client.apis.consumer.PushConsumer;
+import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.context.SmartLifecycle;
+
+/**
+ * 停机时把所有 PushConsumer 一起关，而不是等 Spring 销毁 Bean 时一个一个关。
+ *
+ * &lt;p&gt;PushConsumer.close() 要等手上的长轮询请求结束，实测一个约 30 秒。mall-app 有 4 个消费者，逐个关加上 Nacos 的 10 秒等待，
+ * 从 SIGTERM 到进程退出要 75–90 秒（高可用实验 C），超过 Kubernetes 给的宽限期，后面的消费者会被强杀。
+ * 并行关之后总耗时约等于最慢的那一个。之后 Bean 销毁时的 close() 再调一次是空操作。
+ *
+ * &lt;p&gt;阶段排在 Web 服务器之后：先停接请求、处理完在途请求（它们可能还要发消息），再关消费者。
+ */
+<span class="nc" id="L22">@Slf4j</span>
+public class ParallelConsumerShutdown implements SmartLifecycle {
+
+    /** Web 服务器的优雅停机与停止分别在 MAX - 1024、MAX - 2048；数值小的后停。 */
+    static final int PHASE = SmartLifecycle.DEFAULT_PHASE - 4096;
+
+    private static final long TIMEOUT_SECONDS = 45;
+
+    private final ObjectProvider&lt;PushConsumer&gt; consumers;
+    private volatile boolean running;
+
+<span class="nc" id="L33">    public ParallelConsumerShutdown(ObjectProvider&lt;PushConsumer&gt; consumers) {</span>
+<span class="nc" id="L34">        this.consumers = consumers;</span>
+<span class="nc" id="L35">    }</span>
+
+    @Override
+    public void start() {
+<span class="nc" id="L39">        running = true;</span>
+<span class="nc" id="L40">    }</span>
+
+    @Override
+    public void stop() {
+<span class="nc" id="L44">        running = false;</span>
+<span class="nc" id="L45">        List&lt;PushConsumer&gt; all = consumers.stream().toList();</span>
+<span class="nc bnc" id="L46" title="All 2 branches missed.">        if (all.isEmpty()) {</span>
+<span class="nc" id="L47">            return;</span>
+        }
+<span class="nc" id="L49">        long begin = System.nanoTime();</span>
+<span class="nc" id="L50">        ExecutorService executor = Executors.newVirtualThreadPerTaskExecutor();</span>
+        try {
+<span class="nc" id="L52">            CompletableFuture&lt;?&gt;[] closing = all.stream()</span>
+<span class="nc" id="L53">                    .map(consumer -&gt; CompletableFuture.runAsync(() -&gt; close(consumer), executor))</span>
+<span class="nc" id="L54">                    .toArray(CompletableFuture[]::new);</span>
+<span class="nc" id="L55">            CompletableFuture.allOf(closing).get(TIMEOUT_SECONDS, TimeUnit.SECONDS);</span>
+<span class="nc" id="L56">            log.info(&quot;{} 个消费者已并行关闭，用时 {}ms&quot;, all.size(), TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - begin));</span>
+<span class="nc" id="L57">        } catch (InterruptedException e) {</span>
+<span class="nc" id="L58">            Thread.currentThread().interrupt();</span>
+<span class="nc" id="L59">        } catch (Exception e) {</span>
+<span class="nc" id="L60">            log.warn(&quot;并行关闭消费者超时或出错，剩下的交给 Bean 销毁&quot;, e); // 不挡住后面的停机步骤</span>
+        } finally {
+<span class="nc" id="L62">            executor.shutdown(); // 不等：超时没关完的不能卡住停机</span>
+        }
+<span class="nc" id="L64">    }</span>
+
+    private static void close(PushConsumer consumer) {
+        try {
+<span class="nc" id="L68">            consumer.close();</span>
+<span class="nc" id="L69">        } catch (Exception e) {</span>
+<span class="nc" id="L70">            log.warn(&quot;关闭消费者出错 {}&quot;, consumer.getConsumerGroup(), e);</span>
+<span class="nc" id="L71">        }</span>
+<span class="nc" id="L72">    }</span>
+
+    @Override
+    public boolean isRunning() {
+<span class="nc" id="L76">        return running;</span>
+    }
+
+    @Override
+    public int getPhase() {
+<span class="nc" id="L81">        return PHASE;</span>
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.13.202504020838</span></div></body></html>

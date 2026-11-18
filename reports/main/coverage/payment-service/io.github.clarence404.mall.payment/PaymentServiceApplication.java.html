@@ -15,7 +15,13 @@ import org.springframework.web.service.registry.ImportHttpServices;
 <span class="fc" id="L15">public class PaymentServiceApplication {</span>
 
     public static void main(String[] args) {
-<span class="nc" id="L18">        SpringApplication.run(PaymentServiceApplication.class, args);</span>
-<span class="nc" id="L19">    }</span>
+        try {
+<span class="nc" id="L19">            SpringApplication.run(PaymentServiceApplication.class, args);</span>
+<span class="nc" id="L20">        } catch (RuntimeException e) {</span>
+            // 启动失败时 Spring 已经打印原因并关闭了上下文，但启动途中建好的客户端（RocketMQ、Nacos）留有非守护线程，
+            // JVM 会一直挂着不退出，Kubernetes 也就不会重启它（高可用实验里两次遇到：启动瞬间连不上 Redis）。显式退出
+<span class="nc" id="L23">            System.exit(1);</span>
+<span class="nc" id="L24">        }</span>
+<span class="nc" id="L25">    }</span>
 }
 </pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.13.202504020838</span></div></body></html>
