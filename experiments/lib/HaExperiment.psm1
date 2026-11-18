@@ -255,21 +255,28 @@ function Invoke-HaOffline($Svc) {
 #>
 function Start-HaTopology($Props, [string]$LogDir, $Java, [int]$MallAppCount = 1) {
     $ports = @(8082, 18082, 8083, 18083, 9000, 19000)
-    for ($i = 0; $i -lt $MallAppCount; $i++) { $ports += @(8080 + 100 * $i, 18080 + 100 * $i) }
+    for ($i = 0; $i -lt $MallAppCount; $i++) { $ports += @((8080 + 100 * $i), (18080 + 100 * $i)) }   # 逗号的优先级比 + 和 * 高，不加括号会被解析成「100 * 数组」
     Assert-HaPortsFree $ports
-    $t = [ordered]@{ Apps = @() }
-    $t.Inventory = Start-HaService -Name 'inventory-service' -Module 'inventory-service' -Port 8082 -MgmtPort 18082 -Props $Props -LogDir $LogDir -Java $Java
-    $t.Payment = Start-HaService -Name 'payment-service' -Module 'payment-service' -Port 8083 -MgmtPort 18083 -Props $Props -LogDir $LogDir -Java $Java
-    Wait-HaReady $t.Inventory
-    Wait-HaReady $t.Payment
-    for ($i = 0; $i -lt $MallAppCount; $i++) {
-        $extra = @{ 'mall.id.worker-id' = "$($i + 1)" }
-        $t.Apps += Start-HaService -Name "mall-app-$($i + 1)" -Module 'mall-app' -Port (8080 + 100 * $i) -MgmtPort (18080 + 100 * $i) `
-            -Props $Props -Extra $extra -LogDir $LogDir -Java $Java
+    $t = [ordered]@{ Apps = @(); Inventory = $null; Payment = $null; Gateway = $null }   # 先占好位：严格模式下读不存在的属性会报错，中途失败收尾时要用
+    try {
+        $t.Inventory = Start-HaService -Name 'inventory-service' -Module 'inventory-service' -Port 8082 -MgmtPort 18082 -Props $Props -LogDir $LogDir -Java $Java
+        $t.Payment = Start-HaService -Name 'payment-service' -Module 'payment-service' -Port 8083 -MgmtPort 18083 -Props $Props -LogDir $LogDir -Java $Java
+        Wait-HaReady $t.Inventory
+        Wait-HaReady $t.Payment
+        for ($i = 0; $i -lt $MallAppCount; $i++) {
+            $extra = @{ 'mall.id.worker-id' = "$($i + 1)" }
+            $t.Apps += Start-HaService -Name "mall-app-$($i + 1)" -Module 'mall-app' -Port (8080 + 100 * $i) -MgmtPort (18080 + 100 * $i) `
+                -Props $Props -Extra $extra -LogDir $LogDir -Java $Java
+        }
+        foreach ($a in $t.Apps) { Wait-HaReady $a }
+        $t.Gateway = Start-HaService -Name 'mall-gateway' -Module 'mall-gateway' -Port 9000 -MgmtPort 19000 -Props $Props -LogDir $LogDir -Java $Java
+        Wait-HaReady $t.Gateway
+    } catch {
+        # 中途有服务起不来：调用方还没拿到拓扑对象，没法收尾，这里把已经起来的先停掉，否则它们会一直占着端口
+        Write-HaLog "启动失败，停掉已经起来的服务：$($_.Exception.Message)"
+        Stop-HaTopology ([pscustomobject]$t)
+        throw
     }
-    foreach ($a in $t.Apps) { Wait-HaReady $a }
-    $t.Gateway = Start-HaService -Name 'mall-gateway' -Module 'mall-gateway' -Port 9000 -MgmtPort 19000 -Props $Props -LogDir $LogDir -Java $Java
-    Wait-HaReady $t.Gateway
     Write-HaLog '等 10 秒，让网关从 Nacos 拿到全部实例'
     Start-Sleep -Seconds 10
     return [pscustomobject]$t
@@ -285,7 +292,8 @@ function Stop-HaTopology($Topology) {
     $all = Get-HaAllServices $Topology
     [array]::Reverse($all)
     foreach ($s in $all) {
-        try { Stop-HaService $s 'graceful' 60 } catch { Write-HaLog "停 $($s.Name) 出错：$($_.Exception.Message)" }
+        # 收尾直接结束进程：数据已经采完；优雅停机要逐个关 RocketMQ 消费者（每个约 30 秒，mall-app 实测 80–110 秒），每轮白等 3 分钟
+        try { Stop-HaService $s 'hard' } catch { Write-HaLog "停 $($s.Name) 出错：$($_.Exception.Message)" }
     }
 }
 
@@ -351,6 +359,7 @@ function Start-HaGatling([string]$Simulation, $Props, [hashtable]$SysProps, [str
     $p = Start-Process -FilePath $mvnw -ArgumentList $argList -WorkingDirectory $script:RepoRoot `
         -RedirectStandardOutput (Join-Path $RunDir 'gatling.log') -RedirectStandardError (Join-Path $RunDir 'gatling.err.log') `
         -PassThru -NoNewWindow
+    $null = $p.Handle   # 先取一次句柄，否则进程退出后 ExitCode 是空的（Start-Process -PassThru 的已知问题）
     Write-HaLog "压测已启动：$Simulation（pid $($p.Id)），日志 $RunDir\gatling.log"
     return $p
 }
@@ -378,6 +387,13 @@ function Wait-HaGatling($GatlingProcess, [string]$RunDir) {
     $code = $GatlingProcess.ExitCode
     Write-HaLog "压测结束（退出码 $code）"
     if ($code -ne 0) { Write-HaLog "压测进程退出码非 0，看 $RunDir\gatling.log" }
+    # gatling-maven-plugin 没有按 -Dgatling.resultsFolder 换目录，报告仍在 perf\target\gatling 下：把最新的一份搬进结果目录
+    $dst = Join-Path $RunDir 'gatling'
+    if (-not (Test-Path $dst)) {
+        $src = Get-ChildItem (Join-Path $script:RepoRoot 'perf\target\gatling') -Directory -ErrorAction SilentlyContinue |
+            Sort-Object LastWriteTime | Select-Object -Last 1
+        if ($src) { Move-Item $src.FullName $dst }
+    }
 }
 
 # 实验过程中的事件（重启、注销……）：epoch_ms,source,event

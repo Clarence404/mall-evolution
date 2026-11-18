@@ -6,8 +6,10 @@ import org.apache.rocketmq.client.apis.ClientConfigurationBuilder;
 import org.apache.rocketmq.client.apis.ClientException;
 import org.apache.rocketmq.client.apis.ClientServiceProvider;
 import org.apache.rocketmq.client.apis.StaticSessionCredentialsProvider;
+import org.apache.rocketmq.client.apis.consumer.PushConsumer;
 import org.apache.rocketmq.client.apis.producer.Producer;
 import org.mybatis.spring.annotation.MapperScan;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
@@ -49,5 +51,12 @@ public class RocketMqConfig {
         return provider.newProducerBuilder()
                 .setClientConfiguration(clientConfig)
                 .build();
+    }
+
+    /** 停机时并行关闭本服务的全部消费者，见 {@link ParallelConsumerShutdown}。 */
+    @Bean
+    @ConditionalOnProperty(prefix = "mall.rocketmq", name = "enabled", havingValue = "true")
+    ParallelConsumerShutdown parallelConsumerShutdown(ObjectProvider<PushConsumer> consumers) {
+        return new ParallelConsumerShutdown(consumers);
     }
 }

@@ -16,6 +16,9 @@ spring:
       connection-timeout: 250                        # 池子耗尽时快速失败；HikariCP 允许的下限是 250ms
       transaction-isolation: TRANSACTION_READ_COMMITTED   # 换桶时条件不满足的 UPDATE 语句结束就释放行锁
   cloud:
+    loadbalancer:
+      cache:
+        ttl: 5s            # 实例列表缓存，默认 35 秒：下游实例注销后最长还会被调用 35 秒（高可用实验 C），缩到 5 秒
     nacos:
       server-addr: ${NACOS_ADDR:localhost:8848}
       username: ${NACOS_USERNAME:}
@@ -59,6 +62,10 @@ management:
         enabled: true
 
 mall:
+  http-client:                # 服务间 HTTP 调用的连接池。HttpClient 5 默认每个下游实例 5 条、取连接最多等 3 分钟：
+    max-connections-per-route: 100       # 下游一慢，调用全排在池子里，读超时管不到（高可用实验 A）。按舱壁许可数留余量
+    max-connections-total: 200
+    connection-request-timeout: 100ms    # 取不到连接 100ms 就失败，不排队
   id:
     worker-id: ${WORKER_ID:}   # 雪花 ID 机器号：Kubernetes 里不配，由 Pod 启动时向 Redis 租（WorkerIdLease）；配了就用配置的
   security:

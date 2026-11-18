@@ -14,7 +14,7 @@ spec:
     metadata:
       labels: {app: inventory-service}
     spec:
-      terminationGracePeriodSeconds: 60
+      terminationGracePeriodSeconds: 90   # preStop 15 秒 + Nacos 下线等待 10 秒 + 并行关闭消费者约 30 秒，留出余量（高可用实验 C 实测）
       containers:
         - name: app
           image: mall/inventory-service:2.0.0   # 占位标签，由流水线写入镜像 digest（与 flyway-presync-job.yaml 里的同一次构建）

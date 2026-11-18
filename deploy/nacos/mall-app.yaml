@@ -23,9 +23,11 @@ resilience4j:
         wait-duration-in-open-state: 5s
         permitted-number-of-calls-in-half-open-state: 20
         record-failure-predicate: io.github.clarence404.mall.common.remote.RemoteFailurePredicate   # 只记超时与 5xx
-      payment-query: {sliding-window-type: TIME_BASED, sliding-window-size: 10, minimum-number-of-calls: 50, failure-rate-threshold: 50, wait-duration-in-open-state: 10s, record-failure-predicate: io.github.clarence404.mall.common.remote.RemoteFailurePredicate}
+        ignore-exceptions:                        # 舱壁包在熔断器里面，满了抛的异常不声明忽略就会被记成「成功」，稀释失败率（高可用实验 A：舱壁占满时熔断器打不开）
+          - io.github.resilience4j.bulkhead.BulkheadFullException
+      payment-query: {sliding-window-type: TIME_BASED, sliding-window-size: 10, minimum-number-of-calls: 50, failure-rate-threshold: 50, wait-duration-in-open-state: 10s, record-failure-predicate: io.github.clarence404.mall.common.remote.RemoteFailurePredicate, ignore-exceptions: [io.github.resilience4j.bulkhead.BulkheadFullException]}
       # 详情页「有货」提示的只读查询：单独一个实例，不和下单的 inventory-reserve 共用。失败时详情页按有货兜底，所以阈值放得宽、恢复探测慢一点
-      inventory-stock-query: {sliding-window-type: TIME_BASED, sliding-window-size: 10, minimum-number-of-calls: 20, failure-rate-threshold: 50, slow-call-duration-threshold: 300ms, slow-call-rate-threshold: 60, wait-duration-in-open-state: 10s, permitted-number-of-calls-in-half-open-state: 5, record-failure-predicate: io.github.clarence404.mall.common.remote.RemoteFailurePredicate}
+      inventory-stock-query: {sliding-window-type: TIME_BASED, sliding-window-size: 10, minimum-number-of-calls: 20, failure-rate-threshold: 50, slow-call-duration-threshold: 300ms, slow-call-rate-threshold: 60, wait-duration-in-open-state: 10s, permitted-number-of-calls-in-half-open-state: 5, record-failure-predicate: io.github.clarence404.mall.common.remote.RemoteFailurePredicate, ignore-exceptions: [io.github.resilience4j.bulkhead.BulkheadFullException]}
   bulkhead:
     instances:
       inventory-reserve:

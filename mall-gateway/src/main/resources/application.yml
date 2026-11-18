@@ -10,6 +10,9 @@ spring:
       timeout: 200ms
       connect-timeout: 1s
   cloud:
+    loadbalancer:
+      cache:
+        ttl: 5s                                  # 实例列表缓存，默认 35 秒：实例注销后网关最长还会往它身上发 35 秒（高可用实验 C），缩到 5 秒
     nacos:
       server-addr: ${NACOS_ADDR:localhost:8848}
       username: ${NACOS_USERNAME:}
