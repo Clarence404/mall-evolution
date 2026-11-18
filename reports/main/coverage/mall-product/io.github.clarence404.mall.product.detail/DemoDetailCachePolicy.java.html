@@ -1,0 +1,127 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>DemoDetailCachePolicy.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">mall-product</a> &gt; <a href="index.source.html" class="el_package">io.github.clarence404.mall.product.detail</a> &gt; <span class="el_source">DemoDetailCachePolicy.java</span></div><h1>DemoDetailCachePolicy.java</h1><pre class="source lang-java linenums">package io.github.clarence404.mall.product.detail;
+
+import java.util.function.Supplier;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.context.annotation.Profile;
+import org.springframework.stereotype.Component;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
+
+/**
+ * 仅演示环境：按 {@code mall.demo.detail-cache.*} 关掉商品详情缓存的某一层或某个保护，默认全部打开（和正式环境一样）。
+ *
+ * &lt;pre&gt;
+ * mall.demo.detail-cache.l1-enabled            true   false：不用本机 Caffeine
+ * mall.demo.detail-cache.l2-enabled            true   false：不读也不写 Redis
+ * mall.demo.detail-cache.single-flight-enabled true   false：L1 未命中时不单飞，并发的请求各自加载
+ * mall.demo.detail-cache.null-cache-enabled    true   false：不存在的 SKU 不缓存空值
+ * mall.demo.detail-cache.load-delay-ms         0      每次回源多花的毫秒数（占着一条数据库连接）
+ * &lt;/pre&gt;
+ *
+ * &lt;p&gt;load-delay-ms 是一个模型，不是真实耗时：演示库里回源只是按主键查一行，一两毫秒就回来，看不出「缓存过期的瞬间一批请求同时回源」
+ * 的代价。给它一个明确的值（比如 200ms），相当于「回源是一条 200ms 的慢查询」（真实系统里是多表关联、拼一整个详情页）：
+ * 先从连接池取一条连接、开事务，停留这么久，再查库、提交，停留期间连接一直占着。击穿时同时在回源的请求数 ≈ 每秒请求数 × 0.2，
+ * 超过连接池大小的部分要排队等连接。
+ */
+<span class="fc" id="L29">@Slf4j</span>
+@Component
+@Profile(&quot;demo&quot;)
+class DemoDetailCachePolicy implements DetailCachePolicy {
+
+    private final boolean l1Enabled;
+    private final boolean l2Enabled;
+    private final boolean singleFlightEnabled;
+    private final boolean nullCacheEnabled;
+    private final long loadDelayMs;
+    private final TransactionTemplate transactionTemplate;
+
+    @Autowired
+    DemoDetailCachePolicy(
+            @Value(&quot;${mall.demo.detail-cache.l1-enabled:true}&quot;) boolean l1Enabled,
+            @Value(&quot;${mall.demo.detail-cache.l2-enabled:true}&quot;) boolean l2Enabled,
+            @Value(&quot;${mall.demo.detail-cache.single-flight-enabled:true}&quot;) boolean singleFlightEnabled,
+            @Value(&quot;${mall.demo.detail-cache.null-cache-enabled:true}&quot;) boolean nullCacheEnabled,
+            @Value(&quot;${mall.demo.detail-cache.load-delay-ms:0}&quot;) long loadDelayMs,
+            ObjectProvider&lt;PlatformTransactionManager&gt; transactionManager) {
+<span class="nc" id="L49">        this(</span>
+                l1Enabled,
+                l2Enabled,
+                singleFlightEnabled,
+                nullCacheEnabled,
+                loadDelayMs,
+<span class="nc" id="L55">                transactionManager.getIfAvailable());</span>
+<span class="nc" id="L56">    }</span>
+
+    /** transactionManager 为空（没有数据源的测试）时只停留、不占连接。 */
+    DemoDetailCachePolicy(
+            boolean l1Enabled,
+            boolean l2Enabled,
+            boolean singleFlightEnabled,
+            boolean nullCacheEnabled,
+            long loadDelayMs,
+<span class="fc" id="L65">            PlatformTransactionManager transactionManager) {</span>
+<span class="fc" id="L66">        this.l1Enabled = l1Enabled;</span>
+<span class="fc" id="L67">        this.l2Enabled = l2Enabled;</span>
+<span class="fc" id="L68">        this.singleFlightEnabled = singleFlightEnabled;</span>
+<span class="fc" id="L69">        this.nullCacheEnabled = nullCacheEnabled;</span>
+<span class="fc" id="L70">        this.loadDelayMs = loadDelayMs;</span>
+<span class="fc bfc" id="L71" title="All 2 branches covered.">        this.transactionTemplate = transactionManager == null ? null : new TransactionTemplate(transactionManager);</span>
+<span class="pc bpc" id="L72" title="3 of 10 branches missed.">        if (!l1Enabled || !l2Enabled || !singleFlightEnabled || !nullCacheEnabled || loadDelayMs &gt; 0) {</span>
+<span class="fc" id="L73">            log.warn(</span>
+                    &quot;商品详情缓存按演示开关运行：L1={}，L2={}，单飞={}，空值缓存={}，每次回源多花 {}ms&quot;,
+<span class="fc" id="L75">                    l1Enabled,</span>
+<span class="fc" id="L76">                    l2Enabled,</span>
+<span class="fc" id="L77">                    singleFlightEnabled,</span>
+<span class="fc" id="L78">                    nullCacheEnabled,</span>
+<span class="fc" id="L79">                    loadDelayMs);</span>
+        }
+<span class="fc" id="L81">    }</span>
+
+    @Override
+    public boolean l1Enabled() {
+<span class="fc" id="L85">        return l1Enabled;</span>
+    }
+
+    @Override
+    public boolean l2Enabled() {
+<span class="fc" id="L90">        return l2Enabled;</span>
+    }
+
+    @Override
+    public boolean singleFlightEnabled() {
+<span class="fc" id="L95">        return singleFlightEnabled;</span>
+    }
+
+    @Override
+    public boolean nullCacheEnabled() {
+<span class="fc" id="L100">        return nullCacheEnabled;</span>
+    }
+
+    @Override
+    public &lt;T&gt; T aroundDbLoad(Supplier&lt;T&gt; load) {
+<span class="fc bfc" id="L105" title="All 2 branches covered.">        if (loadDelayMs &lt;= 0) {</span>
+<span class="fc" id="L106">            return load.get();</span>
+        }
+<span class="fc bfc" id="L108" title="All 2 branches covered.">        if (transactionTemplate == null) {</span>
+<span class="fc" id="L109">            pause();</span>
+<span class="fc" id="L110">            return load.get();</span>
+        }
+        // 事务一开始就从连接池取连接，停留期间一直占着；随后的查询用的是同一条连接
+<span class="fc" id="L113">        return transactionTemplate.execute(status -&gt; {</span>
+<span class="fc" id="L114">            pause();</span>
+<span class="fc" id="L115">            return load.get();</span>
+        });
+    }
+
+    private void pause() {
+        try {
+<span class="fc" id="L121">            Thread.sleep(loadDelayMs);</span>
+<span class="fc" id="L122">        } catch (InterruptedException e) {</span>
+<span class="fc" id="L123">            Thread.currentThread().interrupt();</span>
+<span class="fc" id="L124">        }</span>
+<span class="fc" id="L125">    }</span>
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.13.202504020838</span></div></body></html>

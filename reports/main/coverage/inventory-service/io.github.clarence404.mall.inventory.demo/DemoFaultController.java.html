@@ -28,8 +28,11 @@ class DemoFaultController {
     /** 上限 3 秒：网关的 response-timeout 是 3 秒，再长没有意义。 */
     static final int MAX_DELAY_MS = 3000;
 
-    /** 补货上限：模拟器默认补到 1000，留足余量但防止误填出离谱的数。 */
-    static final int MAX_RESTOCK = 100_000;
+    /**
+     * 补货上限：模拟器默认补到 1000，高可用实验每轮补到 10 万；热点库存实验（experiments/e-hot-stock）一轮要下二十多万单、
+     * 全打同一个 SKU，要补到 30 万，所以上限放到 100 万。仍然设上限，防止误填出离谱的数。
+     */
+    static final int MAX_RESTOCK = 1_000_000;
 
     private final DemoFaults faults;
     private final InventoryService inventoryService;
@@ -37,25 +40,25 @@ class DemoFaultController {
 
     @GetMapping(&quot;/fault&quot;)
     FaultView get() {
-<span class="fc" id="L40">        return view();</span>
+<span class="fc" id="L43">        return view();</span>
     }
 
     /** 给 reserve 注入固定延迟。默认 800ms，超过订单侧 500ms 的读超时。 */
     @PutMapping(&quot;/fault&quot;)
     FaultView inject(@RequestParam(defaultValue = &quot;800&quot;) int reserveDelayMs) {
-<span class="fc" id="L46">        faults.setReserveDelayMs(Math.clamp(reserveDelayMs, 0, MAX_DELAY_MS));</span>
-<span class="fc" id="L47">        return view();</span>
+<span class="fc" id="L49">        faults.setReserveDelayMs(Math.clamp(reserveDelayMs, 0, MAX_DELAY_MS));</span>
+<span class="fc" id="L50">        return view();</span>
     }
 
     @DeleteMapping(&quot;/fault&quot;)
     FaultView clear() {
-<span class="fc" id="L52">        faults.setReserveDelayMs(0);</span>
-<span class="fc" id="L53">        return view();</span>
+<span class="fc" id="L55">        faults.setReserveDelayMs(0);</span>
+<span class="fc" id="L56">        return view();</span>
     }
 
     @GetMapping(&quot;/stocks&quot;)
     List&lt;StockView&gt; stocks(@RequestParam List&lt;Long&gt; skuIds) {
-<span class="fc" id="L58">        return inventoryService.listStocks(skuIds);</span>
+<span class="fc" id="L61">        return inventoryService.listStocks(skuIds);</span>
     }
 
     /**
@@ -64,14 +67,14 @@ class DemoFaultController {
      */
     @PutMapping(&quot;/stocks/{skuId}/restock&quot;)
     List&lt;StockView&gt; restock(@PathVariable long skuId, @RequestParam(defaultValue = &quot;1000&quot;) int target) {
-<span class="fc" id="L67">        inventoryMapper.restockTo(skuId, Math.clamp(target, 0, MAX_RESTOCK));</span>
-<span class="fc" id="L68">        return inventoryService.listStocks(List.of(skuId));</span>
+<span class="fc" id="L70">        inventoryMapper.restockTo(skuId, Math.clamp(target, 0, MAX_RESTOCK));</span>
+<span class="fc" id="L71">        return inventoryService.listStocks(List.of(skuId));</span>
     }
 
     private FaultView view() {
-<span class="fc" id="L72">        return new FaultView(faults.getReserveDelayMs());</span>
+<span class="fc" id="L75">        return new FaultView(faults.getReserveDelayMs());</span>
     }
 
-<span class="fc" id="L75">    record FaultView(int reserveDelayMs) {}</span>
+<span class="fc" id="L78">    record FaultView(int reserveDelayMs) {}</span>
 }
 </pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.13.202504020838</span></div></body></html>

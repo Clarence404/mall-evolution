@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>DemoReserveHold.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">inventory-service</a> &gt; <a href="index.source.html" class="el_package">io.github.clarence404.mall.inventory.demo</a> &gt; <span class="el_source">DemoReserveHold.java</span></div><h1>DemoReserveHold.java</h1><pre class="source lang-java linenums">package io.github.clarence404.mall.inventory.demo;
+
+import io.github.clarence404.mall.inventory.reserve.ReserveHold;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.context.annotation.Profile;
+import org.springframework.stereotype.Component;
+
+/**
+ * 仅演示环境：预占扣完库存后，在事务里（行锁还没放）多停留 mall.demo.reserve-hold-ms 毫秒，默认 0 即不停。
+ *
+ * &lt;p&gt;这是一个模型，不是真实耗时：生产上一次预占持锁的时间由同一事务里的其他语句、提交落盘和网络往返决定，
+ * 开发机上这些都很短，压不到单行的拐点。给它一个明确的值（比如 10ms），单行的容量就约等于 1000 / 10 = 100 单/秒，
+ * 分 n 个桶约为 n 倍，拐点不再取决于这台机器的磁盘和 CPU。
+ */
+@Component
+@Profile(&quot;demo&quot;)
+class DemoReserveHold implements ReserveHold {
+
+    private final long holdMs;
+
+<span class="fc" id="L21">    DemoReserveHold(@Value(&quot;${mall.demo.reserve-hold-ms:0}&quot;) long holdMs) {</span>
+<span class="fc" id="L22">        this.holdMs = holdMs;</span>
+<span class="fc" id="L23">    }</span>
+
+    @Override
+    public void afterDeduct() {
+<span class="pc bpc" id="L27" title="1 of 2 branches missed.">        if (holdMs &lt;= 0) {</span>
+<span class="fc" id="L28">            return;</span>
+        }
+        try {
+<span class="nc" id="L31">            Thread.sleep(holdMs);</span>
+<span class="nc" id="L32">        } catch (InterruptedException e) {</span>
+<span class="nc" id="L33">            Thread.currentThread().interrupt();</span>
+<span class="nc" id="L34">        }</span>
+<span class="nc" id="L35">    }</span>
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.13.202504020838</span></div></body></html>

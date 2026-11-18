@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../../jacoco-resources/report.gif" type="image/gif"/><title>DetailCachePolicy.java</title><link rel="stylesheet" href="../../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../../index.html" class="el_report">mall-app</a> &gt; <a href="../index.html" class="el_bundle">mall-product</a> &gt; <a href="index.source.html" class="el_package">io.github.clarence404.mall.product.detail</a> &gt; <span class="el_source">DetailCachePolicy.java</span></div><h1>DetailCachePolicy.java</h1><pre class="source lang-java linenums">package io.github.clarence404.mall.product.detail;
+
+import java.util.function.Supplier;
+
+/**
+ * 商品详情两级缓存的开关，正式环境没有实现（全部打开、回源原样执行，即 {@link #DEFAULT}）。
+ *
+ * &lt;p&gt;只有演示环境（demo profile）注册了实现：高并发实验 F 靠它逐层关掉缓存，对比「没有缓存 / 只有 Redis / 两级缓存」，
+ * 以及关掉单飞、关掉空值缓存之后的击穿与穿透。见 experiments/f-cache-layers。
+ */
+public interface DetailCachePolicy {
+
+<span class="fc" id="L13">    DetailCachePolicy DEFAULT = new DetailCachePolicy() {};</span>
+
+    /** 用不用本机 Caffeine（L1）。关掉后每个请求都直接走 Redis / 数据库。 */
+    default boolean l1Enabled() {
+<span class="fc" id="L17">        return true;</span>
+    }
+
+    /** 用不用 Redis（L2）。关掉后既不读也不写 Redis，L1 未命中直接查库。 */
+    default boolean l2Enabled() {
+<span class="fc" id="L22">        return true;</span>
+    }
+
+    /** L1 未命中时是否单飞（同一个 SKU 本 JVM 只有一个线程去加载）。关掉后并发未命中的请求各自加载、各自回填。 */
+    default boolean singleFlightEnabled() {
+<span class="fc" id="L27">        return true;</span>
+    }
+
+    /** 不存在的 SKU 是否缓存空值（Redis 60 秒 + L1）。关掉后两层都不缓存，每次请求都查库。 */
+    default boolean nullCacheEnabled() {
+<span class="fc" id="L32">        return true;</span>
+    }
+
+    /** 包住一次回源查库；正式环境直接执行，不加任何东西。 */
+    default &lt;T&gt; T aroundDbLoad(Supplier&lt;T&gt; load) {
+<span class="fc" id="L37">        return load.get();</span>
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.13.202504020838</span></div></body></html>

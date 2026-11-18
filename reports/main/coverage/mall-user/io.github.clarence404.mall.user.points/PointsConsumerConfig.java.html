@@ -1,6 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>PointsConsumerConfig.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">mall-user</a> &gt; <a href="index.source.html" class="el_package">io.github.clarence404.mall.user.points</a> &gt; <span class="el_source">PointsConsumerConfig.java</span></div><h1>PointsConsumerConfig.java</h1><pre class="source lang-java linenums">package io.github.clarence404.mall.user.points;
 
 import io.github.clarence404.mall.common.json.Json;
+import io.github.clarence404.mall.common.mq.ConsumeInstrumentation;
 import io.github.clarence404.mall.common.mq.ConsumerFactory;
 import io.github.clarence404.mall.common.mq.RocketMqProperties;
 import lombok.extern.slf4j.Slf4j;
@@ -13,10 +14,10 @@ import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
-<span class="nc" id="L16">@Slf4j</span>
+<span class="nc" id="L17">@Slf4j</span>
 @Configuration(proxyBeanMethods = false)
 @ConditionalOnProperty(prefix = &quot;mall.rocketmq&quot;, name = &quot;enabled&quot;, havingValue = &quot;true&quot;)
-<span class="nc" id="L19">class PointsConsumerConfig {</span>
+<span class="nc" id="L20">class PointsConsumerConfig {</span>
 
     static final String GROUP = &quot;points-consumer&quot;;
 
@@ -29,16 +30,17 @@ import org.springframework.context.annotation.Configuration;
             ClientServiceProvider provider,
             ClientConfiguration clientConfig,
             RocketMqProperties props,
+            ConsumeInstrumentation instrumentation,
             PointsGrantService pointsGrantService)
             throws ClientException {
-<span class="nc" id="L34">        return ConsumerFactory.subscribe(provider, clientConfig, props, GROUP, &quot;order-paid&quot;, view -&gt; {</span>
-<span class="nc" id="L35">            OrderPaidEvent e = Json.read(view.getBody(), OrderPaidEvent.class);</span>
+<span class="nc" id="L36">        return ConsumerFactory.subscribe(provider, clientConfig, props, instrumentation, GROUP, &quot;order-paid&quot;, view -&gt; {</span>
+<span class="nc" id="L37">            OrderPaidEvent e = Json.read(view.getBody(), OrderPaidEvent.class);</span>
             try {
-<span class="nc" id="L37">                pointsGrantService.grant(e);</span>
-<span class="nc" id="L38">                return ConsumeResult.SUCCESS;</span>
-<span class="nc" id="L39">            } catch (Exception ex) {</span>
-<span class="nc" id="L40">                log.warn(&quot;加积分失败，orderNo={}，第 {} 次投递&quot;, e.orderNo(), view.getDeliveryAttempt(), ex);</span>
-<span class="nc" id="L41">                return ConsumeResult.FAILURE;</span>
+<span class="nc" id="L39">                pointsGrantService.grant(e);</span>
+<span class="nc" id="L40">                return ConsumeResult.SUCCESS;</span>
+<span class="nc" id="L41">            } catch (Exception ex) {</span>
+<span class="nc" id="L42">                log.warn(&quot;加积分失败，orderNo={}，第 {} 次投递&quot;, e.orderNo(), view.getDeliveryAttempt(), ex);</span>
+<span class="nc" id="L43">                return ConsumeResult.FAILURE;</span>
             }
         });
     }

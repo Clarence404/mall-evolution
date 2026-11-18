@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>ConsumeHold.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">mall-common</a> &gt; <a href="index.source.html" class="el_package">io.github.clarence404.mall.common.mq</a> &gt; <span class="el_source">ConsumeHold.java</span></div><h1>ConsumeHold.java</h1><pre class="source lang-java linenums">package io.github.clarence404.mall.common.mq;
+
+/**
+ * 消费一条消息之前的回调点，正式环境没有实现（什么都不做）。
+ *
+ * &lt;p&gt;只有演示环境（demo profile）注册了实现，用来在处理每条消息之前多停留一会儿：高并发实验 G 靠它给消费者一个明确的处理能力
+ * （每条 100ms、n 个线程约每秒 10n 条），再看突发流量在消息队列里怎么堆积、多久消化完。见 experiments/g-async-peak。
+ */
+@FunctionalInterface
+public interface ConsumeHold {
+
+<span class="fc" id="L12">    ConsumeHold NONE = consumerGroup -&gt; {};</span>
+
+    /** 在消费线程上、业务处理之前调用。 */
+    void beforeConsume(String consumerGroup);
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.13.202504020838</span></div></body></html>

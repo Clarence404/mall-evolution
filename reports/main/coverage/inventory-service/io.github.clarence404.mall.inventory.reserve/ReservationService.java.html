@@ -15,6 +15,7 @@ import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.List;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -28,27 +29,34 @@ import org.springframework.transaction.annotation.Transactional;
  *   &lt;li&gt;分桶（阶段四）：bucket_count &amp;gt; 0 的活动 SKU 从 hash(order_no) % n 号桶开始依次尝试，选中的桶号写进预占记录
  * &lt;/ul&gt;
  */
-<span class="fc" id="L31">@Slf4j</span>
+<span class="fc" id="L32">@Slf4j</span>
 @Service
 public class ReservationService {
 
-<span class="fc" id="L35">    private static final Duration EXPIRE_AFTER_PAY_TIMEOUT = Duration.ofMinutes(15);</span>
+<span class="fc" id="L36">    private static final Duration EXPIRE_AFTER_PAY_TIMEOUT = Duration.ofMinutes(15);</span>
 
     private final ReservationMapper reservationMapper;
     private final InventoryMapper inventoryMapper;
     private final InventoryBucketMapper bucketMapper;
     private final Duration reservationTtl;
+<span class="fc" id="L42">    private ReserveHold hold = ReserveHold.NONE;</span>
 
     public ReservationService(
             ReservationMapper reservationMapper,
             InventoryMapper inventoryMapper,
             InventoryBucketMapper bucketMapper,
-<span class="fc" id="L46">            @Value(&quot;${mall.inventory.reservation-ttl:30m}&quot;) Duration reservationTtl) {</span>
-<span class="fc" id="L47">        this.reservationMapper = reservationMapper;</span>
-<span class="fc" id="L48">        this.inventoryMapper = inventoryMapper;</span>
-<span class="fc" id="L49">        this.bucketMapper = bucketMapper;</span>
-<span class="fc" id="L50">        this.reservationTtl = reservationTtl;</span>
-<span class="fc" id="L51">    }</span>
+<span class="fc" id="L48">            @Value(&quot;${mall.inventory.reservation-ttl:30m}&quot;) Duration reservationTtl) {</span>
+<span class="fc" id="L49">        this.reservationMapper = reservationMapper;</span>
+<span class="fc" id="L50">        this.inventoryMapper = inventoryMapper;</span>
+<span class="fc" id="L51">        this.bucketMapper = bucketMapper;</span>
+<span class="fc" id="L52">        this.reservationTtl = reservationTtl;</span>
+<span class="fc" id="L53">    }</span>
+
+    /** 只有演示环境（demo profile）注册了实现，用来在持锁期间多停留几毫秒（高并发实验 E 的持锁时间模型）。 */
+    @Autowired(required = false)
+    void setHold(ReserveHold hold) {
+<span class="fc" id="L58">        this.hold = hold;</span>
+<span class="fc" id="L59">    }</span>
 
     /**
      * expire_at 比订单支付超时多 15 分钟：普通订单 15 → 30 分钟，活动订单 5 → 20 分钟。
@@ -57,30 +65,31 @@ public class ReservationService {
      */
     @Transactional(rollbackFor = Exception.class)
     public ReserveResult reserve(String orderNo, List&lt;ReserveLine&gt; lines, Integer payTimeoutMinutes) {
-<span class="fc" id="L60">        List&lt;Reservation&gt; existing = reservationMapper.selectByOrderNo(orderNo);</span>
-<span class="fc bfc" id="L61" title="All 2 branches covered.">        if (!existing.isEmpty()) { // 重复请求，或 release 先到留下的空回滚占位</span>
-<span class="fc bfc" id="L62" title="All 2 branches covered.">            return existing.getFirst().isReleased() ? ReserveResult.REJECTED : ReserveResult.OK;</span>
+<span class="fc" id="L68">        List&lt;Reservation&gt; existing = reservationMapper.selectByOrderNo(orderNo);</span>
+<span class="fc bfc" id="L69" title="All 2 branches covered.">        if (!existing.isEmpty()) { // 重复请求，或 release 先到留下的空回滚占位</span>
+<span class="fc bfc" id="L70" title="All 2 branches covered.">            return existing.getFirst().isReleased() ? ReserveResult.REJECTED : ReserveResult.OK;</span>
         }
-<span class="fc" id="L64">        LocalDateTime expireAt = LocalDateTime.now()</span>
-<span class="fc" id="L65">                .plus(</span>
-<span class="fc bfc" id="L66" title="All 2 branches covered.">                        payTimeoutMinutes == null</span>
-<span class="fc" id="L67">                                ? reservationTtl</span>
-<span class="fc" id="L68">                                : Duration.ofMinutes(payTimeoutMinutes).plus(EXPIRE_AFTER_PAY_TIMEOUT));</span>
+<span class="fc" id="L72">        LocalDateTime expireAt = LocalDateTime.now()</span>
+<span class="fc" id="L73">                .plus(</span>
+<span class="fc bfc" id="L74" title="All 2 branches covered.">                        payTimeoutMinutes == null</span>
+<span class="fc" id="L75">                                ? reservationTtl</span>
+<span class="fc" id="L76">                                : Duration.ofMinutes(payTimeoutMinutes).plus(EXPIRE_AFTER_PAY_TIMEOUT));</span>
         for (ReserveLine l :
-<span class="fc bfc" id="L70" title="All 2 branches covered.">                lines.stream().sorted(comparing(ReserveLine::skuId)).toList()) {</span>
-<span class="fc" id="L71">            Reservation r = Reservation.reserved(orderNo, l, expireAt);</span>
-<span class="fc" id="L72">            int buckets = bucketCount(l.skuId());</span>
-<span class="fc bfc" id="L73" title="All 2 branches covered.">            if (buckets == 0) {</span>
-<span class="fc" id="L74">                reservationMapper.insert(r); // 并发时撞 uk_order_sku，整体回滚</span>
-<span class="fc bfc" id="L75" title="All 2 branches covered.">                if (inventoryMapper.reserve(l.skuId(), l.quantity()) == 0) { // stock &gt;= n 条件更新</span>
-<span class="fc" id="L76">                    throw insufficient(orderNo, l);</span>
+<span class="fc bfc" id="L78" title="All 2 branches covered.">                lines.stream().sorted(comparing(ReserveLine::skuId)).toList()) {</span>
+<span class="fc" id="L79">            Reservation r = Reservation.reserved(orderNo, l, expireAt);</span>
+<span class="fc" id="L80">            int buckets = bucketCount(l.skuId());</span>
+<span class="fc bfc" id="L81" title="All 2 branches covered.">            if (buckets == 0) {</span>
+<span class="fc" id="L82">                reservationMapper.insert(r); // 并发时撞 uk_order_sku，整体回滚</span>
+<span class="fc bfc" id="L83" title="All 2 branches covered.">                if (inventoryMapper.reserve(l.skuId(), l.quantity()) == 0) { // stock &gt;= n 条件更新</span>
+<span class="fc" id="L84">                    throw insufficient(orderNo, l);</span>
                 }
             } else {
-<span class="fc" id="L79">                r.setBucketNo(reserveInBuckets(orderNo, l, buckets));</span>
-<span class="fc" id="L80">                reservationMapper.insert(r);</span>
+<span class="fc" id="L87">                r.setBucketNo(reserveInBuckets(orderNo, l, buckets));</span>
+<span class="fc" id="L88">                reservationMapper.insert(r);</span>
             }
-<span class="fc" id="L82">        }</span>
-<span class="fc" id="L83">        return ReserveResult.OK;</span>
+<span class="fc" id="L90">        }</span>
+<span class="fc" id="L91">        hold.afterDeduct(); // 正式环境是空操作</span>
+<span class="fc" id="L92">        return ReserveResult.OK;</span>
     }
 
     /**
@@ -99,73 +108,73 @@ public class ReservationService {
     @Transactional(rollbackFor = Exception.class)
     public void release(String orderNo, List&lt;ReserveLine&gt; lines) {
         for (ReserveLine l :
-<span class="fc bfc" id="L102" title="All 2 branches covered.">                lines.stream().sorted(comparing(ReserveLine::skuId)).toList()) {</span>
+<span class="fc bfc" id="L111" title="All 2 branches covered.">                lines.stream().sorted(comparing(ReserveLine::skuId)).toList()) {</span>
             // INSERT IGNORE ... status = 3：返回 1 说明从没预占过，返回 0 说明记录已存在
             // 不用 ON DUPLICATE KEY UPDATE id = id：Connector/J 默认返回 found rows，已存在也返回 1
-<span class="fc bfc" id="L105" title="All 2 branches covered.">            if (reservationMapper.insertReleasedIfAbsent(orderNo, l) == 1) {</span>
-<span class="fc" id="L106">                continue; // 空回滚：不动库存，只留下占位，挡住迟到的 reserve</span>
+<span class="fc bfc" id="L114" title="All 2 branches covered.">            if (reservationMapper.insertReleasedIfAbsent(orderNo, l) == 1) {</span>
+<span class="fc" id="L115">                continue; // 空回滚：不动库存，只留下占位，挡住迟到的 reserve</span>
             }
             // 当前读（FOR UPDATE）：拿到的一定是已提交的那条记录，并锁住它直到本事务结束
-<span class="fc" id="L109">            Reservation current = reservationMapper.selectForUpdate(orderNo, l.skuId());</span>
-<span class="pc bpc" id="L110" title="1 of 2 branches missed.">            if (current == null) {</span>
-<span class="nc" id="L111">                continue; // 不会发生：INSERT IGNORE 返回 0 说明记录存在，而预占记录从不删除</span>
+<span class="fc" id="L118">            Reservation current = reservationMapper.selectForUpdate(orderNo, l.skuId());</span>
+<span class="pc bpc" id="L119" title="1 of 2 branches missed.">            if (current == null) {</span>
+<span class="nc" id="L120">                continue; // 不会发生：INSERT IGNORE 返回 0 说明记录存在，而预占记录从不删除</span>
             }
-<span class="fc bfc" id="L113" title="All 2 branches covered.">            if (reservationMapper.transit(orderNo, l.skuId(), RESERVED, RELEASED) == 1) {</span>
-<span class="fc bfc" id="L114" title="All 2 branches covered.">                if (current.getBucketNo() == null) {</span>
-<span class="fc" id="L115">                    inventoryMapper.unreserve(l.skuId(), current.getQuantity()); // stock +n, reserved -n</span>
-<span class="fc bfc" id="L116" title="All 2 branches covered.">                } else if (bucketMapper.unreserve(l.skuId(), current.getBucketNo(), current.getQuantity()) == 0) {</span>
-<span class="fc" id="L117">                    throw bucketMissing(orderNo, current); // 回到同一个桶；桶不在了说明数据已不一致，回滚并报错</span>
+<span class="fc bfc" id="L122" title="All 2 branches covered.">            if (reservationMapper.transit(orderNo, l.skuId(), RESERVED, RELEASED) == 1) {</span>
+<span class="fc bfc" id="L123" title="All 2 branches covered.">                if (current.getBucketNo() == null) {</span>
+<span class="fc" id="L124">                    inventoryMapper.unreserve(l.skuId(), current.getQuantity()); // stock +n, reserved -n</span>
+<span class="fc bfc" id="L125" title="All 2 branches covered.">                } else if (bucketMapper.unreserve(l.skuId(), current.getBucketNo(), current.getQuantity()) == 0) {</span>
+<span class="fc" id="L126">                    throw bucketMissing(orderNo, current); // 回到同一个桶；桶不在了说明数据已不一致，回滚并报错</span>
                 }
-<span class="pc bpc" id="L119" title="1 of 2 branches missed.">            } else if (current.getStatus() == CONFIRMED) {</span>
-<span class="nc" id="L120">                log.error(&quot;预占已确认却收到释放，转人工核对，orderNo={}, skuId={}&quot;, orderNo, l.skuId());</span>
+<span class="pc bpc" id="L128" title="1 of 2 branches missed.">            } else if (current.getStatus() == CONFIRMED) {</span>
+<span class="nc" id="L129">                log.error(&quot;预占已确认却收到释放，转人工核对，orderNo={}, skuId={}&quot;, orderNo, l.skuId());</span>
             } // 其余 0 行：已释放（重复请求）
-<span class="fc" id="L122">        }</span>
-<span class="fc" id="L123">    }</span>
+<span class="fc" id="L131">        }</span>
+<span class="fc" id="L132">    }</span>
 
     /** confirm 只有一条条件更新 RESERVED → CONFIRMED，再把对应数量从 reserved 中减掉（分桶的回到同一个桶）。 */
     @Transactional(rollbackFor = Exception.class)
     public void confirm(String orderNo) {
-<span class="fc bfc" id="L128" title="All 2 branches covered.">        for (Reservation r : reservationMapper.selectByOrderNo(orderNo)) {</span>
-<span class="fc bfc" id="L129" title="All 2 branches covered.">            if (reservationMapper.transit(orderNo, r.getSkuId(), RESERVED, CONFIRMED) == 1) {</span>
-<span class="fc bfc" id="L130" title="All 2 branches covered.">                if (r.getBucketNo() == null) {</span>
-<span class="fc" id="L131">                    inventoryMapper.confirm(r.getSkuId(), r.getQuantity());</span>
-<span class="fc bfc" id="L132" title="All 2 branches covered.">                } else if (bucketMapper.confirm(r.getSkuId(), r.getBucketNo(), r.getQuantity()) == 0) {</span>
-<span class="fc" id="L133">                    throw bucketMissing(orderNo, r); // 桶不在了：回滚，消息重投后进死信告警，不静默跳过</span>
+<span class="fc bfc" id="L137" title="All 2 branches covered.">        for (Reservation r : reservationMapper.selectByOrderNo(orderNo)) {</span>
+<span class="fc bfc" id="L138" title="All 2 branches covered.">            if (reservationMapper.transit(orderNo, r.getSkuId(), RESERVED, CONFIRMED) == 1) {</span>
+<span class="fc bfc" id="L139" title="All 2 branches covered.">                if (r.getBucketNo() == null) {</span>
+<span class="fc" id="L140">                    inventoryMapper.confirm(r.getSkuId(), r.getQuantity());</span>
+<span class="fc bfc" id="L141" title="All 2 branches covered.">                } else if (bucketMapper.confirm(r.getSkuId(), r.getBucketNo(), r.getQuantity()) == 0) {</span>
+<span class="fc" id="L142">                    throw bucketMissing(orderNo, r); // 桶不在了：回滚，消息重投后进死信告警，不静默跳过</span>
                 }
             }
-<span class="fc" id="L136">        }</span>
-<span class="fc" id="L137">    }</span>
+<span class="fc" id="L145">        }</span>
+<span class="fc" id="L146">    }</span>
 
     /** 过期回查用：按库里的预占记录释放（订单不存在或已取消）。 */
     @Transactional(rollbackFor = Exception.class)
     public void releaseByOrderNo(String orderNo) {
-<span class="nc" id="L142">        List&lt;ReserveLine&gt; lines = reservationMapper.selectByOrderNo(orderNo).stream()</span>
-<span class="nc bnc" id="L143" title="All 2 branches missed.">                .filter(r -&gt; r.getStatus() == RESERVED)</span>
-<span class="nc" id="L144">                .map(r -&gt; new ReserveLine(r.getSkuId(), r.getQuantity()))</span>
-<span class="nc" id="L145">                .toList();</span>
-<span class="nc bnc" id="L146" title="All 2 branches missed.">        if (!lines.isEmpty()) {</span>
-<span class="nc" id="L147">            release(orderNo, lines);</span>
+<span class="nc" id="L151">        List&lt;ReserveLine&gt; lines = reservationMapper.selectByOrderNo(orderNo).stream()</span>
+<span class="nc bnc" id="L152" title="All 2 branches missed.">                .filter(r -&gt; r.getStatus() == RESERVED)</span>
+<span class="nc" id="L153">                .map(r -&gt; new ReserveLine(r.getSkuId(), r.getQuantity()))</span>
+<span class="nc" id="L154">                .toList();</span>
+<span class="nc bnc" id="L155" title="All 2 branches missed.">        if (!lines.isEmpty()) {</span>
+<span class="nc" id="L156">            release(orderNo, lines);</span>
         }
-<span class="nc" id="L149">    }</span>
+<span class="nc" id="L158">    }</span>
 
     /**
      * 从 hash(order_no) % n 号桶开始执行条件更新，影响 0 行就试下一个桶，n 个桶都不够才返回 STOCK_INSUFFICIENT。
      * 库存库用 READ COMMITTED，条件不满足的 UPDATE 在语句结束就释放行锁，换桶时不会被空桶的锁拖住。
      */
     int reserveInBuckets(String orderNo, ReserveLine l, int buckets) {
-<span class="fc" id="L156">        int start = Math.floorMod(orderNo.hashCode(), buckets);</span>
-<span class="fc bfc" id="L157" title="All 2 branches covered.">        for (int i = 0; i &lt; buckets; i++) {</span>
-<span class="fc" id="L158">            int bucketNo = (start + i) % buckets;</span>
-<span class="fc bfc" id="L159" title="All 2 branches covered.">            if (bucketMapper.reserve(l.skuId(), bucketNo, l.quantity()) == 1) {</span>
-<span class="fc" id="L160">                return bucketNo;</span>
+<span class="fc" id="L165">        int start = Math.floorMod(orderNo.hashCode(), buckets);</span>
+<span class="fc bfc" id="L166" title="All 2 branches covered.">        for (int i = 0; i &lt; buckets; i++) {</span>
+<span class="fc" id="L167">            int bucketNo = (start + i) % buckets;</span>
+<span class="fc bfc" id="L168" title="All 2 branches covered.">            if (bucketMapper.reserve(l.skuId(), bucketNo, l.quantity()) == 1) {</span>
+<span class="fc" id="L169">                return bucketNo;</span>
             }
         }
-<span class="fc" id="L163">        throw insufficient(orderNo, l);</span>
+<span class="fc" id="L172">        throw insufficient(orderNo, l);</span>
     }
 
     private int bucketCount(long skuId) {
-<span class="fc" id="L167">        Integer n = inventoryMapper.selectBucketCount(skuId);</span>
-<span class="pc bpc" id="L168" title="1 of 2 branches missed.">        return n == null ? 0 : n;</span>
+<span class="fc" id="L176">        Integer n = inventoryMapper.selectBucketCount(skuId);</span>
+<span class="pc bpc" id="L177" title="1 of 2 branches missed.">        return n == null ? 0 : n;</span>
     }
 
     /**
@@ -173,12 +182,12 @@ public class ReservationService {
      * 一旦出现就是数据不一致：抛非业务异常让事务回滚（预占保持 RESERVED），由消息重投、死信告警与人工处理接手。
      */
     private static IllegalStateException bucketMissing(String orderNo, Reservation r) {
-<span class="fc" id="L176">        return new IllegalStateException(</span>
-<span class="fc" id="L177">                &quot;分桶 &quot; + r.getBucketNo() + &quot; 不存在，无法处理预占，订单 &quot; + orderNo + &quot;，SKU &quot; + r.getSkuId());</span>
+<span class="fc" id="L185">        return new IllegalStateException(</span>
+<span class="fc" id="L186">                &quot;分桶 &quot; + r.getBucketNo() + &quot; 不存在，无法处理预占，订单 &quot; + orderNo + &quot;，SKU &quot; + r.getSkuId());</span>
     }
 
     private static BizException insufficient(String orderNo, ReserveLine l) {
-<span class="fc" id="L181">        return new BizException(InventoryErrorCode.STOCK_INSUFFICIENT, &quot;SKU &quot; + l.skuId() + &quot; 库存不足，订单 &quot; + orderNo);</span>
+<span class="fc" id="L190">        return new BizException(InventoryErrorCode.STOCK_INSUFFICIENT, &quot;SKU &quot; + l.skuId() + &quot; 库存不足，订单 &quot; + orderNo);</span>
     }
 }
 </pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.13.202504020838</span></div></body></html>

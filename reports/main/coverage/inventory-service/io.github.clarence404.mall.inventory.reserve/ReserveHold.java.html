@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>ReserveHold.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">inventory-service</a> &gt; <a href="index.source.html" class="el_package">io.github.clarence404.mall.inventory.reserve</a> &gt; <span class="el_source">ReserveHold.java</span></div><h1>ReserveHold.java</h1><pre class="source lang-java linenums">package io.github.clarence404.mall.inventory.reserve;
+
+/**
+ * 预占扣完库存、事务还没提交时的回调点，正式环境没有实现（什么都不做）。
+ *
+ * &lt;p&gt;只有演示环境（demo profile）注册了实现，用来在持有库存行锁的这段时间里多停留几毫秒：高并发实验 E 靠它把
+ * 「单行能扛多少单」的拐点拉到一台开发机压得到的范围内，再对比分桶。见 experiments/e-hot-stock。
+ */
+@FunctionalInterface
+public interface ReserveHold {
+
+<span class="fc" id="L12">    ReserveHold NONE = () -&gt; {};</span>
+
+    /** 在预占事务内、所有库存行都已扣减之后调用；此时行锁还没释放。 */
+    void afterDeduct();
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.13.202504020838</span></div></body></html>

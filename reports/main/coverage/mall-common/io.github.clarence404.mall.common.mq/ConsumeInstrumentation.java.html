@@ -1,0 +1,97 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>ConsumeInstrumentation.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">mall-common</a> &gt; <a href="index.source.html" class="el_package">io.github.clarence404.mall.common.mq</a> &gt; <span class="el_source">ConsumeInstrumentation.java</span></div><h1>ConsumeInstrumentation.java</h1><pre class="source lang-java linenums">package io.github.clarence404.mall.common.mq;
+
+import io.micrometer.core.instrument.MeterRegistry;
+import io.micrometer.core.instrument.Timer;
+import java.time.Duration;
+import java.util.function.Function;
+import java.util.function.LongSupplier;
+import org.apache.rocketmq.client.apis.consumer.ConsumeResult;
+import org.apache.rocketmq.client.apis.message.MessageView;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.stereotype.Component;
+
+/**
+ * 给每个消费组的监听器包一层：记录端到端的消费延迟 {@code mq.consume.delay}（Prometheus 里是 mq_consume_delay_seconds_*）。
+ *
+ * &lt;p&gt;消费延迟 = 这条消息处理完的时刻 − 它「该被消费」的时刻，按消费组（group）和处理结果（result=success|failure）分开记：
+ *
+ * &lt;ul&gt;
+ *   &lt;li&gt;普通消息：从消息的产生时间（born timestamp，生产者发送的时刻）算起，包含在 Broker 里排队、投递到消费者、处理三段
+ *   &lt;li&gt;定时消息（order-timeout）：从它定好的投递时间算起，否则 15 分钟的支付超时本身会被算成「延迟」；
+ *       拿不到投递时间时退回产生时间
+ *   &lt;li&gt;重投的消息仍从最初的时刻算：失败后退避重投，延迟自然变长，这正是用户感受到的
+ * &lt;/ul&gt;
+ *
+ * &lt;p&gt;它和 Broker 侧的堆积量（rocketmq_group_diff）互补：堆积量说「还有多少条没消费」，这里说「消费到的消息晚了多久」，
+ * 而且不依赖 rocketmq-exporter，本机起服务就有。
+ *
+ * &lt;p&gt;精度：产生时间是生产者机器的时钟，处理完的时刻是本机的时钟，两台机器的时钟差会原样带进来；定时消息的投递时刻由 Broker 按自己的时钟
+ * 判断，而且只精确到秒级。算出负数一律按 0 记——本地实测定时消息的读数大多是 0（按本机时钟，消息在定好的时刻之前就处理完了），
+ * 所以定时消息的读数在「晚了不到 1 秒」这个量级上不可信，它能回答的是「有没有晚几秒、几十秒」。
+ *
+ * &lt;p&gt;另有一个只在演示环境生效的回调点 {@link ConsumeHold}，正式环境是空操作。
+ */
+@Component
+public class ConsumeInstrumentation {
+
+    /** 指标名。 */
+    public static final String DELAY_METRIC = &quot;mq.consume.delay&quot;;
+
+    private final MeterRegistry registry;
+    private final LongSupplier clockMillis;
+<span class="fc" id="L42">    private ConsumeHold hold = ConsumeHold.NONE;</span>
+
+    @Autowired
+    public ConsumeInstrumentation(MeterRegistry registry) {
+<span class="fc" id="L46">        this(registry, System::currentTimeMillis);</span>
+<span class="fc" id="L47">    }</span>
+
+    /** 测试用：传入可拨动的时钟（epoch 毫秒）。 */
+<span class="fc" id="L50">    ConsumeInstrumentation(MeterRegistry registry, LongSupplier clockMillis) {</span>
+<span class="fc" id="L51">        this.registry = registry;</span>
+<span class="fc" id="L52">        this.clockMillis = clockMillis;</span>
+<span class="fc" id="L53">    }</span>
+
+    /** 只有演示环境（demo profile）注册了实现，用来在处理每条消息前多停留一会儿（高并发实验 G 的消费能力模型）。 */
+    @Autowired(required = false)
+    void setHold(ConsumeHold hold) {
+<span class="fc" id="L58">        this.hold = hold;</span>
+<span class="fc" id="L59">    }</span>
+
+    /**
+     * 包装一个消费组的监听器。两个计时器在这里就注册好：还没消费过消息的组在 Prometheus 里也有值为 0 的序列，rate() 从一开始就有数。
+     */
+    public Function&lt;MessageView, ConsumeResult&gt; wrap(
+            String consumerGroup, Function&lt;MessageView, ConsumeResult&gt; listener) {
+<span class="fc" id="L66">        Timer success = timer(consumerGroup, &quot;success&quot;);</span>
+<span class="fc" id="L67">        Timer failure = timer(consumerGroup, &quot;failure&quot;);</span>
+<span class="fc" id="L68">        return view -&gt; {</span>
+<span class="fc" id="L69">            hold.beforeConsume(consumerGroup); // 正式环境是空操作</span>
+<span class="fc" id="L70">            ConsumeResult result = ConsumeResult.FAILURE; // 监听器抛异常时客户端同样按失败处理、稍后重投</span>
+            try {
+<span class="fc" id="L72">                result = listener.apply(view);</span>
+<span class="fc" id="L73">                return result;</span>
+            } finally {
+<span class="fc" id="L75">                long delayMs = Math.max(0, clockMillis.getAsLong() - dueAtMillis(view));</span>
+<span class="fc bfc" id="L76" title="All 2 branches covered.">                (result == ConsumeResult.SUCCESS ? success : failure).record(Duration.ofMillis(delayMs));</span>
+            }
+        };
+    }
+
+    /** 这条消息该被消费的时刻：定时消息取投递时间，其余取产生时间。 */
+    static long dueAtMillis(MessageView view) {
+<span class="fc" id="L83">        long born = view.getBornTimestamp();</span>
+<span class="fc" id="L84">        return view.getDeliveryTimestamp()</span>
+<span class="fc" id="L85">                .map(deliverAt -&gt; Math.max(deliverAt, born))</span>
+<span class="fc" id="L86">                .orElse(born);</span>
+    }
+
+    private Timer timer(String consumerGroup, String result) {
+<span class="fc" id="L90">        return Timer.builder(DELAY_METRIC)</span>
+<span class="fc" id="L91">                .description(&quot;消息的端到端消费延迟：处理完的时刻减去产生时间（定时消息减去定好的投递时间）&quot;)</span>
+<span class="fc" id="L92">                .tag(&quot;group&quot;, consumerGroup)</span>
+<span class="fc" id="L93">                .tag(&quot;result&quot;, result)</span>
+<span class="fc" id="L94">                .register(registry);</span>
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.13.202504020838</span></div></body></html>

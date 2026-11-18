@@ -24,7 +24,7 @@ mall-app/mall-user,io.github.clarence404.mall.user.auth,AuthService.TokenPair,0,
 mall-app/mall-user,io.github.clarence404.mall.user.auth,AuthService,18,166,7,9,4,38,7,9,0,8
 mall-app/mall-user,io.github.clarence404.mall.user.api,UserErrorCode,0,47,0,0,0,11,0,5,0,5
 mall-app/mall-user,io.github.clarence404.mall.user.api,UserDTO,0,12,0,0,0,1,0,1,0,1
-mall-app/mall-user,io.github.clarence404.mall.user.points,PointsConsumerConfig,50,0,0,0,9,0,4,0,4,0
+mall-app/mall-user,io.github.clarence404.mall.user.points,PointsConsumerConfig,51,0,0,0,9,0,4,0,4,0
 mall-app/mall-user,io.github.clarence404.mall.user.points,PointsMapper,0,7,0,0,0,1,0,1,0,1
 mall-app/mall-user,io.github.clarence404.mall.user.points,PointsGrantService,0,23,0,2,0,5,0,2,0,1
 mall-app/mall-user,io.github.clarence404.mall.user.points,OrderPaidEvent,0,15,0,0,0,1,0,1,0,1
@@ -40,12 +40,15 @@ mall-app/mall-product,io.github.clarence404.mall.product.query,ProductQueryServi
 mall-app/mall-product,io.github.clarence404.mall.product.detail,ProductDetailController.ProductDetailPage,0,9,0,0,0,1,0,1,0,1
 mall-app/mall-product,io.github.clarence404.mall.product.detail,DetailSourceListener,0,4,0,0,0,1,0,2,0,2
 mall-app/mall-product,io.github.clarence404.mall.product.detail,ProductCacheSubscriber,0,41,0,0,0,10,0,4,0,4
-mall-app/mall-product,io.github.clarence404.mall.product.detail,ProductDetailService,0,253,0,6,0,57,0,10,0,7
+mall-app/mall-product,io.github.clarence404.mall.product.detail,DetailCachePolicy,0,16,0,0,0,6,0,6,0,6
+mall-app/mall-product,io.github.clarence404.mall.product.detail,ProductDetailService,0,349,0,28,0,75,0,25,0,11
+mall-app/mall-product,io.github.clarence404.mall.product.detail,DetailCachePolicy.new DetailCachePolicy() {...},0,3,0,0,0,1,0,1,0,1
 mall-app/mall-product,io.github.clarence404.mall.product.detail,ProductChangedEvent,0,6,0,0,0,1,0,1,0,1
 mall-app/mall-product,io.github.clarence404.mall.product.detail,DetailSource,0,21,0,0,0,4,0,1,0,1
 mall-app/mall-product,io.github.clarence404.mall.product.detail,ProductDetailView,0,18,0,0,0,1,0,1,0,1
 mall-app/mall-product,io.github.clarence404.mall.product.detail,ProductWarmupRunner,0,29,0,2,0,7,0,3,0,2
 mall-app/mall-product,io.github.clarence404.mall.product.detail,ProductCacheInvalidator,0,58,0,0,0,17,0,6,0,6
+mall-app/mall-product,io.github.clarence404.mall.product.detail,DemoDetailCachePolicy,0,133,3,13,0,36,3,15,0,10
 mall-app/mall-product,io.github.clarence404.mall.product.detail,DemoCacheSourceHeader,0,25,3,3,0,6,3,2,0,2
 mall-app/mall-product,io.github.clarence404.mall.product.detail,ProductDetailController,0,25,0,0,0,4,0,2,0,2
 mall-app/mall-product,io.github.clarence404.mall.product.admin,ProductAdminController.UpdateProductRequest,0,12,0,0,0,1,0,1,0,1
@@ -90,7 +93,7 @@ mall-app/mall-order,io.github.clarence404.mall.order.place,PricingService,17,65,
 mall-app/mall-order,io.github.clarence404.mall.order.place,OrderLine,0,9,0,0,0,1,0,1,0,1
 mall-app/mall-order,io.github.clarence404.mall.order.place,PromoProperties,0,32,0,2,0,5,0,3,0,2
 mall-app/mall-order,io.github.clarence404.mall.order.place,AddressForm,0,12,0,0,0,1,0,1,0,1
-mall-app/mall-order,io.github.clarence404.mall.order.mq,OrderConsumersConfig,106,0,0,0,19,0,9,0,9,0
+mall-app/mall-order,io.github.clarence404.mall.order.mq,OrderConsumersConfig,110,0,0,0,19,0,9,0,9,0
 mall-app/mall-order,io.github.clarence404.mall.order.config,OrderModuleConfig,0,13,0,0,0,3,0,3,0,3
 mall-app/mall-order,io.github.clarence404.mall.order.paid,OrderPaidTxService,0,104,3,11,0,19,3,7,0,3
 mall-app/mall-order,io.github.clarence404.mall.order.paid,PaymentSucceeded,0,18,0,0,0,1,0,1,0,1

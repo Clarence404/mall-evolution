@@ -1,6 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>InventoryConsumersConfig.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">inventory-service</a> &gt; <a href="index.source.html" class="el_package">io.github.clarence404.mall.inventory.reserve</a> &gt; <span class="el_source">InventoryConsumersConfig.java</span></div><h1>InventoryConsumersConfig.java</h1><pre class="source lang-java linenums">package io.github.clarence404.mall.inventory.reserve;
 
 import io.github.clarence404.mall.common.json.Json;
+import io.github.clarence404.mall.common.mq.ConsumeInstrumentation;
 import io.github.clarence404.mall.common.mq.ConsumerFactory;
 import io.github.clarence404.mall.common.mq.RocketMqProperties;
 import io.github.clarence404.mall.inventory.api.ReserveLine;
@@ -18,27 +19,28 @@ import org.springframework.context.annotation.Configuration;
 /**
  * 库存服务的消费者：order-paid → confirm，order-cancelled → release。两者都是带旧状态的条件更新，重复消息无副作用。
  */
-<span class="nc" id="L21">@Slf4j</span>
+<span class="nc" id="L22">@Slf4j</span>
 @Configuration(proxyBeanMethods = false)
 @ConditionalOnProperty(prefix = &quot;mall.rocketmq&quot;, name = &quot;enabled&quot;, havingValue = &quot;true&quot;)
-<span class="nc" id="L24">class InventoryConsumersConfig {</span>
+<span class="nc" id="L25">class InventoryConsumersConfig {</span>
 
     @Bean(destroyMethod = &quot;close&quot;)
     PushConsumer inventoryConfirmConsumer(
             ClientServiceProvider provider,
             ClientConfiguration clientConfig,
             RocketMqProperties props,
+            ConsumeInstrumentation instrumentation,
             ReservationService reservationService)
             throws ClientException {
-<span class="nc" id="L33">        return ConsumerFactory.subscribe(</span>
-                provider, clientConfig, props, &quot;inventory-confirm-consumer&quot;, &quot;order-paid&quot;, view -&gt; {
-<span class="nc" id="L35">                    OrderPaidMessage m = Json.read(view.getBody(), OrderPaidMessage.class);</span>
+<span class="nc" id="L35">        return ConsumerFactory.subscribe(</span>
+                provider, clientConfig, props, instrumentation, &quot;inventory-confirm-consumer&quot;, &quot;order-paid&quot;, view -&gt; {
+<span class="nc" id="L37">                    OrderPaidMessage m = Json.read(view.getBody(), OrderPaidMessage.class);</span>
                     try {
-<span class="nc" id="L37">                        reservationService.confirm(m.orderNo());</span>
-<span class="nc" id="L38">                        return ConsumeResult.SUCCESS;</span>
-<span class="nc" id="L39">                    } catch (Exception ex) {</span>
-<span class="nc" id="L40">                        log.warn(&quot;确认预占失败，orderNo={}，第 {} 次投递&quot;, m.orderNo(), view.getDeliveryAttempt(), ex);</span>
-<span class="nc" id="L41">                        return ConsumeResult.FAILURE;</span>
+<span class="nc" id="L39">                        reservationService.confirm(m.orderNo());</span>
+<span class="nc" id="L40">                        return ConsumeResult.SUCCESS;</span>
+<span class="nc" id="L41">                    } catch (Exception ex) {</span>
+<span class="nc" id="L42">                        log.warn(&quot;确认预占失败，orderNo={}，第 {} 次投递&quot;, m.orderNo(), view.getDeliveryAttempt(), ex);</span>
+<span class="nc" id="L43">                        return ConsumeResult.FAILURE;</span>
                     }
                 });
     }
@@ -48,24 +50,31 @@ import org.springframework.context.annotation.Configuration;
             ClientServiceProvider provider,
             ClientConfiguration clientConfig,
             RocketMqProperties props,
+            ConsumeInstrumentation instrumentation,
             ReservationService reservationService)
             throws ClientException {
-<span class="nc" id="L53">        return ConsumerFactory.subscribe(</span>
-                provider, clientConfig, props, &quot;inventory-release-consumer&quot;, &quot;order-cancelled&quot;, view -&gt; {
-<span class="nc" id="L55">                    OrderCancelledMessage m = Json.read(view.getBody(), OrderCancelledMessage.class);</span>
+<span class="nc" id="L56">        return ConsumerFactory.subscribe(</span>
+                provider,
+                clientConfig,
+                props,
+                instrumentation,
+                &quot;inventory-release-consumer&quot;,
+                &quot;order-cancelled&quot;,
+                view -&gt; {
+<span class="nc" id="L64">                    OrderCancelledMessage m = Json.read(view.getBody(), OrderCancelledMessage.class);</span>
                     try {
-<span class="nc" id="L57">                        reservationService.release(m.orderNo(), m.lines());</span>
-<span class="nc" id="L58">                        return ConsumeResult.SUCCESS;</span>
-<span class="nc" id="L59">                    } catch (Exception ex) {</span>
-<span class="nc" id="L60">                        log.warn(&quot;释放预占失败，orderNo={}，第 {} 次投递&quot;, m.orderNo(), view.getDeliveryAttempt(), ex);</span>
-<span class="nc" id="L61">                        return ConsumeResult.FAILURE;</span>
+<span class="nc" id="L66">                        reservationService.release(m.orderNo(), m.lines());</span>
+<span class="nc" id="L67">                        return ConsumeResult.SUCCESS;</span>
+<span class="nc" id="L68">                    } catch (Exception ex) {</span>
+<span class="nc" id="L69">                        log.warn(&quot;释放预占失败，orderNo={}，第 {} 次投递&quot;, m.orderNo(), view.getDeliveryAttempt(), ex);</span>
+<span class="nc" id="L70">                        return ConsumeResult.FAILURE;</span>
                     }
                 });
     }
 
     /** 库存服务自己的消息类型，按 JSON 字段约定反序列化。 */
-<span class="nc" id="L67">    record OrderPaidMessage(String orderNo) {}</span>
+<span class="nc" id="L76">    record OrderPaidMessage(String orderNo) {}</span>
 
-<span class="nc" id="L69">    record OrderCancelledMessage(String orderNo, List&lt;ReserveLine&gt; lines) {}</span>
+<span class="nc" id="L78">    record OrderCancelledMessage(String orderNo, List&lt;ReserveLine&gt; lines) {}</span>
 }
 </pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.13.202504020838</span></div></body></html>
