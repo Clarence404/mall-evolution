@@ -60,7 +60,7 @@ if ($VmSsh) {
     $sh | & ssh -o BatchMode=yes -o ConnectTimeout=10 $VmSsh 'cat > /tmp/ha-vm.sh' 2>$null
 }
 
-$ports = 8080, 8180, 8280, 8082, 8083, 9000
+$ports = 8080, 8180, 8280, 8082, 8083, 9000, 18080, 18180, 18280, 18082, 18083, 19000   # 服务端口与管理端口：上一轮的进程没退干净时，占着的可能只剩管理端口
 foreach ($r in $Runs) {
     $parts = $r -split '\|'
     $exp = $parts[0]; $variant = $parts[1]

@@ -16,7 +16,7 @@ text { font-family: -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei",
 DASH = ["", "6 3", "2 3", "8 3 2 3", "1 2"]
 
 
-def chart(fname, title, series, xmax, ymax, ylabel, xlabel="压测开始后的秒数", events=(), xstep=60, yticks=5, yfmt="{:.0f}", ymarks=()):
+def chart(fname, title, series, xmax, ymax, ylabel, xlabel="压测开始后的秒数", events=(), xstep=60, yticks=5, yfmt="{:.0f}", ymarks=(), xticks=None, guides=()):
     """series: [(name, colorvar, [(x, y), ...])]; events: [(x, label)]"""
     W, H = 720, 380
     L, R, T, B = 62, 24, 78, 62
@@ -38,9 +38,10 @@ def chart(fname, title, series, xmax, ymax, ylabel, xlabel="压测开始后的�
         yv = ymax * i / yticks
         o.append(f'<line x1="{L}" y1="{Y(yv):.1f}" x2="{W-R}" y2="{Y(yv):.1f}" stroke="var(--border)" stroke-width="1"/>')
         o.append(f'<text class="m" x="{L-8}" y="{Y(yv)+4:.1f}" text-anchor="end" font-size="11">{yfmt.format(yv)}</text>')
-    for xv in range(0, int(xmax) + 1, xstep):
+    # xticks: [(x, label)]，不给就按 xstep 等距标
+    for xv, lab in (xticks or [(v, str(v)) for v in range(0, int(xmax) + 1, xstep)]):
         o.append(f'<line x1="{X(xv):.1f}" y1="{T+ph}" x2="{X(xv):.1f}" y2="{T+ph+4}" stroke="var(--muted)" stroke-width="1"/>')
-        o.append(f'<text class="m" x="{X(xv):.1f}" y="{T+ph+18}" text-anchor="middle" font-size="11">{xv}</text>')
+        o.append(f'<text class="m" x="{X(xv):.1f}" y="{T+ph+18}" text-anchor="middle" font-size="11">{lab}</text>')
     o.append(f'<line x1="{L}" y1="{T}" x2="{L}" y2="{T+ph}" stroke="var(--muted)" stroke-width="1"/>')
     o.append(f'<line x1="{L}" y1="{T+ph}" x2="{W-R}" y2="{T+ph}" stroke="var(--muted)" stroke-width="1"/>')
     o.append(f'<text class="m" x="{L}" y="{T-10}" text-anchor="middle" font-size="11">{ylabel}</text>')
@@ -48,6 +49,9 @@ def chart(fname, title, series, xmax, ymax, ylabel, xlabel="压测开始后的�
     for yv, lab in ymarks:
         o.append(f'<line x1="{L}" y1="{Y(yv):.1f}" x2="{W-R}" y2="{Y(yv):.1f}" stroke="var(--muted)" stroke-width="1" stroke-dasharray="3 3"/>')
         o.append(f'<text class="m" x="{W-R-4}" y="{Y(yv)-5:.1f}" text-anchor="end" font-size="11">{lab}</text>')
+    # guides: 参考线 [((x1, y1), (x2, y2))]，灰色虚线，不进图例
+    for (x1, y1), (x2, y2) in guides:
+        o.append(f'<line x1="{X(x1):.1f}" y1="{Y(y1):.1f}" x2="{X(x2):.1f}" y2="{Y(y2):.1f}" stroke="var(--muted)" stroke-width="1" stroke-dasharray="3 3"/>')
     # events: vertical dashed lines, label above the plot
     for xv, lab in events:
         o.append(f'<line x1="{X(xv):.1f}" y1="{T-4}" x2="{X(xv):.1f}" y2="{T+ph}" stroke="var(--muted)" stroke-width="1" stroke-dasharray="4 3"/>')
