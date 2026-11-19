@@ -42,7 +42,8 @@ public class SecurityConfig {
     @Bean
     @Order(Ordered.HIGHEST_PRECEDENCE)
     SecurityFilterChain managementPortSecurity(HttpSecurity http, Environment env) throws Exception {
-        http.securityMatcher(request -> onManagementPort(env, request.getLocalPort()))
+        ManagementPort managementPort = new ManagementPort(env); // 端口查到一次就记住，不是每个请求都去翻一遍配置
+        http.securityMatcher(request -> managementPort.matches(request.getLocalPort()))
                 .csrf(c -> c.disable())
                 .sessionManagement(s -> s.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .authorizeHttpRequests(
@@ -61,12 +62,20 @@ public class SecurityConfig {
      * 这时这条过滤链永远不匹配，行为与改动前完全一样。
      */
     static boolean onManagementPort(Environment env, int localPort) {
+        Integer port = resolveManagementPort(env);
+        return port != null && port == localPort;
+    }
+
+    /**
+     * 独立管理端口的端口号：两个端口都已经写进环境才有结果，否则返回 null（服务器还没起完）；没有独立管理端口时返回 -1。
+     */
+    static Integer resolveManagementPort(Environment env) {
         Integer managementPort = env.getProperty("local.management.port", Integer.class);
         Integer serverPort = env.getProperty("local.server.port", Integer.class);
-        return managementPort != null
-                && managementPort > 0
-                && !managementPort.equals(serverPort)
-                && managementPort == localPort;
+        if (managementPort == null || serverPort == null) {
+            return null;
+        }
+        return managementPort > 0 && !managementPort.equals(serverPort) ? managementPort : -1;
     }
 
     @Bean

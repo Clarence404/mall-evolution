@@ -26,4 +26,20 @@ class ManagementPortMatchTest {
         assertThat(SecurityConfig.onManagementPort(samePort, 8080)).isFalse();
         assertThat(SecurityConfig.onManagementPort(new MockEnvironment(), 8080)).isFalse();
     }
+
+    @Test
+    void remembersThePortOnceBothPortsAreKnown() {
+        MockEnvironment env = new MockEnvironment();
+        ManagementPort port = new ManagementPort(env);
+        assertThat(port.matches(18082)).isFalse(); // 服务器还没起完：不匹配，也不记结果
+
+        env.setProperty("local.server.port", "8082");
+        env.setProperty("local.management.port", "18082");
+        assertThat(port.matches(18082)).isTrue();
+        assertThat(port.matches(8082)).isFalse();
+
+        env.setProperty("local.management.port", "19999"); // 之后不再查环境
+        assertThat(port.matches(18082)).isTrue();
+        assertThat(port.matches(19999)).isFalse();
+    }
 }

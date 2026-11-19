@@ -37,7 +37,8 @@ class GatewaySecurityConfig {
     @Bean
     @Order(Ordered.HIGHEST_PRECEDENCE)
     SecurityWebFilterChain managementPortSecurity(ServerHttpSecurity http, Environment env) {
-        return http.securityMatcher(exchange -> onManagementPort(env, exchange)
+        ManagementPort managementPort = new ManagementPort(env); // 端口查到一次就记住，不是每个请求都去翻一遍配置
+        return http.securityMatcher(exchange -> managementPort.matches(exchange)
                         ? ServerWebExchangeMatcher.MatchResult.match()
                         : ServerWebExchangeMatcher.MatchResult.notMatch())
                 .csrf(ServerHttpSecurity.CsrfSpec::disable)
@@ -53,14 +54,21 @@ class GatewaySecurityConfig {
      * 没有独立管理端口时它是 local.server.port 的别名，所以要求两者不同，这时这条过滤链永远不匹配。
      */
     static boolean onManagementPort(Environment env, ServerWebExchange exchange) {
+        Integer port = resolveManagementPort(env);
+        InetSocketAddress local = exchange.getRequest().getLocalAddress();
+        return port != null && local != null && local.getPort() == port;
+    }
+
+    /**
+     * 独立管理端口的端口号：两个端口都已经写进环境才有结果，否则返回 null（服务器还没起完）；没有独立管理端口时返回 -1。
+     */
+    static Integer resolveManagementPort(Environment env) {
         Integer managementPort = env.getProperty("local.management.port", Integer.class);
         Integer serverPort = env.getProperty("local.server.port", Integer.class);
-        InetSocketAddress local = exchange.getRequest().getLocalAddress();
-        return managementPort != null
-                && managementPort > 0
-                && !managementPort.equals(serverPort)
-                && local != null
-                && local.getPort() == managementPort;
+        if (managementPort == null || serverPort == null) {
+            return null;
+        }
+        return managementPort > 0 && !managementPort.equals(serverPort) ? managementPort : -1;
     }
 
     @Bean
