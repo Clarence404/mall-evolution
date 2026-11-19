@@ -3,6 +3,8 @@
 #   - 四个服务用已经打好的 jar（*/target/*.jar），profile 固定 dev,local,demo，工作目录是仓库根目录（这样 config/application-local.yml 才读得到）
 #   - 实验参数写在 .properties 里：[all] / [mall-app] / [inventory-service] / [payment-service] / [mall-gateway] 是服务的启动参数，
 #     [experiment] 是传给 Gatling 的 -D 参数，[script] 是脚本自己用的开关；全部以命令行参数传入，优先级最高，Nacos 里同名配置也盖不住它
+#     [jvm] 是各服务的 JVM 参数（key 是服务名，如 mall-app=-Xms1g -Xmx1g -XX:+UseZGC），不写就是 -Xms512m -Xmx1g；
+#     值里的 {run} 换成本轮结果目录（相对仓库根目录，不带盘符——-Xlog 的 file= 遇到冒号要另外加引号）、{name} 换成实例名
 #   - 每一轮的产物都放在 experiments/out/<实验>/<时间>-<变体>/（已在 .gitignore 里）
 
 Set-StrictMode -Version 2
@@ -83,6 +85,18 @@ function Get-HaServiceArgs($Props, [string]$Module) {
         foreach ($k in $s.Keys) { $merged[$k] = $s[$k] }
     }
     return $merged
+}
+
+# 某个服务实例的 JVM 参数：[jvm] 节里按服务名取，没有就用默认的堆大小
+function Get-HaJvmOpts($Props, [string]$Module, [string]$Name, [string]$RunDir) {
+    $s = Get-HaSection $Props 'jvm'
+    $opts = '-Xms512m -Xmx1g'
+    if ($s.Contains($Module)) { $opts = $s[$Module] }
+    $rel = $RunDir
+    if ($RunDir -and $RunDir.StartsWith($script:RepoRoot, [System.StringComparison]::OrdinalIgnoreCase)) {
+        $rel = $RunDir.Substring($script:RepoRoot.Length).TrimStart([char]92)
+    }
+    return $opts.Replace('{run}', $rel).Replace('{name}', $Name)
 }
 
 # 把整套参数写进结果目录，方便事后核对这一轮到底是什么配置
@@ -186,6 +200,12 @@ function Start-HaService {
         [string]$Name, [string]$Module, [int]$Port, [int]$MgmtPort,
         $Props, [hashtable]$Extra = @{}, [string]$LogDir, $Java, [string]$JvmOpts = '-Xms512m -Xmx1g')
     $jar = Join-Path $script:RepoRoot $script:Jars[$Module]
+    # [script] jarDir=<相对仓库根目录的目录>：改用那个目录下的 <服务名>.jar（对比某次修改前后时，把修改前打的包留一份在那里）
+    $jarDir = Get-HaScriptValue $Props 'jarDir' ''
+    if ($jarDir) {
+        $jar = Join-Path (Join-Path $script:RepoRoot $jarDir) "$Module.jar"
+        if (-not (Test-Path $jar)) { throw "jarDir 指的目录里没有 $Module.jar：$jar" }
+    }
     $argList = New-Object System.Collections.Generic.List[string]
     foreach ($o in ($JvmOpts -split '\s+' | Where-Object { $_ })) { $argList.Add($o) }
     $argList.Add('--enable-native-access=ALL-UNNAMED')
@@ -203,7 +223,7 @@ function Start-HaService {
     Write-HaLog "启动 $Name（pid $($p.Id)，端口 $Port / 管理端口 $MgmtPort）"
     return [pscustomobject]@{
         Name = $Name; Module = $Module; Port = $Port; MgmtPort = $MgmtPort; Process = $p
-        Args = $all; Extra = $Extra; LogDir = $LogDir; Java = $Java
+        Args = $all; Extra = $Extra; LogDir = $LogDir; Java = $Java; JvmOpts = $JvmOpts
     }
 }
 
@@ -211,7 +231,7 @@ function Start-HaService {
 function Restart-HaServiceProcess($Svc, $Props, [string]$Suffix) {
     $name = "$($Svc.Name)$Suffix"
     $new = Start-HaService -Name $name -Module $Svc.Module -Port $Svc.Port -MgmtPort $Svc.MgmtPort -Props $Props `
-        -Extra $Svc.Extra -LogDir $Svc.LogDir -Java $Svc.Java
+        -Extra $Svc.Extra -LogDir $Svc.LogDir -Java $Svc.Java -JvmOpts $Svc.JvmOpts
     $new.Name = $Svc.Name
     return $new
 }
@@ -266,24 +286,40 @@ function Invoke-HaOffline($Svc) {
 <#
 标准拓扑：库存、支付各 1 个，mall-app MallAppCount 个（端口 8080、8180、8280……，管理端口 +10000，雪花机器号 1、2、3……），网关 1 个。
 按依赖顺序起：先库存与支付，再 mall-app，最后网关；都就绪才返回。
+各服务的 JVM 参数取参数文件的 [jvm] 节（见 Get-HaJvmOpts）；AppJava 不为空时 mall-app 用它指的 JDK（对比 JDK 版本用），其余服务仍用 Java。
 #>
-function Start-HaTopology($Props, [string]$LogDir, $Java, [int]$MallAppCount = 1) {
+function Start-HaTopology($Props, [string]$LogDir, $Java, [int]$MallAppCount = 1, $AppJava) {
+    if (-not $AppJava) { $AppJava = $Java }
+    $runDir = Split-Path $LogDir -Parent
+    $jvm = { param($module, $name) Get-HaJvmOpts $Props $module $name $runDir }
     $ports = @(8082, 18082, 8083, 18083, 9000, 19000)
     for ($i = 0; $i -lt $MallAppCount; $i++) { $ports += @((8080 + 100 * $i), (18080 + 100 * $i)) }   # 逗号的优先级比 + 和 * 高，不加括号会被解析成「100 * 数组」
     Assert-HaPortsFree $ports
     $t = [ordered]@{ Apps = @(); Inventory = $null; Payment = $null; Gateway = $null }   # 先占好位：严格模式下读不存在的属性会报错，中途失败收尾时要用
     try {
-        $t.Inventory = Start-HaService -Name 'inventory-service' -Module 'inventory-service' -Port 8082 -MgmtPort 18082 -Props $Props -LogDir $LogDir -Java $Java
-        $t.Payment = Start-HaService -Name 'payment-service' -Module 'payment-service' -Port 8083 -MgmtPort 18083 -Props $Props -LogDir $LogDir -Java $Java
+        $t.Inventory = Start-HaService -Name 'inventory-service' -Module 'inventory-service' -Port 8082 -MgmtPort 18082 -Props $Props -LogDir $LogDir -Java $Java `
+            -JvmOpts (& $jvm 'inventory-service' 'inventory-service')
+        $t.Payment = Start-HaService -Name 'payment-service' -Module 'payment-service' -Port 8083 -MgmtPort 18083 -Props $Props -LogDir $LogDir -Java $Java `
+            -JvmOpts (& $jvm 'payment-service' 'payment-service')
         Wait-HaReady $t.Inventory
         Wait-HaReady $t.Payment
         for ($i = 0; $i -lt $MallAppCount; $i++) {
             $extra = @{ 'mall.id.worker-id' = "$($i + 1)" }
             $t.Apps += Start-HaService -Name "mall-app-$($i + 1)" -Module 'mall-app' -Port (8080 + 100 * $i) -MgmtPort (18080 + 100 * $i) `
-                -Props $Props -Extra $extra -LogDir $LogDir -Java $Java
+                -Props $Props -Extra $extra -LogDir $LogDir -Java $AppJava -JvmOpts (& $jvm 'mall-app' "mall-app-$($i + 1)")
+            # [script] mallAppCpus=N：把 mall-app 绑在 N 个逻辑 CPU 上（0、2、4……号，隔一个取一个，避开同一个物理核的两个超线程），
+            # 模拟「N 核的容器」。JVM 启动时就要按 N 核定 GC 线程数，所以 [jvm] 里要同时写 -XX:ActiveProcessorCount=N（绑核在进程起来之后才生效）
+            $cpus = [int](Get-HaScriptValue $Props 'mallAppCpus' '0')
+            if ($cpus -gt 0) {
+                $mask = [long]0
+                for ($c = 0; $c -lt $cpus; $c++) { $mask = $mask -bor ([long]1 -shl (2 * $c)) }
+                $t.Apps[$i].Process.ProcessorAffinity = [IntPtr]$mask
+                Write-HaLog ("mall-app-$($i + 1) 绑在 $cpus 个逻辑 CPU 上（掩码 0x{0:X}）" -f $mask)
+            }
         }
         foreach ($a in $t.Apps) { Wait-HaReady $a }
-        $t.Gateway = Start-HaService -Name 'mall-gateway' -Module 'mall-gateway' -Port 9000 -MgmtPort 19000 -Props $Props -LogDir $LogDir -Java $Java
+        $t.Gateway = Start-HaService -Name 'mall-gateway' -Module 'mall-gateway' -Port 9000 -MgmtPort 19000 -Props $Props -LogDir $LogDir -Java $Java `
+            -JvmOpts (& $jvm 'mall-gateway' 'mall-gateway')
         Wait-HaReady $t.Gateway
     } catch {
         # 中途有服务起不来：调用方还没拿到拓扑对象，没法收尾，这里把已经起来的先停掉，否则它们会一直占着端口
@@ -356,6 +392,40 @@ function Wait-HaBucketMerge([string]$Sku, [int]$TimeoutSec) {
         Write-HaLog "SKU $Sku 的分桶还有未释放的预占，暂时并不回去，10 秒后再试"
         Start-Sleep -Seconds 10
     }
+}
+
+<#
+确认高性能实验的种子订单灌过了，没灌或没灌完就接着灌（mall-app 的 /internal/demo/perf/seed，幂等）。
+默认 4000 个普通用户各 200 单、1 个大客户 20 万单，共 100 万单、200 万条明细；一轮 5000 单，开发机上约 1–2 秒。
+数据说明见 mall-order 的 DemoPerfService。灌完的数据留在库里，后面各轮直接用；不想要了清空 t_order、t_order_item 即可。
+#>
+function Confirm-HaSeedOrders([int]$Users = 4000, [int]$Rounds = 200, [int]$HotPerRound = 1000, [int]$Port = 8080) {
+    $base = "http://localhost:$Port/internal/demo/perf"
+    $st = Invoke-RestMethod -Uri "$base/seed-status?users=$Users" -TimeoutSec 60
+    if ($st.firstUserOrders -ge $Rounds -and $st.lastUserOrders -ge $Rounds -and $st.hotUserOrders -ge ($Rounds * $HotPerRound)) {
+        Write-HaLog "种子订单已就绪（普通用户每人 $($st.firstUserOrders) 单，大客户 $($st.hotUserOrders) 单）"
+        return
+    }
+    Write-HaLog "种子订单不全（第一个用户 $($st.firstUserOrders) 单、最后一个用户 $($st.lastUserOrders) 单、大客户 $($st.hotUserOrders) 单），开始灌 $Rounds 轮"
+    $sw = [Diagnostics.Stopwatch]::StartNew()
+    for ($r = 0; $r -lt $Rounds; $r += 5) {
+        $to = [math]::Min($Rounds, $r + 5)
+        for ($try = 1; ; $try++) {
+            try {
+                Invoke-RestMethod -Method Post -Uri "$base/seed?fromRound=$r&toRound=$to&users=$Users&hotPerRound=$HotPerRound" -TimeoutSec 600 | Out-Null
+                break
+            } catch {
+                # 开发库写得猛的时候偶尔会卡几秒，语句超时；接口是幂等的，歇一下重试
+                if ($try -ge 5) { throw }
+                Write-HaLog "种子订单第 $r–$($to - 1) 轮失败（$($_.Exception.Message)），10 秒后重试"
+                Start-Sleep -Seconds 10
+            }
+        }
+        if ($to % 50 -eq 0) { Write-HaLog "种子订单：已灌 $to / $Rounds 轮（$([int]$sw.Elapsed.TotalSeconds) 秒）" }
+    }
+    $st = Invoke-RestMethod -Uri "$base/seed-status?users=$Users" -TimeoutSec 60
+    if ($st.hotUserOrders -lt ($Rounds * $HotPerRound)) { throw "种子订单没灌全：大客户只有 $($st.hotUserOrders) 单" }
+    Write-HaLog "种子订单灌完，用时 $([int]$sw.Elapsed.TotalSeconds) 秒"
 }
 
 <#
@@ -563,6 +633,41 @@ function Get-HaThreadSummary([string]$DumpFile, [int]$Port) {
 }
 
 <#
+用 jcmd 在一个服务上开 JFR 录制（profile 模板：方法采样、分配采样、锁与 IO 事件），一直录到 Save-HaJfr 来取。
+Settings 是逐项覆盖模板的事件设置，形如 'jdk.SocketRead#threshold=0ms'（JDK 17 起 JFR.start 直接认这种写法）。
+
+要在压测开始之前开：JDK 21 的网络读写事件靠改写字节码实现，开录制的那一刻要重新转换一批类、已经编译好的代码跟着作废重编。
+服务空闲时这没有影响；带着流量开，实测下单的中位耗时从 30ms 涨到 4 秒、请求堆积起来之后全场 504，过了 50 秒才恢复。
+录制本身也有开销，所以开了录制的轮次只用来定位，不和没开的轮次比耗时。
+#>
+function Start-HaJfr($Svc, [string[]]$Settings = @()) {
+    $jfrArgs = @("$($Svc.Process.Id)", 'JFR.start', 'name=experiment', 'settings=profile', 'maxage=15m') + $Settings
+    $r = (& $Svc.Java.Jcmd @jfrArgs 2>&1 | Out-String).Trim()
+    if ($r -notmatch 'Started recording') { throw "$($Svc.Name) 的 JFR 没有开起来：$r" }
+    Write-HaLog "$($Svc.Name) 开始录 JFR"
+}
+
+# 把最近 LastSec 秒的录制写到 OutFile，然后停掉录制
+function Save-HaJfr($Svc, [string]$OutFile, [int]$LastSec) {
+    New-Item -ItemType Directory -Force -Path (Split-Path $OutFile -Parent) | Out-Null
+    $r = (& $Svc.Java.Jcmd "$($Svc.Process.Id)" 'JFR.dump' 'name=experiment' "maxage=${LastSec}s" "filename=$OutFile" 2>&1 | Out-String).Trim()
+    if (-not (Test-Path $OutFile)) { throw "$($Svc.Name) 的 JFR 没有写出来：$r" }
+    & $Svc.Java.Jcmd "$($Svc.Process.Id)" 'JFR.stop' 'name=experiment' 2>&1 | Out-Null
+    Write-HaLog "$($Svc.Name) 最近 $LastSec 秒的 JFR → $OutFile"
+}
+
+<#
+在放 MySQL 的那台虚拟机上跑 ha-vm.sh 的一个子命令（reset、status、digest……），返回它的输出。
+地址取环境变量 HA_VM_SSH（run-batch.ps1 带 -VmSsh 时会设好，脚本也是它传过去的）；没设就什么都不做、返回空——
+单独跑一轮实验时没有这份数据，其余照常。
+#>
+function Invoke-HaVm([string]$Command) {
+    if (-not $env:HA_VM_SSH) { return @() }
+    $ErrorActionPreference = 'Continue'   # ssh 往标准错误写一行字（警告之类）不算失败；模块默认的 Stop 会把它当成异常抛出去
+    return @(& ssh -o BatchMode=yes -o ConnectTimeout=10 $env:HA_VM_SSH "sh /tmp/ha-vm.sh $Command" 2>$null)
+}
+
+<#
 从 Prometheus 导出一段时间的曲线（query_range），每条查询一个 CSV：time,series,value。
 QueriesFile 每行「名字 | PromQL」，# 开头是注释。不传 PrometheusUrl 就跳过（只有本地采样的数据）。
 #>
@@ -607,6 +712,7 @@ function New-HaRunDir([string]$Experiment, [string]$Variant) {
 → 等压测结束 → 导出 → 执行 Cleanup → 收尾。
 During 是 scriptblock，参数是一个上下文对象（Topology、Props、RunDir、StartedMs、Java、Gatling、Events）。
 SamplerExtraPattern 可选：逐秒采样（metrics.csv）除默认那批指标外还要留哪些，见 Get-HaSamplerPattern。
+ServicesJavaHome 可选：四个服务用另一个 JDK 起（压测仍用 JavaHome——Maven 的构建规则只认 JDK 21）；MallAppJavaHome 可选：只把 mall-app 换成另一个 JDK。
 BeforeLoad、Cleanup 可选，参数是同一个上下文对象：BeforeLoad 在服务就绪、库存补完之后、压测开始之前执行（这时 StartedMs 是 0、Gatling 是空），
 出错则这一轮不跑；Cleanup 在停服务之前执行，中途出错或 Ctrl+C 也会执行（服务还活着时才有意义，自己要判断），它出错只记日志。
 #>
@@ -617,25 +723,28 @@ function Invoke-HaExperiment {
         [int]$MallAppCount = 1, [scriptblock]$During, [switch]$Build, [switch]$KeepServices,
         [string[]]$Skus = @('20001', '20002', '20003'),
         [scriptblock]$BeforeLoad, [scriptblock]$Cleanup, [int]$RestockTarget = 100000,
-        [string]$SamplerExtraPattern)
+        [string]$SamplerExtraPattern, [string]$MallAppJavaHome, [string]$ServicesJavaHome)
 
     $expDir = Join-Path $script:ExperimentsRoot $Experiment
     $props = Get-HaVariantProps $Experiment $Variant $Set
     $java = Resolve-HaJava $JavaHome
+    $svcJava = if ($ServicesJavaHome) { Resolve-HaJava $ServicesJavaHome } else { $java }   # 四个服务可以整体换一个 JDK，压测（Maven）仍用 JavaHome
+    $appJava = if ($MallAppJavaHome) { Resolve-HaJava $MallAppJavaHome } else { $svcJava }   # mall-app 可以再单独换一个（对比 JDK 版本的实验用）
     Assert-HaJars -Build:$Build -Java $java
     $runDir = New-HaRunDir $Experiment $Variant
     Save-HaProperties $props (Join-Path $runDir 'variant.properties')
     $commit = (& git -C $script:RepoRoot rev-parse --short HEAD) 2>$null
-    "experiment=$Experiment`nvariant=$Variant`ncommit=$commit`nstarted=$(Get-Date -Format o)" | Out-File (Join-Path $runDir 'run-info.txt') -Encoding utf8
+    $appVer = ((& cmd /c "`"$($appJava.Java)`" -version 2>&1") | Select-Object -First 1)
+    "experiment=$Experiment`nvariant=$Variant`ncommit=$commit`nmallAppJava=$appVer`nstarted=$(Get-Date -Format o)" | Out-File (Join-Path $runDir 'run-info.txt') -Encoding utf8
     if ($NacosNamespace) { $env:NACOS_NAMESPACE = $NacosNamespace }
     Write-HaLog "实验 $Experiment / $Variant，结果目录 $runDir"
 
     $topology = $null; $sampler = $null; $gatling = $null; $ctx = $null
     try {
-        $topology = Start-HaTopology -Props $props -LogDir (Join-Path $runDir 'logs') -Java $java -MallAppCount $MallAppCount
+        $topology = Start-HaTopology -Props $props -LogDir (Join-Path $runDir 'logs') -Java $svcJava -MallAppCount $MallAppCount -AppJava $appJava
         Invoke-HaRestock $Skus $RestockTarget
         $ctx = [pscustomobject]@{
-            Topology = $topology; Props = $props; RunDir = $runDir; StartedMs = [long]0; Java = $java
+            Topology = $topology; Props = $props; RunDir = $runDir; StartedMs = [long]0; Java = $svcJava
             Gatling = $null; Events = (Join-Path $runDir 'script-events.csv')
         }
         if ($BeforeLoad) { & $BeforeLoad $ctx }

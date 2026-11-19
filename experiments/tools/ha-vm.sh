@@ -3,6 +3,7 @@
 #   reset        清空 MySQL 的语句统计
 #   max          本轮 COMMIT 的最大耗时（毫秒）；远大于平时说明磁盘或虚拟机停顿过
 #   status       行锁等待等几个全局计数（实验前后各取一次，相减得本轮的量）
+#   digest       reset 之后各类语句的统计，按总耗时从大到小 60 行：库名、次数、总耗时 ms、平均耗时 µs、最大耗时 ms、扫描行数、返回行数、影响行数、语句
 #   probe-start  后台起一个探针：每 0.2 秒做一次 4KB 同步写并记录耗时，同时记录整机 CPU 忙碌与 iowait 占比
 #   probe-stop   停探针
 #   probe-cat    输出探针记录：epoch_s,fsync_ms,cpu_busy_pct,cpu_iowait_pct
@@ -19,6 +20,7 @@ case "$1" in
   reset) echo "truncate table performance_schema.events_statements_summary_by_digest" | q ;;
   max) echo "select coalesce(round(max(max_timer_wait)/1e9),0) from performance_schema.events_statements_summary_by_digest where digest_text = 'COMMIT'" | q ;;
   status) echo "show global status where Variable_name like 'Innodb_row_lock%' or Variable_name in ('Com_commit','Com_rollback','Questions','Innodb_rows_inserted','Innodb_rows_updated','Innodb_data_fsyncs','Innodb_os_log_fsyncs','Threads_running','Max_used_connections')" | q ;;
+  digest) echo "select schema_name, count_star, round(sum_timer_wait/1e9,1), round(avg_timer_wait/1e6,1), round(max_timer_wait/1e9,1), sum_rows_examined, sum_rows_sent, sum_rows_affected, left(digest_text, 200) from performance_schema.events_statements_summary_by_digest where schema_name in ('mall','mall_inventory','mall_payment') order by sum_timer_wait desc limit 60" | q ;;
   probe-start)
     [ -f "$PID" ] && kill "$(cat "$PID")" 2>/dev/null
     nohup sh "$0" probe-loop >/dev/null 2>&1 &
@@ -38,5 +40,5 @@ case "$1" in
     done ;;
   probe-stop) [ -f "$PID" ] && kill "$(cat "$PID")" 2>/dev/null; rm -f "$PID" "$BIN" ;;
   probe-cat) cat "$OUT" 2>/dev/null ;;
-  *) echo "usage: $0 reset|max|status|probe-start|probe-stop|probe-cat" >&2; exit 2 ;;
+  *) echo "usage: $0 reset|max|status|digest|probe-start|probe-stop|probe-cat" >&2; exit 2 ;;
 esac

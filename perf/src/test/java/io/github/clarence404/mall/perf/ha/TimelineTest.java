@@ -44,6 +44,28 @@ class TimelineTest {
     }
 
     @Test
+    void writesWholeRunLatencyInMicros() throws Exception {
+        AtomicLong now = new AtomicLong(1_000_000_000_000L);
+        Timeline t = new Timeline(now::get);
+        for (int i = 1; i <= 1000; i++) {
+            now.addAndGet(7); // 跨了好几秒：整场的分位数不按秒分
+            t.recordMicros("GET /a", 200, i * 10L);
+        }
+        t.recordMicros("GET /a", 503, 1_999);
+
+        t.write(dir, List.of());
+
+        assertThat(Files.readAllLines(dir.resolve("latency.csv"), StandardCharsets.UTF_8))
+                .containsExactly(
+                        "request,status,count,mean_us,p50_us,p90_us,p99_us,p999_us,p9999_us,max_us",
+                        "GET /a,200,1000,5005,5000,9000,9900,9990,10000,10000",
+                        "GET /a,503,1,1999,1999,1999,1999,1999,1999,1999");
+        // 逐秒的那份仍是整毫秒：1999 微秒记成 1
+        assertThat(Files.readAllLines(dir.resolve("timeline.csv"), StandardCharsets.UTF_8))
+                .anyMatch(l -> l.endsWith("GET /a,503,1,1,1,1,1"));
+    }
+
+    @Test
     void percentileUsesNearestRank() {
         long[] sorted = {10, 20, 30, 40};
 

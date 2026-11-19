@@ -93,8 +93,8 @@ public final class HaChains {
     private static Session afterAttempt(Session s, String name, ClientRetryPolicy policy, Timeline timeline) {
         int attempt = s.getInt("ha_attempt");
         int status = s.contains("ha_status") ? s.getInt("ha_status") : 0;
-        long elapsed = (System.nanoTime() - s.getLong("ha_t0")) / 1_000_000;
-        timeline.record(attempt == 0 ? name : name + RETRY_SUFFIX, status, elapsed);
+        long elapsedMicros = (System.nanoTime() - s.getLong("ha_t0")) / 1_000;
+        timeline.recordMicros(attempt == 0 ? name : name + RETRY_SUFFIX, status, elapsedMicros);
         if (attempt == 0) {
             policy.budget().onFirstAttempt();
         }

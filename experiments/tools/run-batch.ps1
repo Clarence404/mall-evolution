@@ -55,8 +55,10 @@ function MaxScrapeGap([int]$fromSec, [int]$toSec) {
 }
 
 if ($VmSsh) {
+    $env:HA_VM_SSH = $VmSsh   # 各实验的 run.ps1 是子进程，靠这个环境变量知道虚拟机在哪（Invoke-HaVm：个别实验要在压测中途清一次语句统计）
     # 脚本内容走标准输入传过去，换行统一成 LF
-    $sh = (Get-Content (Join-Path $PSScriptRoot 'ha-vm.sh') -Raw -Encoding utf8) -replace "`r`n", "`n"
+    # 管道会在末尾再补一个 CRLF：最后垫一行注释，免得虚拟机上多出一行只有  的「命令」（每次调用都报一句 not found）
+    $sh = ((Get-Content (Join-Path $PSScriptRoot 'ha-vm.sh') -Raw -Encoding utf8) -replace "`r`n", "`n").TrimEnd() + "`n# end"
     $sh | & ssh -o BatchMode=yes -o ConnectTimeout=10 $VmSsh 'cat > /tmp/ha-vm.sh' 2>$null
 }
 

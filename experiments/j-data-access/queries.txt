@@ -1,0 +1,9 @@
+# 实验 J 从 Prometheus 导出的曲线：名字 | PromQL（导出步长 5 秒）
+app_rps                | sum by (uri, status) (rate(http_server_requests_seconds_count{application="mall-app",uri=~"/internal/demo/perf.*"}[15s]))
+app_mean               | sum by (uri) (rate(http_server_requests_seconds_sum{application="mall-app",uri=~"/internal/demo/perf.*"}[15s])) / sum by (uri) (rate(http_server_requests_seconds_count{application="mall-app",uri=~"/internal/demo/perf.*"}[15s]))
+hikari_active          | max(hikaricp_connections_active{application="mall-app"})
+hikari_pending         | max(hikaricp_connections_pending{application="mall-app"})
+hikari_usage_avg       | sum(rate(hikaricp_connections_usage_seconds_sum{application="mall-app"}[15s])) / sum(rate(hikaricp_connections_usage_seconds_count{application="mall-app"}[15s]))
+hikari_usage_rate      | sum(rate(hikaricp_connections_usage_seconds_count{application="mall-app"}[15s]))
+cpu                    | max(process_cpu_usage{application="mall-app"})
+alloc_rate             | sum(rate(jvm_gc_memory_allocated_bytes_total{application="mall-app"}[15s]))

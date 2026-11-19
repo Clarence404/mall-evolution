@@ -12,6 +12,7 @@ import io.github.clarence404.mall.order.domain.OrderStatus;
 import java.time.ZonedDateTime;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 @Service
@@ -23,6 +24,13 @@ public class OrderQueryService {
     private final OrderMapper orderMapper;
     private final OrderItemMapper orderItemMapper;
     private final DegradeProperties degrade;
+    private OrderListPolicy listPolicy = OrderListPolicy.DEFAULT;
+
+    /** 只有演示环境（demo profile）注册了实现，用来复现「订单列表不加索引提示」时的样子（高性能实验 I）；正式环境一律加。 */
+    @Autowired(required = false)
+    void setListPolicy(OrderListPolicy listPolicy) {
+        this.listPolicy = listPolicy;
+    }
 
     /** 只看自己的订单：查到别人的订单和查不到一样返回 404，不让人借 403/404 的差别探测订单号。 */
     public Order getOwn(long userId, String orderNo) {
@@ -43,10 +51,15 @@ public class OrderQueryService {
                         .toInstant()
                         .toEpochMilli())
                 : null;
-        List<Order> rows = orderMapper.listByUser(userId, status, OrderCursor.decode(cursor), minId, pageSize + 1);
+        boolean plain = listPolicy.plainCursor();
+        Long cursorId =
+                plain ? (cursor == null || cursor.isBlank() ? null : Long.valueOf(cursor)) : OrderCursor.decode(cursor);
+        List<Order> rows =
+                orderMapper.listByUser(userId, status, cursorId, minId, pageSize + 1, listPolicy.indexHint());
         boolean hasMore = rows.size() > pageSize;
         List<Order> page = hasMore ? rows.subList(0, pageSize) : rows;
-        String next = hasMore ? OrderCursor.encode(page.getLast().getId()) : null;
+        long lastId = hasMore ? page.getLast().getId() : 0;
+        String next = !hasMore ? null : plain ? Long.toString(lastId) : OrderCursor.encode(lastId);
         return new CursorResult<>(page.stream().map(OrderListItemView::of).toList(), next, hasMore);
     }
 }

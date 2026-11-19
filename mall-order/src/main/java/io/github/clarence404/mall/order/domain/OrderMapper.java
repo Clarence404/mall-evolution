@@ -85,10 +85,16 @@ public interface OrderMapper {
 
     /**
      * 我的订单：游标分页，走 idx_user_id (user_id, id)，索引本身按 id 有序；带 status 时在回表后过滤。多取一条判断 hasMore。
+     *
+     * <p>索引要用提示指定。t_order 上以 user_id 开头的索引有两个：idx_user_id (user_id, id) 和下单幂等用的唯一索引
+     * uk_user_biz (user_id, biz_no)。不加提示时 MySQL 8.4 选的是后者，
+     * 于是把这个用户的全部订单读出来、回表、排序，再取前 20 行；用户只有几单时看不出来，有 200 单时一次查询就是 200 次回表，
+     * 订单表比缓冲池大的时候基本都是读盘。高性能实验 I 量到的是 22ms 对 0.4ms（experiments/i-locate）。
+     * indexHint 正式代码一律传 true；false 只给演示环境复现不加提示时的样子。
      */
     @Select("""
             <script>
-            SELECT id, order_no, status, pay_amount, created_at
+            SELECT <if test="indexHint">/*+ INDEX(t_order idx_user_id) */</if> id, order_no, status, pay_amount, created_at
             FROM t_order
             WHERE user_id = #{userId}
               <if test="cursorId != null">AND id &lt; #{cursorId}</if>
@@ -103,7 +109,8 @@ public interface OrderMapper {
             @Param("status") OrderStatus status,
             @Param("cursorId") Long cursorId,
             @Param("minId") Long minId,
-            @Param("limit") int limit);
+            @Param("limit") int limit,
+            @Param("indexHint") boolean indexHint);
 
     /**
      * 下单频控：该用户在本次下单 SKU 上的待支付订单数；id 下界取 30 分钟前的雪花 ID，只扫该用户最近的订单。
