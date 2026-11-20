@@ -15,6 +15,11 @@ spring:
       maximum-pool-size: 40                          # 压测第 2 轮：30 个连接不够，调到 40
       connection-timeout: 250                        # 池子耗尽时快速失败；HikariCP 允许的下限是 250ms
       transaction-isolation: TRANSACTION_READ_COMMITTED   # 换桶时条件不满足的 UPDATE 语句结束就释放行锁
+      data-source-properties:             # 传给 MySQL 驱动的连接属性（高性能实验 I）
+        useLocalSessionState: true        # 驱动记住自己设过的自动提交、只读、隔离级别；默认每条写语句之前都要先问服务端一次「会话是不是只读」
+        cachePrepStmts: true              # 缓存预编译语句在客户端的解析结果，同一条 SQL 不用每次重新解析
+        prepStmtCacheSize: 250
+        prepStmtCacheSqlLimit: 2048       # 默认只缓存 256 个字符以内的 SQL，订单的几条语句都超长
   cloud:
     loadbalancer:
       cache:
