@@ -1,0 +1,76 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>DemoPerfController.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">mall-order</a> &gt; <a href="index.source.html" class="el_package">io.github.clarence404.mall.order.demo</a> &gt; <span class="el_source">DemoPerfController.java</span></div><h1>DemoPerfController.java</h1><pre class="source lang-java linenums">package io.github.clarence404.mall.order.demo;
+
+import io.github.clarence404.mall.order.demo.DemoPerfService.BatchResult;
+import io.github.clarence404.mall.order.demo.DemoPerfService.OrderRow;
+import io.github.clarence404.mall.order.demo.DemoPerfService.OrderWithItems;
+import io.github.clarence404.mall.order.demo.DemoPerfService.SeedResult;
+import io.github.clarence404.mall.order.demo.DemoPerfService.SeedStatus;
+import io.swagger.v3.oas.annotations.Hidden;
+import java.util.List;
+import java.util.Map;
+import lombok.RequiredArgsConstructor;
+import org.springframework.context.annotation.Profile;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.RestController;
+
+/**
+ * 仅演示环境：高性能实验「数据访问」的接口，实现见 {@link DemoPerfService}。路径在 /internal/** 下，网关不路由、不要登录，
+ * 压测直接打 mall-app 的端口——这组实验比的是 SQL 的写法，不经过网关和鉴权，免得它们的耗时混进来。
+ */
+@Hidden
+@RestController
+@Profile(&quot;demo&quot;)
+@RequiredArgsConstructor
+@RequestMapping(&quot;/internal/demo/perf&quot;)
+class DemoPerfController {
+
+    private final DemoPerfService service;
+
+    /** 灌第 [fromRound, toRound) 轮种子订单；一次别灌太多轮，一轮 5000 单约 1 秒。 */
+    @PostMapping(&quot;/seed&quot;)
+    SeedResult seed(
+            @RequestParam int fromRound,
+            @RequestParam int toRound,
+            @RequestParam(defaultValue = &quot;4000&quot;) int users,
+            @RequestParam(defaultValue = &quot;1000&quot;) int hotPerRound) {
+<span class="nc" id="L39">        return service.seed(fromRound, toRound, users, hotPerRound);</span>
+    }
+
+    @GetMapping(&quot;/seed-status&quot;)
+    SeedStatus seedStatus(@RequestParam(defaultValue = &quot;4000&quot;) int users) {
+<span class="nc" id="L44">        return service.seedStatus(users);</span>
+    }
+
+    @PostMapping(&quot;/batch-insert&quot;)
+    BatchResult batchInsert(
+            @RequestParam String mode, @RequestParam int rows, @RequestParam(defaultValue = &quot;1000&quot;) int batchSize) {
+<span class="nc" id="L50">        return service.batchInsert(mode, rows, batchSize);</span>
+    }
+
+    @GetMapping(&quot;/orders/page&quot;)
+    List&lt;OrderRow&gt; page(
+            @RequestParam String mode,
+            @RequestParam long userId,
+            @RequestParam(defaultValue = &quot;0&quot;) int offset,
+            @RequestParam(defaultValue = &quot;20&quot;) int size,
+            @RequestParam(required = false) Long cursorId) {
+<span class="nc" id="L60">        return service.page(mode, userId, offset, size, cursorId);</span>
+    }
+
+    /** 游标分页翻到第 offset 行时该带的游标（字符串，免得 JS 丢精度）；offset 为 0 时 cursorId 为空串。 */
+    @GetMapping(&quot;/orders/cursor-at&quot;)
+    Map&lt;String, String&gt; cursorAt(@RequestParam long userId, @RequestParam int offset) {
+<span class="nc" id="L66">        Long id = service.cursorAt(userId, offset);</span>
+<span class="nc bnc" id="L67" title="All 2 branches missed.">        return Map.of(&quot;cursorId&quot;, id == null ? &quot;&quot; : String.valueOf(id));</span>
+    }
+
+    @GetMapping(&quot;/orders/with-items&quot;)
+    List&lt;OrderWithItems&gt; listWithItems(
+            @RequestParam String mode, @RequestParam long userId, @RequestParam(defaultValue = &quot;20&quot;) int size) {
+<span class="nc" id="L73">        return service.listWithItems(mode, userId, size);</span>
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.13.202504020838</span></div></body></html>

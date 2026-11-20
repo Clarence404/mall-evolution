@@ -1,0 +1,326 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../../jacoco-resources/report.gif" type="image/gif"/><title>DemoPerfService.java</title><link rel="stylesheet" href="../../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../../index.html" class="el_report">mall-app</a> &gt; <a href="../index.html" class="el_bundle">mall-order</a> &gt; <a href="index.source.html" class="el_package">io.github.clarence404.mall.order.demo</a> &gt; <span class="el_source">DemoPerfService.java</span></div><h1>DemoPerfService.java</h1><pre class="source lang-java linenums">package io.github.clarence404.mall.order.demo;
+
+import io.github.clarence404.mall.common.id.Ids;
+import io.github.clarence404.mall.order.demo.DemoPerfMapper.JoinedRow;
+import io.github.clarence404.mall.order.demo.DemoPerfMapper.SeedItem;
+import io.github.clarence404.mall.order.demo.DemoPerfMapper.SeedOrder;
+import io.github.clarence404.mall.order.domain.Order;
+import io.github.clarence404.mall.order.domain.OrderItem;
+import io.github.clarence404.mall.order.domain.OrderItemMapper;
+import io.github.clarence404.mall.order.domain.OrderMapper;
+import io.github.clarence404.mall.order.domain.OrderStatus;
+import java.math.BigDecimal;
+import java.sql.Timestamp;
+import java.time.LocalDateTime;
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.context.annotation.Profile;
+import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
+
+/**
+ * 仅演示环境：高性能实验「数据访问」的三组对照——偏移量分页 / 延迟关联 / 游标分页，逐单查明细（N+1）/ 一次 IN / 一次 JOIN，
+ * 逐条插入 / 一个事务里逐条 / 一条语句多行 / JDBC 批量。正式代码用的是每组里的最后一种或倒数第二种（游标分页、
+ * 一条语句多行），这里把「不该那样写」的写法也实现出来，在同一份数据上量差多少。见 experiments/j-data-access。
+ *
+ * &lt;p&gt;种子数据（{@link #seed}）：从 {@value #FIRST_USER_ID} 起的 users 个普通用户，每人每轮一单；另有一个大客户
+ * （用户 ID {@value #HOT_USER_ID}）每轮 hotPerRound 单。一轮之内普通用户和大客户的订单交错着写进去，所以同一个用户的订单
+ * 在主键上是散开的——和线上「各个用户的订单混在一起按时间增长」一样，按用户翻页时每一行都落在不同的数据页上。
+ * 订单号是「8 + 6 位用户序号 + 6 位第几单」，压测脚本不用查库就能拼出任意一单的订单号。每单 2 条明细，状态是已取消（50），
+ * 不会被超时关单、对账等任务扫到。
+ */
+<span class="fc" id="L38">@Slf4j</span>
+@Service
+@Profile(&quot;demo&quot;)
+class DemoPerfService {
+
+    static final long FIRST_USER_ID = 800_000_000L;
+    static final int HOT_USER_INDEX = 999_999;
+    static final long HOT_USER_ID = FIRST_USER_ID + HOT_USER_INDEX;
+    private static final int SEED_CHUNK = 1000;
+<span class="fc" id="L47">    private static final BigDecimal PRICE_A = new BigDecimal(&quot;10.00&quot;);</span>
+<span class="fc" id="L48">    private static final BigDecimal PRICE_B = new BigDecimal(&quot;20.00&quot;);</span>
+<span class="fc" id="L49">    private static final BigDecimal PAY = new BigDecimal(&quot;30.00&quot;);</span>
+    private static final String ITEM_SQL =
+            &quot;INSERT INTO t_order_item (id, order_id, sku_id, product_name, product_image,&quot;
+                    + &quot; unit_price, quantity, item_amount, created_at) VALUES (?, ?, ?, ?, '', ?, ?, ?, ?)&quot;;
+
+    private final DemoPerfMapper mapper;
+    private final OrderMapper orderMapper;
+    private final OrderItemMapper orderItemMapper;
+    private final JdbcTemplate jdbcTemplate;
+    private final TransactionTemplate tx;
+    private final boolean rewriteBatchedStatements;
+
+    DemoPerfService(
+            DemoPerfMapper mapper,
+            OrderMapper orderMapper,
+            OrderItemMapper orderItemMapper,
+            JdbcTemplate jdbcTemplate,
+            PlatformTransactionManager transactionManager,
+            @Value(&quot;${spring.datasource.hikari.data-source-properties.rewriteBatchedStatements:false}&quot;)
+<span class="fc" id="L68">                    boolean rewriteBatchedStatements) {</span>
+<span class="fc" id="L69">        this.mapper = mapper;</span>
+<span class="fc" id="L70">        this.orderMapper = orderMapper;</span>
+<span class="fc" id="L71">        this.orderItemMapper = orderItemMapper;</span>
+<span class="fc" id="L72">        this.jdbcTemplate = jdbcTemplate;</span>
+<span class="fc" id="L73">        this.tx = new TransactionTemplate(transactionManager);</span>
+<span class="fc" id="L74">        this.rewriteBatchedStatements = rewriteBatchedStatements;</span>
+<span class="fc" id="L75">    }</span>
+
+    static String orderNo(int userIndex, int seq) {
+<span class="nc" id="L78">        return String.format(&quot;8%06d%06d&quot;, userIndex, seq);</span>
+    }
+
+    // ---------------------------------------------------------------- 种子数据
+
+    /** 灌第 [fromRound, toRound) 轮。每轮 users + hotPerRound 单，重复执行不会多出数据。 */
+    SeedResult seed(int fromRound, int toRound, int users, int hotPerRound) {
+<span class="nc" id="L85">        long t0 = System.nanoTime();</span>
+<span class="nc" id="L86">        long orders = 0;</span>
+<span class="nc" id="L87">        long items = 0;</span>
+<span class="nc bnc" id="L88" title="All 2 branches missed.">        for (int round = fromRound; round &lt; toRound; round++) {</span>
+<span class="nc" id="L89">            List&lt;SeedOrder&gt; batch = new ArrayList&lt;&gt;(SEED_CHUNK);</span>
+<span class="nc" id="L90">            int perRound = users + hotPerRound;</span>
+<span class="nc" id="L91">            int normal = 0;</span>
+<span class="nc" id="L92">            int hot = 0;</span>
+<span class="nc bnc" id="L93" title="All 2 branches missed.">            for (int j = 0; j &lt; perRound; j++) {</span>
+                // 交错：按比例轮到大客户，其余轮到下一个普通用户
+<span class="nc bnc" id="L95" title="All 4 branches missed.">                boolean takeHot = hot &lt; hotPerRound &amp;&amp; (long) hot * perRound &lt;= (long) j * hotPerRound;</span>
+<span class="nc bnc" id="L96" title="All 2 branches missed.">                int userIndex = takeHot ? HOT_USER_INDEX : normal;</span>
+<span class="nc bnc" id="L97" title="All 2 branches missed.">                int seq = takeHot ? round * hotPerRound + hot : round;</span>
+<span class="nc bnc" id="L98" title="All 2 branches missed.">                if (takeHot) {</span>
+<span class="nc" id="L99">                    hot++;</span>
+                } else {
+<span class="nc" id="L101">                    normal++;</span>
+                }
+<span class="nc" id="L103">                String orderNo = orderNo(userIndex, seq);</span>
+<span class="nc" id="L104">                batch.add(new SeedOrder(</span>
+<span class="nc" id="L105">                        Ids.next(), orderNo, FIRST_USER_ID + userIndex, &quot;seed-&quot; + orderNo, PAY, LocalDateTime.now()));</span>
+<span class="nc bnc" id="L106" title="All 4 branches missed.">                if (batch.size() == SEED_CHUNK || j == perRound - 1) {</span>
+<span class="nc" id="L107">                    long[] n = writeSeedChunk(batch);</span>
+<span class="nc" id="L108">                    orders += n[0];</span>
+<span class="nc" id="L109">                    items += n[1];</span>
+<span class="nc" id="L110">                    batch = new ArrayList&lt;&gt;(SEED_CHUNK);</span>
+                }
+            }
+        }
+<span class="nc" id="L114">        long ms = (System.nanoTime() - t0) / 1_000_000;</span>
+<span class="nc" id="L115">        log.info(&quot;种子订单：第 {}–{} 轮，新写入 {} 单、{} 条明细，用时 {}ms&quot;, fromRound, toRound - 1, orders, items, ms);</span>
+<span class="nc" id="L116">        return new SeedResult(fromRound, toRound, orders, items, ms);</span>
+    }
+
+    /**
+     * 一批订单和它们的明细放在一个事务里：要么都写进去，要么都没有。重复执行时这一批的订单已经在了（INSERT IGNORE 写入 0 行），
+     * 明细也就不用再补；中途失败重试时不会留下「有订单没明细」的半截数据。返回新写入的订单数与明细数。
+     */
+    private long[] writeSeedChunk(List&lt;SeedOrder&gt; batch) {
+<span class="nc" id="L124">        return tx.execute(status -&gt; {</span>
+<span class="nc" id="L125">            int inserted = mapper.insertOrders(batch);</span>
+<span class="nc bnc" id="L126" title="All 2 branches missed.">            if (inserted == 0) {</span>
+<span class="nc" id="L127">                return new long[] {0, 0};</span>
+            }
+<span class="nc bnc" id="L129" title="All 2 branches missed.">            if (inserted != batch.size()) {</span>
+<span class="nc" id="L130">                throw new IllegalStateException(&quot;种子订单这一批只写进去一部分（&quot; + inserted + &quot; / &quot; + batch.size() + &quot;），数据被别的东西动过&quot;);</span>
+            }
+<span class="nc" id="L132">            List&lt;SeedItem&gt; rows = new ArrayList&lt;&gt;(batch.size() * 2);</span>
+<span class="nc bnc" id="L133" title="All 2 branches missed.">            for (SeedOrder o : batch) {</span>
+<span class="nc" id="L134">                rows.add(item(o.id(), 20001L, &quot;实验商品 A&quot;, PRICE_A, o.createdAt()));</span>
+<span class="nc" id="L135">                rows.add(item(o.id(), 20002L, &quot;实验商品 B&quot;, PRICE_B, o.createdAt()));</span>
+<span class="nc" id="L136">            }</span>
+<span class="nc" id="L137">            return new long[] {inserted, mapper.insertItems(rows)};</span>
+        });
+    }
+
+    SeedStatus seedStatus(int users) {
+<span class="nc" id="L142">        return new SeedStatus(</span>
+<span class="nc" id="L143">                mapper.countOrders(FIRST_USER_ID),</span>
+<span class="nc" id="L144">                mapper.countOrders(FIRST_USER_ID + users - 1),</span>
+<span class="nc" id="L145">                mapper.countOrders(HOT_USER_ID));</span>
+    }
+
+    private static SeedItem item(long orderId, long skuId, String name, BigDecimal price, LocalDateTime at) {
+<span class="nc" id="L149">        return new SeedItem(Ids.next(), orderId, skuId, name, price, 1, price, at);</span>
+    }
+
+    // ---------------------------------------------------------------- 批量写
+
+    /**
+     * 往 t_order_item 写 rows 行，按 mode 指定的写法，返回用时。写进去的行挂在一个不存在的订单上，量完删掉（删除不计时）。
+     *
+     * &lt;pre&gt;
+     * single        一条语句一行，每条自动提交
+     * single-tx     一条语句一行，每 batchSize 行放在一个事务里提交一次
+     * multi-values  一条语句 batchSize 行（INSERT ... VALUES (...), (...)），每条自动提交
+     * jdbc-batch    JDBC 批量（addBatch / executeBatch），每 batchSize 行一批、一个事务；
+     *               驱动把这一批怎么发出去取决于连接属性 rewriteBatchedStatements（启动参数里给）
+     * &lt;/pre&gt;
+     */
+    BatchResult batchInsert(String mode, int rows, int batchSize) {
+<span class="nc" id="L166">        long orderId = -Ids.next();</span>
+<span class="nc" id="L167">        LocalDateTime now = LocalDateTime.now();</span>
+<span class="nc" id="L168">        List&lt;SeedItem&gt; all = new ArrayList&lt;&gt;(rows);</span>
+<span class="nc bnc" id="L169" title="All 2 branches missed.">        for (int i = 0; i &lt; rows; i++) {</span>
+<span class="nc" id="L170">            all.add(item(orderId, 20001L, &quot;批量写实验&quot;, PRICE_A, now));</span>
+        }
+<span class="nc" id="L172">        long t0 = System.nanoTime();</span>
+<span class="nc bnc" id="L173" title="All 5 branches missed.">        switch (mode) {</span>
+<span class="nc" id="L174">            case &quot;single&quot; -&gt; all.forEach(mapper::insertItem);</span>
+            case &quot;single-tx&quot; -&gt;
+<span class="nc" id="L176">                chunks(all, batchSize).forEach(c -&gt; tx.executeWithoutResult(s -&gt; c.forEach(mapper::insertItem)));</span>
+<span class="nc" id="L177">            case &quot;multi-values&quot; -&gt; chunks(all, batchSize).forEach(mapper::insertItems);</span>
+<span class="nc" id="L178">            case &quot;jdbc-batch&quot; -&gt; chunks(all, batchSize).forEach(c -&gt; tx.executeWithoutResult(s -&gt; jdbcBatch(c)));</span>
+            default -&gt;
+<span class="nc" id="L180">                throw new IllegalArgumentException(&quot;mode 只能是 single / single-tx / multi-values / jdbc-batch：&quot; + mode);</span>
+        }
+<span class="nc" id="L182">        long micros = (System.nanoTime() - t0) / 1_000;</span>
+<span class="nc bnc" id="L183" title="All 2 branches missed.">        while (mapper.deleteItemsOfOrder(orderId, 5000) &gt; 0) {</span>
+            // 分批删，免得一条语句删几万行
+        }
+<span class="nc" id="L186">        BatchResult r = new BatchResult(</span>
+                mode,
+                rows,
+                batchSize,
+                rewriteBatchedStatements,
+                micros / 1000,
+<span class="nc" id="L192">                Math.round(rows * 1_000_000.0 / micros));</span>
+<span class="nc" id="L193">        log.info(&quot;批量写实验：{}&quot;, r);</span>
+<span class="nc" id="L194">        return r;</span>
+    }
+
+    private void jdbcBatch(List&lt;SeedItem&gt; chunk) {
+<span class="nc" id="L198">        jdbcTemplate.batchUpdate(ITEM_SQL, chunk, chunk.size(), (ps, i) -&gt; {</span>
+<span class="nc" id="L199">            ps.setLong(1, i.id());</span>
+<span class="nc" id="L200">            ps.setLong(2, i.orderId());</span>
+<span class="nc" id="L201">            ps.setLong(3, i.skuId());</span>
+<span class="nc" id="L202">            ps.setString(4, i.productName());</span>
+<span class="nc" id="L203">            ps.setBigDecimal(5, i.unitPrice());</span>
+<span class="nc" id="L204">            ps.setInt(6, i.quantity());</span>
+<span class="nc" id="L205">            ps.setBigDecimal(7, i.itemAmount());</span>
+<span class="nc" id="L206">            ps.setTimestamp(8, Timestamp.valueOf(i.createdAt()));</span>
+<span class="nc" id="L207">        });</span>
+<span class="nc" id="L208">    }</span>
+
+    private static &lt;T&gt; List&lt;List&lt;T&gt;&gt; chunks(List&lt;T&gt; all, int size) {
+<span class="nc" id="L211">        List&lt;List&lt;T&gt;&gt; out = new ArrayList&lt;&gt;();</span>
+<span class="nc bnc" id="L212" title="All 2 branches missed.">        for (int i = 0; i &lt; all.size(); i += size) {</span>
+<span class="nc" id="L213">            out.add(all.subList(i, Math.min(all.size(), i + size)));</span>
+        }
+<span class="nc" id="L215">        return out;</span>
+    }
+
+    // ---------------------------------------------------------------- 深分页
+
+    /** 翻到第 offset 行之后的一页。cursor 模式不看 offset，从 cursorId 往后取（cursorId 为空是第一页）。 */
+    List&lt;OrderRow&gt; page(String mode, long userId, int offset, int size, Long cursorId) {
+<span class="nc bnc" id="L222" title="All 4 branches missed.">        List&lt;Order&gt; rows = switch (mode) {</span>
+<span class="nc" id="L223">            case &quot;offset&quot; -&gt; mapper.pageByOffset(userId, offset, size);</span>
+<span class="nc" id="L224">            case &quot;deferred&quot; -&gt; mapper.pageByDeferredJoin(userId, offset, size);</span>
+<span class="nc" id="L225">            case &quot;cursor&quot; -&gt; orderMapper.listByUser(userId, null, cursorId, null, size, true);</span>
+<span class="nc" id="L226">            default -&gt; throw new IllegalArgumentException(&quot;mode 只能是 offset / deferred / cursor：&quot; + mode);</span>
+        };
+<span class="nc" id="L228">        return rows.stream().map(OrderRow::of).toList();</span>
+    }
+
+    /** 游标分页翻到同样深度时该带的游标：第 offset 行的上一行的主键（offset 为 0 时没有游标）。 */
+    Long cursorAt(long userId, int offset) {
+<span class="nc bnc" id="L233" title="All 2 branches missed.">        return offset &lt;= 0 ? null : mapper.idAtOffset(userId, offset - 1);</span>
+    }
+
+    // ---------------------------------------------------------------- 带明细的列表
+
+    /**
+     * 最近 size 单，每单带明细。
+     *
+     * &lt;pre&gt;
+     * n-plus-one  查一页订单，再逐单查明细：1 + size 条语句
+     * in          查一页订单，再用一条 IN 查这一页的全部明细：2 条语句
+     * join        一条语句连表查出来，在内存里按订单归组：1 条语句
+     * &lt;/pre&gt;
+     */
+    List&lt;OrderWithItems&gt; listWithItems(String mode, long userId, int size) {
+<span class="nc bnc" id="L248" title="All 2 branches missed.">        if (&quot;join&quot;.equals(mode)) {</span>
+<span class="nc" id="L249">            Map&lt;Long, OrderWithItems&gt; byOrder = new LinkedHashMap&lt;&gt;();</span>
+<span class="nc bnc" id="L250" title="All 2 branches missed.">            for (JoinedRow r : mapper.listWithItemsJoined(userId, size)) {</span>
+<span class="nc" id="L251">                OrderWithItems o = byOrder.computeIfAbsent(</span>
+<span class="nc" id="L252">                        r.orderId(),</span>
+<span class="nc" id="L253">                        id -&gt; new OrderWithItems(</span>
+<span class="nc" id="L254">                                r.orderNo(), statusName(r.status()), r.payAmount(), r.createdAt(), new ArrayList&lt;&gt;()));</span>
+<span class="nc bnc" id="L255" title="All 2 branches missed.">                if (r.skuId() != null) {</span>
+<span class="nc" id="L256">                    o.items().add(new ItemRow(r.skuId(), r.productName(), r.unitPrice(), r.quantity(), r.itemAmount()));</span>
+                }
+<span class="nc" id="L258">            }</span>
+<span class="nc" id="L259">            return List.copyOf(byOrder.values());</span>
+        }
+<span class="nc" id="L261">        List&lt;Order&gt; orders = orderMapper.listByUser(userId, null, null, null, size, true);</span>
+<span class="nc" id="L262">        Map&lt;Long, List&lt;ItemRow&gt;&gt; items = new LinkedHashMap&lt;&gt;();</span>
+<span class="nc bnc" id="L263" title="All 3 branches missed.">        switch (mode) {</span>
+            case &quot;n-plus-one&quot; -&gt; {
+<span class="nc bnc" id="L265" title="All 2 branches missed.">                for (Order o : orders) {</span>
+<span class="nc" id="L266">                    items.put(</span>
+<span class="nc" id="L267">                            o.getId(),</span>
+<span class="nc" id="L268">                            orderItemMapper.selectByOrderId(o.getId()).stream()</span>
+<span class="nc" id="L269">                                    .map(ItemRow::of)</span>
+<span class="nc" id="L270">                                    .toList());</span>
+<span class="nc" id="L271">                }</span>
+<span class="nc" id="L272">            }</span>
+            case &quot;in&quot; -&gt; {
+<span class="nc bnc" id="L274" title="All 2 branches missed.">                if (!orders.isEmpty()) {</span>
+<span class="nc bnc" id="L275" title="All 2 branches missed.">                    for (OrderItem i : mapper.selectItemsByOrderIds(</span>
+<span class="nc" id="L276">                            orders.stream().map(Order::getId).toList())) {</span>
+<span class="nc" id="L277">                        items.computeIfAbsent(i.getOrderId(), k -&gt; new ArrayList&lt;&gt;())</span>
+<span class="nc" id="L278">                                .add(ItemRow.of(i));</span>
+<span class="nc" id="L279">                    }</span>
+                }
+            }
+<span class="nc" id="L282">            default -&gt; throw new IllegalArgumentException(&quot;mode 只能是 n-plus-one / in / join：&quot; + mode);</span>
+        }
+<span class="nc" id="L284">        return orders.stream()</span>
+<span class="nc" id="L285">                .map(o -&gt; new OrderWithItems(</span>
+<span class="nc" id="L286">                        o.getOrderNo(),</span>
+<span class="nc" id="L287">                        o.getStatus().name(),</span>
+<span class="nc" id="L288">                        o.getPayAmount(),</span>
+<span class="nc" id="L289">                        o.getCreatedAt(),</span>
+<span class="nc" id="L290">                        items.getOrDefault(o.getId(), List.of())))</span>
+<span class="nc" id="L291">                .toList();</span>
+    }
+
+    private static String statusName(int code) {
+<span class="nc bnc" id="L295" title="All 2 branches missed.">        for (OrderStatus s : OrderStatus.values()) {</span>
+<span class="nc bnc" id="L296" title="All 2 branches missed.">            if (s.getCode() == code) {</span>
+<span class="nc" id="L297">                return s.name();</span>
+            }
+        }
+<span class="nc" id="L300">        return String.valueOf(code);</span>
+    }
+
+<span class="nc" id="L303">    record SeedResult(int fromRound, int toRound, long orders, long items, long elapsedMs) {}</span>
+
+    /** 第一个普通用户、最后一个普通用户、大客户各有多少单：都等于预期值才算灌完。 */
+<span class="nc" id="L306">    record SeedStatus(long firstUserOrders, long lastUserOrders, long hotUserOrders) {}</span>
+
+<span class="nc" id="L308">    record BatchResult(</span>
+            String mode, int rows, int batchSize, boolean rewriteBatchedStatements, long elapsedMs, long rowsPerSec) {}
+
+<span class="nc" id="L311">    record OrderRow(String orderNo, String status, BigDecimal payAmount, LocalDateTime createdAt) {</span>
+        static OrderRow of(Order o) {
+<span class="nc" id="L313">            return new OrderRow(o.getOrderNo(), o.getStatus().name(), o.getPayAmount(), o.getCreatedAt());</span>
+        }
+    }
+
+<span class="nc" id="L317">    record ItemRow(long skuId, String productName, BigDecimal unitPrice, int quantity, BigDecimal itemAmount) {</span>
+        static ItemRow of(OrderItem i) {
+<span class="nc" id="L319">            return new ItemRow(i.getSkuId(), i.getProductName(), i.getUnitPrice(), i.getQuantity(), i.getItemAmount());</span>
+        }
+    }
+
+<span class="nc" id="L323">    record OrderWithItems(</span>
+            String orderNo, String status, BigDecimal payAmount, LocalDateTime createdAt, List&lt;ItemRow&gt; items) {}
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.13.202504020838</span></div></body></html>

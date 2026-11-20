@@ -37,15 +37,16 @@ import org.springframework.web.server.ServerWebExchange;
     @Bean
     @Order(Ordered.HIGHEST_PRECEDENCE)
     SecurityWebFilterChain managementPortSecurity(ServerHttpSecurity http, Environment env) {
-<span class="fc bfc" id="L40" title="All 2 branches covered.">        return http.securityMatcher(exchange -&gt; onManagementPort(env, exchange)</span>
-<span class="fc" id="L41">                        ? ServerWebExchangeMatcher.MatchResult.match()</span>
-<span class="fc" id="L42">                        : ServerWebExchangeMatcher.MatchResult.notMatch())</span>
-<span class="fc" id="L43">                .csrf(ServerHttpSecurity.CsrfSpec::disable)</span>
-<span class="fc" id="L44">                .authorizeExchange(a -&gt; a.pathMatchers(&quot;/actuator/health/**&quot;, &quot;/actuator/info&quot;, &quot;/actuator/prometheus&quot;)</span>
-<span class="fc" id="L45">                        .permitAll()</span>
-<span class="fc" id="L46">                        .anyExchange()</span>
-<span class="fc" id="L47">                        .denyAll())</span>
-<span class="fc" id="L48">                .build();</span>
+<span class="fc" id="L40">        ManagementPort managementPort = new ManagementPort(env); // 端口查到一次就记住，不是每个请求都去翻一遍配置</span>
+<span class="fc bfc" id="L41" title="All 2 branches covered.">        return http.securityMatcher(exchange -&gt; managementPort.matches(exchange)</span>
+<span class="fc" id="L42">                        ? ServerWebExchangeMatcher.MatchResult.match()</span>
+<span class="fc" id="L43">                        : ServerWebExchangeMatcher.MatchResult.notMatch())</span>
+<span class="fc" id="L44">                .csrf(ServerHttpSecurity.CsrfSpec::disable)</span>
+<span class="fc" id="L45">                .authorizeExchange(a -&gt; a.pathMatchers(&quot;/actuator/health/**&quot;, &quot;/actuator/info&quot;, &quot;/actuator/prometheus&quot;)</span>
+<span class="fc" id="L46">                        .permitAll()</span>
+<span class="fc" id="L47">                        .anyExchange()</span>
+<span class="fc" id="L48">                        .denyAll())</span>
+<span class="fc" id="L49">                .build();</span>
     }
 
     /**
@@ -53,42 +54,49 @@ import org.springframework.web.server.ServerWebExchange;
      * 没有独立管理端口时它是 local.server.port 的别名，所以要求两者不同，这时这条过滤链永远不匹配。
      */
     static boolean onManagementPort(Environment env, ServerWebExchange exchange) {
-<span class="fc" id="L56">        Integer managementPort = env.getProperty(&quot;local.management.port&quot;, Integer.class);</span>
-<span class="fc" id="L57">        Integer serverPort = env.getProperty(&quot;local.server.port&quot;, Integer.class);</span>
-<span class="fc" id="L58">        InetSocketAddress local = exchange.getRequest().getLocalAddress();</span>
-<span class="pc bpc" id="L59" title="1 of 2 branches missed.">        return managementPort != null</span>
-<span class="pc bpc" id="L60" title="1 of 2 branches missed.">                &amp;&amp; managementPort &gt; 0</span>
-<span class="pc bpc" id="L61" title="1 of 4 branches missed.">                &amp;&amp; !managementPort.equals(serverPort)</span>
-                &amp;&amp; local != null
-<span class="fc bfc" id="L63" title="All 2 branches covered.">                &amp;&amp; local.getPort() == managementPort;</span>
+<span class="nc" id="L57">        Integer port = resolveManagementPort(env);</span>
+<span class="nc" id="L58">        InetSocketAddress local = exchange.getRequest().getLocalAddress();</span>
+<span class="nc bnc" id="L59" title="All 6 branches missed.">        return port != null &amp;&amp; local != null &amp;&amp; local.getPort() == port;</span>
+    }
+
+    /**
+     * 独立管理端口的端口号：两个端口都已经写进环境才有结果，否则返回 null（服务器还没起完）；没有独立管理端口时返回 -1。
+     */
+    static Integer resolveManagementPort(Environment env) {
+<span class="fc" id="L66">        Integer managementPort = env.getProperty(&quot;local.management.port&quot;, Integer.class);</span>
+<span class="fc" id="L67">        Integer serverPort = env.getProperty(&quot;local.server.port&quot;, Integer.class);</span>
+<span class="pc bpc" id="L68" title="2 of 4 branches missed.">        if (managementPort == null || serverPort == null) {</span>
+<span class="nc" id="L69">            return null;</span>
+        }
+<span class="pc bpc" id="L71" title="1 of 4 branches missed.">        return managementPort &gt; 0 &amp;&amp; !managementPort.equals(serverPort) ? managementPort : -1;</span>
     }
 
     @Bean
     @Order(Ordered.LOWEST_PRECEDENCE)
     SecurityWebFilterChain gatewaySecurity(ServerHttpSecurity http, ReactiveJwtDecoder jwtDecoder) {
-<span class="fc" id="L69">        return http.csrf(ServerHttpSecurity.CsrfSpec::disable)</span>
-<span class="fc" id="L70">                .authorizeExchange(a -&gt; a.pathMatchers(</span>
+<span class="fc" id="L77">        return http.csrf(ServerHttpSecurity.CsrfSpec::disable)</span>
+<span class="fc" id="L78">                .authorizeExchange(a -&gt; a.pathMatchers(</span>
                                 &quot;/api/auth/**&quot;, &quot;/api/payments/notify/**&quot;, &quot;/actuator/health/**&quot;, &quot;/actuator/info&quot;)
-<span class="fc" id="L72">                        .permitAll()</span>
-<span class="fc" id="L73">                        .pathMatchers(HttpMethod.GET, &quot;/api/products/**&quot;)</span>
-<span class="fc" id="L74">                        .permitAll()</span>
-<span class="fc" id="L75">                        .pathMatchers(&quot;/internal/**&quot;)</span>
-<span class="fc" id="L76">                        .denyAll() // 双保险：网关本来就不路由 /internal/**</span>
-<span class="fc" id="L77">                        .anyExchange()</span>
-<span class="fc" id="L78">                        .authenticated())</span>
-<span class="fc" id="L79">                .oauth2ResourceServer(o -&gt; o.jwt(j -&gt; j.jwtDecoder(jwtDecoder)))</span>
-<span class="fc" id="L80">                .build();</span>
+<span class="fc" id="L80">                        .permitAll()</span>
+<span class="fc" id="L81">                        .pathMatchers(HttpMethod.GET, &quot;/api/products/**&quot;)</span>
+<span class="fc" id="L82">                        .permitAll()</span>
+<span class="fc" id="L83">                        .pathMatchers(&quot;/internal/**&quot;)</span>
+<span class="fc" id="L84">                        .denyAll() // 双保险：网关本来就不路由 /internal/**</span>
+<span class="fc" id="L85">                        .anyExchange()</span>
+<span class="fc" id="L86">                        .authenticated())</span>
+<span class="fc" id="L87">                .oauth2ResourceServer(o -&gt; o.jwt(j -&gt; j.jwtDecoder(jwtDecoder)))</span>
+<span class="fc" id="L88">                .build();</span>
     }
 
     @Bean
     ReactiveJwtDecoder jwtDecoder(
             @Value(&quot;${mall.security.jwt.secret}&quot;) String secret, @Value(&quot;${mall.security.jwt.issuer}&quot;) String issuer) {
-<span class="fc" id="L86">        NimbusReactiveJwtDecoder decoder = NimbusReactiveJwtDecoder.withSecretKey(</span>
-<span class="fc" id="L87">                        new SecretKeySpec(secret.getBytes(StandardCharsets.UTF_8), &quot;HmacSHA256&quot;))</span>
-<span class="fc" id="L88">                .macAlgorithm(MacAlgorithm.HS256)</span>
-<span class="fc" id="L89">                .build();</span>
-<span class="fc" id="L90">        decoder.setJwtValidator(new DelegatingOAuth2TokenValidator&lt;&gt;(JwtValidators.createDefaultWithIssuer(issuer)));</span>
-<span class="fc" id="L91">        return decoder;</span>
+<span class="fc" id="L94">        NimbusReactiveJwtDecoder decoder = NimbusReactiveJwtDecoder.withSecretKey(</span>
+<span class="fc" id="L95">                        new SecretKeySpec(secret.getBytes(StandardCharsets.UTF_8), &quot;HmacSHA256&quot;))</span>
+<span class="fc" id="L96">                .macAlgorithm(MacAlgorithm.HS256)</span>
+<span class="fc" id="L97">                .build();</span>
+<span class="fc" id="L98">        decoder.setJwtValidator(new DelegatingOAuth2TokenValidator&lt;&gt;(JwtValidators.createDefaultWithIssuer(issuer)));</span>
+<span class="fc" id="L99">        return decoder;</span>
     }
 }
 </pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.13.202504020838</span></div></body></html>

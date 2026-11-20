@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>OrderListPolicy.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">mall-order</a> &gt; <a href="index.source.html" class="el_package">io.github.clarence404.mall.order.query</a> &gt; <span class="el_source">OrderListPolicy.java</span></div><h1>OrderListPolicy.java</h1><pre class="source lang-java linenums">package io.github.clarence404.mall.order.query;
+
+/**
+ * 订单列表查询的开关，正式环境没有实现（即 {@link #DEFAULT}：加索引提示）。
+ *
+ * &lt;p&gt;只有演示环境（demo profile）注册了实现：高性能实验 I 靠它把索引提示关掉，复现「优化器自己选索引」时订单列表的耗时，
+ * 再和加了提示的对照；另一个开关把游标换成最简单的写法，用来验证「微基准里快了几十倍的改动，放回接口里看不看得出来」。
+ * 见 experiments/i-locate 与 {@code OrderMapper.listByUser} 的说明。
+ */
+public interface OrderListPolicy {
+
+<span class="nc" id="L12">    OrderListPolicy DEFAULT = new OrderListPolicy() {};</span>
+
+    /** 订单列表的 SQL 带不带 {@code INDEX(t_order idx_user_id)} 提示。 */
+    default boolean indexHint() {
+<span class="nc" id="L16">        return true;</span>
+    }
+
+    /** 游标是不是直接用 id 的十进制字符串（而不是 {@link OrderCursor} 的 JSON + Base64）。正式环境不用：游标对客户端应当不透明。 */
+    default boolean plainCursor() {
+<span class="nc" id="L21">        return false;</span>
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.13.202504020838</span></div></body></html>

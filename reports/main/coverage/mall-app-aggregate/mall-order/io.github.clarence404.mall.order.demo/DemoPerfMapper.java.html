@@ -1,0 +1,149 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../../jacoco-resources/report.gif" type="image/gif"/><title>DemoPerfMapper.java</title><link rel="stylesheet" href="../../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../../index.html" class="el_report">mall-app</a> &gt; <a href="../index.html" class="el_bundle">mall-order</a> &gt; <a href="index.source.html" class="el_package">io.github.clarence404.mall.order.demo</a> &gt; <span class="el_source">DemoPerfMapper.java</span></div><h1>DemoPerfMapper.java</h1><pre class="source lang-java linenums">package io.github.clarence404.mall.order.demo;
+
+import io.github.clarence404.mall.order.domain.Order;
+import io.github.clarence404.mall.order.domain.OrderItem;
+import java.math.BigDecimal;
+import java.time.LocalDateTime;
+import java.util.List;
+import org.apache.ibatis.annotations.Delete;
+import org.apache.ibatis.annotations.Insert;
+import org.apache.ibatis.annotations.Mapper;
+import org.apache.ibatis.annotations.Options;
+import org.apache.ibatis.annotations.Param;
+import org.apache.ibatis.annotations.Select;
+
+/**
+ * 高性能实验「数据访问」用到的 SQL：正式代码里故意不写的那几种写法（偏移量分页、逐单查明细、逐条插入），和它们的对照组。
+ * 只被 demo profile 下的 {@link DemoPerfService} 调用，正式环境里这些语句不会被执行。见 experiments/j-data-access。
+ */
+@Mapper
+interface DemoPerfMapper {
+
+    /** 灌数据：一条语句多行；重复执行时已有的行跳过（order_no 唯一）。超时放到 60 秒（全局是 5 秒，开发库偶尔会卡几秒）。 */
+    @Options(timeout = 60)
+    @Insert(&quot;&quot;&quot;
+            &lt;script&gt;
+            INSERT IGNORE INTO t_order (id, order_no, user_id, biz_no, status, total_amount, freight_amount,
+                discount_amount, pay_amount, receiver_name, receiver_phone, receiver_addr, remark, created_at)
+            VALUES
+            &lt;foreach collection=&quot;rows&quot; item=&quot;o&quot; separator=&quot;,&quot;&gt;
+                (#{o.id}, #{o.orderNo}, #{o.userId}, #{o.bizNo}, 50, #{o.payAmount}, 0, 0, #{o.payAmount},
+                 '实验', '13800000000', '高性能实验的种子订单', '', #{o.createdAt})
+            &lt;/foreach&gt;
+            &lt;/script&gt;
+            &quot;&quot;&quot;)
+    int insertOrders(@Param(&quot;rows&quot;) List&lt;SeedOrder&gt; rows);
+
+    /** 批量写的写法一、二：一条语句一行。 */
+    @Insert(&quot;&quot;&quot;
+            INSERT INTO t_order_item (id, order_id, sku_id, product_name, product_image, unit_price, quantity,
+                item_amount, created_at)
+            VALUES (#{id}, #{orderId}, #{skuId}, #{productName}, '', #{unitPrice}, #{quantity}, #{itemAmount},
+                #{createdAt})
+            &quot;&quot;&quot;)
+    int insertItem(SeedItem item);
+
+    /** 批量写的写法三：一条语句多行（和正式代码 OrderItemMapper.batchInsert 是同一种写法）。 */
+    @Options(timeout = 60)
+    @Insert(&quot;&quot;&quot;
+            &lt;script&gt;
+            INSERT INTO t_order_item (id, order_id, sku_id, product_name, product_image, unit_price, quantity,
+                item_amount, created_at)
+            VALUES
+            &lt;foreach collection=&quot;rows&quot; item=&quot;i&quot; separator=&quot;,&quot;&gt;
+                (#{i.id}, #{i.orderId}, #{i.skuId}, #{i.productName}, '', #{i.unitPrice}, #{i.quantity},
+                 #{i.itemAmount}, #{i.createdAt})
+            &lt;/foreach&gt;
+            &lt;/script&gt;
+            &quot;&quot;&quot;)
+    int insertItems(@Param(&quot;rows&quot;) List&lt;SeedItem&gt; rows);
+
+    /** 批量写实验写进去的明细挂在一个不存在的订单 ID 上，量完按这个 ID 删掉。 */
+    @Delete(&quot;DELETE FROM t_order_item WHERE order_id = #{orderId} LIMIT #{limit}&quot;)
+    int deleteItemsOfOrder(@Param(&quot;orderId&quot;) long orderId, @Param(&quot;limit&quot;) int limit);
+
+    @Select(&quot;SELECT COUNT(*) FROM t_order WHERE user_id = #{userId}&quot;)
+    long countOrders(@Param(&quot;userId&quot;) long userId);
+
+    /**
+     * 偏移量分页：沿 idx_user_id 读出 offset + limit 行（每一行都要回表），再丢掉前 offset 行。
+     * 三种分页都用提示固定在 idx_user_id 上，比的是翻页方式，不让优化器换索引把结果搅乱（不加提示时它会选 uk_user_biz 再排序，更慢）。
+     */
+    @Select(&quot;&quot;&quot;
+            SELECT /*+ INDEX(t_order idx_user_id) */ id, order_no, status, pay_amount, created_at
+            FROM t_order
+            WHERE user_id = #{userId}
+            ORDER BY id DESC
+            LIMIT #{offset}, #{limit}
+            &quot;&quot;&quot;)
+    List&lt;Order&gt; pageByOffset(@Param(&quot;userId&quot;) long userId, @Param(&quot;offset&quot;) int offset, @Param(&quot;limit&quot;) int limit);
+
+    /** 延迟关联：子查询只在索引 idx_user_id (user_id, id) 上数过 offset 行、拿到这一页的主键，再回表取这 limit 行。 */
+    @Select(&quot;&quot;&quot;
+            SELECT o.id, o.order_no, o.status, o.pay_amount, o.created_at
+            FROM t_order o
+            JOIN (SELECT /*+ INDEX(t_order idx_user_id) */ id FROM t_order
+                  WHERE user_id = #{userId} ORDER BY id DESC LIMIT #{offset}, #{limit}) p
+              ON p.id = o.id
+            ORDER BY o.id DESC
+            &quot;&quot;&quot;)
+    List&lt;Order&gt; pageByDeferredJoin(
+            @Param(&quot;userId&quot;) long userId, @Param(&quot;offset&quot;) int offset, @Param(&quot;limit&quot;) int limit);
+
+    /** 第 offset 行的主键：实验给游标分页算「翻到同样深度时的游标」用，不算在被测的查询里。 */
+    @Select(&quot;SELECT /*+ INDEX(t_order idx_user_id) */ id FROM t_order&quot;
+            + &quot; WHERE user_id = #{userId} ORDER BY id DESC LIMIT #{offset}, 1&quot;)
+    Long idAtOffset(@Param(&quot;userId&quot;) long userId, @Param(&quot;offset&quot;) int offset);
+
+    /** 一次查出一页订单的全部明细。 */
+    @Select(&quot;&quot;&quot;
+            &lt;script&gt;
+            SELECT id, order_id, sku_id, product_name, product_image, unit_price, quantity, item_amount, created_at
+            FROM t_order_item
+            WHERE order_id IN
+            &lt;foreach collection=&quot;orderIds&quot; item=&quot;id&quot; open=&quot;(&quot; separator=&quot;,&quot; close=&quot;)&quot;&gt;#{id}&lt;/foreach&gt;
+            ORDER BY order_id, id
+            &lt;/script&gt;
+            &quot;&quot;&quot;)
+    List&lt;OrderItem&gt; selectItemsByOrderIds(@Param(&quot;orderIds&quot;) List&lt;Long&gt; orderIds);
+
+    /** 一条语句把一页订单和它们的明细一起查出来：一行是「订单 + 一条明细」，没有明细的订单明细列为空。 */
+    @Select(&quot;&quot;&quot;
+            SELECT o.id AS order_id, o.order_no, o.status, o.pay_amount, o.created_at,
+                   i.sku_id, i.product_name, i.unit_price, i.quantity, i.item_amount
+            FROM (SELECT /*+ INDEX(t_order idx_user_id) */ id, order_no, status, pay_amount, created_at
+                  FROM t_order WHERE user_id = #{userId} ORDER BY id DESC LIMIT #{limit}) o
+            LEFT JOIN t_order_item i ON i.order_id = o.id
+            ORDER BY o.id DESC, i.id
+            &quot;&quot;&quot;)
+    List&lt;JoinedRow&gt; listWithItemsJoined(@Param(&quot;userId&quot;) long userId, @Param(&quot;limit&quot;) int limit);
+
+    /** 灌数据用的一行订单。 */
+<span class="nc" id="L122">    record SeedOrder(</span>
+            long id, String orderNo, long userId, String bizNo, BigDecimal payAmount, LocalDateTime createdAt) {}
+
+    /** 灌数据、批量写实验用的一行明细。 */
+<span class="nc" id="L126">    record SeedItem(</span>
+            long id,
+            long orderId,
+            long skuId,
+            String productName,
+            BigDecimal unitPrice,
+            int quantity,
+            BigDecimal itemAmount,
+            LocalDateTime createdAt) {}
+
+    /** {@link #listWithItemsJoined} 的一行。 */
+<span class="nc" id="L137">    record JoinedRow(</span>
+            long orderId,
+            String orderNo,
+            int status,
+            BigDecimal payAmount,
+            LocalDateTime createdAt,
+            Long skuId,
+            String productName,
+            BigDecimal unitPrice,
+            Integer quantity,
+            BigDecimal itemAmount) {}
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.13.202504020838</span></div></body></html>

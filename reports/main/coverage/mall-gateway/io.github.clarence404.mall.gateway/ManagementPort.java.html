@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>ManagementPort.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">mall-gateway</a> &gt; <a href="index.source.html" class="el_package">io.github.clarence404.mall.gateway</a> &gt; <span class="el_source">ManagementPort.java</span></div><h1>ManagementPort.java</h1><pre class="source lang-java linenums">package io.github.clarence404.mall.gateway;
+
+import java.net.InetSocketAddress;
+import org.springframework.core.env.Environment;
+import org.springframework.web.server.ServerWebExchange;
+
+/**
+ * 独立管理端口的端口号，查到一次就记住（和 mall-common 里服务用的那个是同一个做法，网关不依赖 mall-common，各放一份）。
+ *
+ * &lt;p&gt;管理端口过滤链每个请求都要判断「是不是打在管理端口上」。原先每次判断都去环境里查两个属性，一次查询要把所有配置源翻一遍；
+ * 高性能实验 I 的 CPU 采样里，网关各轮有 3%–9% 的采样落在这两次查询上（experiments/i-locate）。端口起来之后不会再变，记住即可。
+ */
+final class ManagementPort {
+
+    private final Environment env;
+    private volatile Integer resolved; // null：还不知道
+
+<span class="fc" id="L18">    ManagementPort(Environment env) {</span>
+<span class="fc" id="L19">        this.env = env;</span>
+<span class="fc" id="L20">    }</span>
+
+    boolean matches(ServerWebExchange exchange) {
+<span class="fc" id="L23">        Integer port = resolved;</span>
+<span class="fc bfc" id="L24" title="All 2 branches covered.">        if (port == null) {</span>
+<span class="fc" id="L25">            port = GatewaySecurityConfig.resolveManagementPort(env);</span>
+<span class="pc bpc" id="L26" title="1 of 2 branches missed.">            if (port == null) {</span>
+<span class="nc" id="L27">                return false; // 服务器还没起完，下次再查</span>
+            }
+<span class="fc" id="L29">            resolved = port;</span>
+        }
+<span class="fc" id="L31">        InetSocketAddress local = exchange.getRequest().getLocalAddress();</span>
+<span class="pc bpc" id="L32" title="1 of 4 branches missed.">        return local != null &amp;&amp; local.getPort() == port;</span>
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.13.202504020838</span></div></body></html>

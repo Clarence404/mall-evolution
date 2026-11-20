@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../../jacoco-resources/report.gif" type="image/gif"/><title>DemoOrderListPolicy.java</title><link rel="stylesheet" href="../../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../../index.html" class="el_report">mall-app</a> &gt; <a href="../index.html" class="el_bundle">mall-order</a> &gt; <a href="index.source.html" class="el_package">io.github.clarence404.mall.order.demo</a> &gt; <span class="el_source">DemoOrderListPolicy.java</span></div><h1>DemoOrderListPolicy.java</h1><pre class="source lang-java linenums">package io.github.clarence404.mall.order.demo;
+
+import io.github.clarence404.mall.order.query.OrderListPolicy;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.context.annotation.Profile;
+import org.springframework.stereotype.Component;
+
+/**
+ * 仅演示环境：{@code mall.demo.order-list.index-hint=false} 时订单列表的 SQL 不带索引提示，由 MySQL 自己选索引
+ * （它会选 uk_user_biz 再排序）。默认 true，和正式环境一样。高性能实验 I 用它对比修复前后。
+ *
+ * &lt;p&gt;{@code mall.demo.order-list.plain-cursor=true} 时游标直接用 id 的十进制字符串，默认 false。微基准里这种写法比
+ * JSON + Base64 快很多，实验 I 用它看这点差别在接口上量不量得出来。
+ */
+<span class="fc" id="L16">@Slf4j</span>
+@Component
+@Profile(&quot;demo&quot;)
+class DemoOrderListPolicy implements OrderListPolicy {
+
+    private final boolean indexHint;
+    private final boolean plainCursor;
+
+    DemoOrderListPolicy(
+            @Value(&quot;${mall.demo.order-list.index-hint:true}&quot;) boolean indexHint,
+<span class="fc" id="L26">            @Value(&quot;${mall.demo.order-list.plain-cursor:false}&quot;) boolean plainCursor) {</span>
+<span class="fc" id="L27">        this.indexHint = indexHint;</span>
+<span class="fc" id="L28">        this.plainCursor = plainCursor;</span>
+<span class="pc bpc" id="L29" title="2 of 4 branches missed.">        if (!indexHint || plainCursor) {</span>
+<span class="nc" id="L30">            log.warn(&quot;订单列表按演示开关运行：索引提示={}，游标用十进制字符串={}&quot;, indexHint, plainCursor);</span>
+        }
+<span class="fc" id="L32">    }</span>
+
+    @Override
+    public boolean plainCursor() {
+<span class="nc" id="L36">        return plainCursor;</span>
+    }
+
+    @Override
+    public boolean indexHint() {
+<span class="nc" id="L41">        return indexHint;</span>
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.13.202504020838</span></div></body></html>
