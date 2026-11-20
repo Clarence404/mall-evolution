@@ -7,7 +7,7 @@
   jmh.json   JMH 的原始结果（每个基准每次迭代的数值；带 -prof gc，所以也有每次调用分配的字节数 gc.alloc.rate.norm）
   jmh.log    JMH 的控制台输出
   naive.csv  同一段代码不用 JMH、手写计时循环量出来的数（NaiveTimingDemo），和 jmh.json 对照着看
-跑的时候机器上不要有别的重活（压测、构建），否则误差会变大。完整跑一遍约 15 分钟。
+跑的时候机器上不要有别的重活（压测、构建），否则误差会变大。完整跑一遍约 8 分钟。
 
 .EXAMPLE
 .\experiments\l-jmh\run.ps1
